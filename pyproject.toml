@@ -1,0 +1,19 @@
+[project]
+name = "contab"
+version = "0.1.0"
+description = "Gestión y conciliación contable de inmuebles"
+requires-python = ">=3.13"
+
+dependencies = [
+    "Flask",
+    "SQLAlchemy",
+    "Alembic",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
