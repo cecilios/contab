@@ -43,20 +43,29 @@ La aplicación deberá mantener separadas:
 
 La lógica de negocio no deberá depender innecesariamente de Flask.
 
-Por ejemplo, la generación de una factura deberá poder ejecutarse y probarse
-sin necesidad de realizar una petición HTTP.
+Por ejemplo, el cálculo de la renta aplicable a un mes, una revisión de renta
+o la generación de una factura deberán poder ejecutarse y probarse sin
+necesidad de realizar una petición HTTP.
 
 Esto facilitará las pruebas automatizadas y permitirá modificar la interfaz
 sin afectar al núcleo de la aplicación.
 
+Las reglas de negocio se documentan en:
+
+    docs/BUSINESS_RULES.md
+
+Este documento constituye la referencia funcional para la implementación del
+modelo de datos y de la lógica de negocio.
+
 ## 4. Estructura inicial
 
-La estructura inicial del repositorio es:
+La estructura actual del repositorio es:
 
     contab/
     ├── docs/
-    │   ├── PROJECT.md
-    │   └── DEVELOPMENT.md
+    │   ├── BUSINESS_RULES.md
+    │   ├── DEVELOPMENT.md
+    │   └── PROJECT.md
     ├── src/
     │   └── contab/
     │       ├── __init__.py
@@ -70,6 +79,11 @@ La estructura inicial del repositorio es:
 
 Se utiliza el esquema `src/` para separar claramente el paquete Python del
 resto del repositorio.
+
+La estructura interna de `src/contab` se ampliará cuando se implementen la
+persistencia y la lógica de negocio.
+
+No se crearán módulos anticipadamente sin una necesidad concreta.
 
 ## 5. Entorno virtual
 
@@ -108,6 +122,70 @@ almacenarán en el repositorio Git.
 
 Los datos utilizados por las pruebas serán ficticios.
 
+### 6.1. Criterios de modelado
+
+Los campos de texto se representarán generalmente mediante `TEXT`.
+
+Los importes monetarios se almacenarán como enteros expresados en céntimos.
+
+Los porcentajes que necesiten dos decimales se almacenarán como enteros
+expresados en centésimas de punto porcentual.
+
+Ejemplos:
+
+    1.250,37 EUR -> 125037
+       21,00 %   -> 2100
+       32,56 %   -> 3256
+
+Se evitará almacenar información derivable cuando mantenerla duplicada pueda
+producir inconsistencias.
+
+Las restricciones estructurales sencillas se implementarán en la base de
+datos mediante:
+
+- `NOT NULL`.
+- `UNIQUE`.
+- claves externas.
+- `CHECK`.
+
+Las reglas que dependan de varias entidades, periodos temporales o procesos de
+negocio se implementarán principalmente en la lógica de aplicación y estarán
+cubiertas por pruebas automatizadas.
+
+### 6.2. Modelo inicial
+
+El modelo funcional inicial está compuesto por:
+
+    inmueble
+    inquilino
+    contrato
+    contrato_inquilino
+    renta_contrato
+    revision_renta
+    ajuste_renta
+
+La definición funcional y las reglas de estas entidades se mantienen en
+`BUSINESS_RULES.md`.
+
+La renta vigente no se almacenará directamente en `contrato`.
+
+Se obtendrá del histórico `renta_contrato`.
+
+Las revisiones previstas y realizadas se almacenarán separadamente mediante
+`revision_renta`.
+
+Las modificaciones temporales de la cantidad facturada se representarán
+mediante `ajuste_renta`, sin modificar la renta ordinaria.
+
+Esta separación permitirá calcular la renta facturable para un mes siguiendo
+conceptualmente:
+
+    renta ordinaria vigente
+            ↓
+    ajuste temporal vigente, si existe
+            ↓
+    renta facturable
+
 ## 7. Pruebas
 
 Se utilizará pytest.
@@ -126,6 +204,22 @@ Antes de considerar estable un cambio deberá ejecutarse:
 
 Las pruebas automatizadas deberán crecer junto con la funcionalidad del
 programa.
+
+Las reglas de negocio relevantes deberán tener pruebas específicas.
+
+En particular, el modelo inicial deberá probar, entre otras situaciones:
+
+- Restricciones de las tablas.
+- Relaciones entre entidades.
+- Contratos con varios titulares.
+- Ausencia de contratos simultáneos para un mismo inmueble.
+- Histórico de rentas.
+- Revisiones positivas, negativas y no aplicadas.
+- Generación de la siguiente revisión anual.
+- Ajustes temporales.
+- Cambios de renta ordinaria durante un ajuste temporal.
+- Rechazo de ajustes solapados.
+- Inactivación de inmuebles con contratos vigentes.
 
 ## 8. Git
 
@@ -161,6 +255,18 @@ No se establece una categoría especial para hotfixes: una corrección urgente
 se tratará como cualquier otro desarrollo aislado que deba completarse antes
 de continuar con el trabajo principal.
 
+### 8.1. Mensajes de commit
+
+Los mensajes de commit se redactarán preferentemente en español y comenzarán
+con un verbo en infinitivo.
+
+Ejemplos:
+
+    Añadir documentación inicial del proyecto
+    Crear modelos iniciales de la base de datos
+    Implementar revisión anual de rentas
+    Corregir cálculo de ajustes temporales
+
 ## 9. Git worktree
 
 Los diferentes árboles de trabajo se gestionan mediante `git worktree`.
@@ -176,7 +282,35 @@ Cada árbol dispone de su propio `.venv`.
 No se prevé normalmente trabajar simultáneamente en varias ramas, pero esta
 estructura permite mantener árboles separados cuando sea necesario.
 
-## 10. Estado actual
+## 10. Estrategia de desarrollo
+
+El desarrollo será incremental y cada etapa deberá dejar una aplicación
+verificable.
+
+El orden inicial previsto es:
+
+1. Infraestructura básica de la aplicación.
+2. Modelo de inmuebles, inquilinos y contratos.
+3. Histórico de rentas y datos necesarios para sus revisiones.
+4. Interfaz web para introducir y mantener estos datos.
+5. Generación automática de facturas.
+6. Registro automático de ingresos pendientes.
+7. Previsiones de gastos.
+8. Importación de movimientos bancarios.
+9. Conciliación bancaria asistida.
+10. Informes y exportaciones.
+
+Aunque la conciliación bancaria constituye el principal objetivo funcional de
+`contab`, las primeras etapas proporcionarán los datos fiables necesarios para
+poder realizarla posteriormente.
+
+La facturación constituye la primera funcionalidad que aportará utilidad
+directa al usuario después de introducir los datos iniciales.
+
+Por ello, el modelo de rentas y revisiones debe estar suficientemente definido
+antes de implementar la facturación.
+
+## 11. Estado actual
 
 La infraestructura inicial está operativa.
 
@@ -191,6 +325,10 @@ Actualmente se dispone de:
 - Flask funcionando localmente.
 - pytest funcionando.
 - Primer smoke test de la aplicación web.
+- Documentación de objetivos del proyecto.
+- Documentación de desarrollo.
+- Documento de reglas de negocio.
+- Primera definición conceptual del modelo de datos.
 
 El servidor de desarrollo puede ejecutarse mediante:
 
@@ -199,16 +337,40 @@ El servidor de desarrollo puede ejecutarse mediante:
 La prueba actual verifica que la aplicación responde correctamente a una
 petición HTTP básica.
 
-## 11. Próximo paso
+Todavía no se ha implementado la base de datos ni existen modelos SQLAlchemy.
 
-El siguiente incremento será diseñar la primera versión del modelo de datos.
+## 12. Próximo paso
 
-Inicialmente se estudiarán las entidades necesarias para:
+Antes de escribir los modelos SQLAlchemy se realizará una revisión conjunta
+final del modelo compuesto por:
 
-- Inmuebles.
-- Inquilinos.
-- Contratos.
-- Histórico de rentas.
+    inmueble
+    inquilino
+    contrato
+    contrato_inquilino
+    renta_contrato
+    revision_renta
+    ajuste_renta
 
-El esquema se diseñará antes de implementar los modelos SQLAlchemy y las
-migraciones Alembic.
+Se comprobarán:
+
+- Campos.
+- Tipos.
+- Obligatoriedad y valores nulos.
+- Claves primarias.
+- Claves externas.
+- Restricciones `UNIQUE`.
+- Restricciones `CHECK`.
+- Relaciones.
+- Reglas que deben implementarse en la lógica de negocio.
+
+Una vez aprobado el modelo se procederá a:
+
+1. Configurar SQLAlchemy y SQLite.
+2. Implementar los modelos.
+3. Configurar Alembic.
+4. Crear la primera migración.
+5. Crear las pruebas del modelo y sus restricciones.
+6. Verificar la creación y consulta de datos de prueba.
+
+Sólo después se comenzará la interfaz web de mantenimiento de estos datos.
