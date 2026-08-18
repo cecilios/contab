@@ -172,6 +172,10 @@ class Contrato(Base):
         back_populates="contrato",
     )
 
+    ajustes_renta: Mapped[list["AjusteRenta"]] = relationship(
+        back_populates="contrato",
+    )
+
 
 class ContratoInquilino(Base):
     """Relaciona un contrato con uno de sus titulares y establece su orden."""
@@ -283,3 +287,41 @@ class RevisionRenta(Base):
     contrato: Mapped["Contrato"] = relationship(
         back_populates="revisiones_renta",
     )
+
+
+class AjusteRenta(Base):
+    """Representa una modificación temporal de la renta facturable."""
+
+    __tablename__ = "ajuste_renta"
+
+    __table_args__ = (
+        CheckConstraint(
+            "fecha_hasta >= fecha_desde",
+            name="ck_ajuste_renta_fechas",
+        ),
+        CheckConstraint(
+            "tipo IN ('REDUCCION_PORCENTUAL', 'REDUCCION_FIJA', 'IMPORTE_FIJO')",
+            name="ck_ajuste_renta_tipo",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    contrato_id: Mapped[int] = mapped_column(
+        ForeignKey("contrato.id"),
+        nullable=False,
+    )
+
+    fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_hasta: Mapped[date] = mapped_column(Date, nullable=False)
+
+    tipo: Mapped[str] = mapped_column(Text, nullable=False)
+    valor: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    notas: Mapped[str | None] = mapped_column(Text)
+
+    contrato: Mapped["Contrato"] = relationship(
+        back_populates="ajustes_renta",
+    )
+
+
