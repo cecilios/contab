@@ -164,6 +164,11 @@ class Contrato(Base):
         back_populates="contrato",
     )
 
+    rentas: Mapped[list["RentaContrato"]] = relationship(
+        back_populates="contrato",
+    )
+
+
 class ContratoInquilino(Base):
     """Relaciona un contrato con uno de sus titulares y establece su orden."""
 
@@ -199,3 +204,35 @@ class ContratoInquilino(Base):
         back_populates="contratos",
     )
 
+
+class RentaContrato(Base):
+    """Representa una renta ordinaria aplicable a un contrato desde un mes."""
+
+    __tablename__ = "renta_contrato"
+
+    __table_args__ = (
+        CheckConstraint(
+            "importe >= 0",
+            name="ck_renta_contrato_importe",
+        ),
+        UniqueConstraint(
+            "contrato_id",
+            "fecha_desde",
+            name="uq_renta_contrato_fecha_desde",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    contrato_id: Mapped[int] = mapped_column(
+        ForeignKey("contrato.id"),
+        nullable=False,
+    )
+
+    fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
+    importe: Mapped[int] = mapped_column(Integer, nullable=False)
+    notas: Mapped[str | None] = mapped_column(Text)
+
+    contrato: Mapped["Contrato"] = relationship(
+        back_populates="rentas",
+    )
