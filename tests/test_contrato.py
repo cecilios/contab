@@ -8,26 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from contab.models import Contrato, Inmueble
 
 
-def crear_inmueble(session) -> Inmueble:
-    """Crea un inmueble válido para utilizarlo en las pruebas de contratos."""
-    inmueble = Inmueble(
-        referencia="LOCAL-1",
-        codigo_facturacion="A1",
-        descripcion="Local comercial",
-        direccion="Dirección de prueba",
-        poblacion="Pontevedra",
-        provincia="Pontevedra",
-    )
-
-    session.add(inmueble)
-    session.commit()
-
-    return inmueble
-
-
-def test_crear_contrato_asociado_a_inmueble(session) -> None:
+def test_crear_contrato_asociado_a_inmueble(session, inmueble) -> None:
     """Comprueba que un contrato puede asociarse correctamente a un inmueble."""
-    inmueble = crear_inmueble(session)
 
     contrato = Contrato(
         inmueble=inmueble,
@@ -74,9 +56,8 @@ def test_contrato_requiere_inmueble_existente(session) -> None:
         session.commit()
 
 
-def test_vencimiento_no_puede_ser_anterior_al_inicio(session) -> None:
+def test_vencimiento_no_puede_ser_anterior_al_inicio(session, inmueble) -> None:
     """Comprueba que el vencimiento no puede preceder al inicio del contrato."""
-    inmueble = crear_inmueble(session)
 
     contrato = Contrato(
         inmueble=inmueble,
@@ -96,10 +77,9 @@ def test_vencimiento_no_puede_ser_anterior_al_inicio(session) -> None:
         session.commit()
 
 
-def test_inicio_facturacion_no_puede_ser_anterior_al_contrato(session) -> None:
+def test_inicio_facturacion_no_puede_ser_anterior_al_contrato(session, inmueble) -> None:
     """Comprueba que la facturación no puede comenzar antes que el contrato."""
-    inmueble = crear_inmueble(session)
-
+ 
     contrato = Contrato(
         inmueble=inmueble,
         fecha_inicio=date(2026, 6, 15),

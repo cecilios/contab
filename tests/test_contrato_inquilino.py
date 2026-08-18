@@ -8,38 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from contab.models import Contrato, ContratoInquilino, Inmueble, Inquilino
 
 
-def crear_contrato(session) -> Contrato:
-    """Crea un contrato válido para utilizarlo en las pruebas."""
-    inmueble = Inmueble(
-        referencia="LOCAL-1",
-        codigo_facturacion="A1",
-        descripcion="Local comercial",
-        direccion="Dirección de prueba",
-        poblacion="Pontevedra",
-        provincia="Pontevedra",
-    )
-
-    contrato = Contrato(
-        inmueble=inmueble,
-        fecha_inicio=date(2026, 1, 1),
-        fecha_vencimiento=date(2030, 12, 31),
-        fecha_inicio_facturacion=date(2026, 1, 1),
-        fianza=100000,
-        direccion_facturacion="Dirección",
-        poblacion_facturacion="Pontevedra",
-        provincia_facturacion="Pontevedra",
-        concepto_factura="Alquiler",
-    )
-
-    session.add(contrato)
-    session.commit()
-
-    return contrato
-
-
-def test_asociar_varios_inquilinos_a_contrato(session) -> None:
+def test_asociar_varios_inquilinos_a_contrato(session, contrato) -> None:
     """Comprueba que un contrato puede tener varios titulares ordenados."""
-    contrato = crear_contrato(session)
 
     inquilino_1 = Inquilino(
         nombre="Ana Pérez",
@@ -72,9 +42,8 @@ def test_asociar_varios_inquilinos_a_contrato(session) -> None:
     assert contrato.titulares[1].orden == 2
 
 
-def test_inquilino_no_puede_repetirse_en_contrato(session) -> None:
+def test_inquilino_no_puede_repetirse_en_contrato(session, contrato) -> None:
     """Comprueba que un titular no puede aparecer dos veces en un contrato."""
-    contrato = crear_contrato(session)
 
     inquilino = Inquilino(
         nombre="Ana Pérez",
@@ -109,9 +78,8 @@ def test_inquilino_no_puede_repetirse_en_contrato(session) -> None:
         session.commit()
 
 
-def test_dos_titulares_no_pueden_tener_mismo_orden(session) -> None:
+def test_dos_titulares_no_pueden_tener_mismo_orden(session, contrato) -> None:
     """Comprueba que dos titulares del mismo contrato no comparten orden."""
-    contrato = crear_contrato(session)
 
     inquilino_1 = Inquilino(
         nombre="Ana Pérez",
@@ -141,9 +109,8 @@ def test_dos_titulares_no_pueden_tener_mismo_orden(session) -> None:
         session.commit()
 
 
-def test_orden_de_titular_debe_ser_positivo(session) -> None:
+def test_orden_de_titular_debe_ser_positivo(session, contrato) -> None:
     """Comprueba que el orden de un titular debe ser mayor que cero."""
-    contrato = crear_contrato(session)
 
     inquilino = Inquilino(
         nombre="Ana Pérez",

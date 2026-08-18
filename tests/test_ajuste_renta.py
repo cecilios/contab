@@ -8,38 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from contab.models import AjusteRenta, Contrato, Inmueble
 
 
-def crear_contrato(session) -> Contrato:
-    """Crea un contrato válido para utilizarlo en las pruebas de ajustes."""
-    inmueble = Inmueble(
-        referencia="LOCAL-1",
-        codigo_facturacion="A1",
-        descripcion="Local comercial",
-        direccion="Dirección de prueba",
-        poblacion="Pontevedra",
-        provincia="Pontevedra",
-    )
-
-    contrato = Contrato(
-        inmueble=inmueble,
-        fecha_inicio=date(2026, 1, 15),
-        fecha_vencimiento=date(2030, 12, 31),
-        fecha_inicio_facturacion=date(2026, 2, 1),
-        fianza=100000,
-        direccion_facturacion="Dirección",
-        poblacion_facturacion="Pontevedra",
-        provincia_facturacion="Pontevedra",
-        concepto_factura="Alquiler",
-    )
-
-    session.add(contrato)
-    session.commit()
-
-    return contrato
-
-
-def test_crear_ajuste_porcentual(session) -> None:
+def test_crear_ajuste_porcentual(session, contrato) -> None:
     """Comprueba que puede almacenarse una reducción porcentual temporal."""
-    contrato = crear_contrato(session)
 
     ajuste = AjusteRenta(
         contrato=contrato,
@@ -58,9 +28,8 @@ def test_crear_ajuste_porcentual(session) -> None:
     assert ajuste.contrato is contrato
 
 
-def test_crear_ajuste_importe_fijo(session) -> None:
+def test_crear_ajuste_importe_fijo(session, contrato) -> None:
     """Comprueba que puede almacenarse una renta temporal de importe fijo."""
-    contrato = crear_contrato(session)
 
     ajuste = AjusteRenta(
         contrato=contrato,
@@ -76,10 +45,9 @@ def test_crear_ajuste_importe_fijo(session) -> None:
     assert ajuste.valor == 5000
 
 
-def test_ajuste_no_admite_fecha_fin_anterior(session) -> None:
+def test_ajuste_no_admite_fecha_fin_anterior(session, contrato) -> None:
     """Comprueba que un ajuste no puede finalizar antes de comenzar."""
-    contrato = crear_contrato(session)
-
+ 
     ajuste = AjusteRenta(
         contrato=contrato,
         fecha_desde=date(2026, 10, 1),
@@ -94,9 +62,8 @@ def test_ajuste_no_admite_fecha_fin_anterior(session) -> None:
         session.commit()
 
 
-def test_ajuste_no_admite_tipo_desconocido(session) -> None:
+def test_ajuste_no_admite_tipo_desconocido(session, contrato) -> None:
     """Comprueba que sólo pueden almacenarse tipos de ajuste conocidos."""
-    contrato = crear_contrato(session)
 
     ajuste = AjusteRenta(
         contrato=contrato,
