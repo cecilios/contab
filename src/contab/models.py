@@ -168,6 +168,10 @@ class Contrato(Base):
         back_populates="contrato",
     )
 
+    revisiones_renta: Mapped[list["RevisionRenta"]] = relationship(
+        back_populates="contrato",
+    )
+
 
 class ContratoInquilino(Base):
     """Relaciona un contrato con uno de sus titulares y establece su orden."""
@@ -235,4 +239,47 @@ class RentaContrato(Base):
 
     contrato: Mapped["Contrato"] = relationship(
         back_populates="rentas",
+    )
+
+
+class RevisionRenta(Base):
+    """Representa una revisión prevista o resuelta de la renta de un contrato."""
+
+    __tablename__ = "revision_renta"
+
+    __table_args__ = (
+        CheckConstraint(
+            "estado IN ('PENDIENTE', 'APLICADA', 'NO_APLICADA')",
+            name="ck_revision_renta_estado",
+        ),
+        UniqueConstraint(
+            "contrato_id",
+            "fecha_prevista",
+            name="uq_revision_renta_fecha_prevista",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    contrato_id: Mapped[int] = mapped_column(
+        ForeignKey("contrato.id"),
+        nullable=False,
+    )
+
+    fecha_prevista: Mapped[date] = mapped_column(Date, nullable=False)
+    metodo: Mapped[str] = mapped_column(Text, nullable=False)
+
+    estado: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="PENDIENTE",
+    )
+
+    porcentaje_aplicado: Mapped[int | None] = mapped_column(Integer)
+    fecha_resolucion: Mapped[date | None] = mapped_column(Date)
+
+    notas: Mapped[str | None] = mapped_column(Text)
+
+    contrato: Mapped["Contrato"] = relationship(
+        back_populates="revisiones_renta",
     )
