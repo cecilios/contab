@@ -1,9 +1,13 @@
 """Define los modelos ORM de la base de datos de Contab."""
 
-from sqlalchemy import Boolean, CheckConstraint, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Integer, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from datetime import date
 
 from contab.database import Base
+
 
 
 class Inmueble(Base):
@@ -49,3 +53,98 @@ class Inmueble(Base):
     )
 
     notas: Mapped[str | None] = mapped_column(Text)
+
+    contratos: Mapped[list["Contrato"]] = relationship(
+        back_populates="inmueble",
+    )
+
+
+class Inquilino(Base):
+    """Representa una persona física o jurídica titular de contratos."""
+
+    __tablename__ = "inquilino"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    nif: Mapped[str] = mapped_column(Text, nullable=False)
+
+    direccion: Mapped[str | None] = mapped_column(Text)
+    codigo_postal: Mapped[str | None] = mapped_column(Text)
+    poblacion: Mapped[str | None] = mapped_column(Text)
+    provincia: Mapped[str | None] = mapped_column(Text)
+
+    email: Mapped[str | None] = mapped_column(Text)
+    telefono: Mapped[str | None] = mapped_column(Text)
+
+    notas: Mapped[str | None] = mapped_column(Text)
+
+
+class Contrato(Base):
+    """Representa un contrato de alquiler asociado a un inmueble."""
+
+    __tablename__ = "contrato"
+
+    __table_args__ = (
+        CheckConstraint(
+            "fecha_vencimiento >= fecha_inicio",
+            name="ck_contrato_fecha_vencimiento",
+        ),
+        CheckConstraint(
+            "fecha_fin IS NULL OR fecha_fin >= fecha_inicio",
+            name="ck_contrato_fecha_fin",
+        ),
+        CheckConstraint(
+            "fecha_inicio_facturacion >= fecha_inicio",
+            name="ck_contrato_fecha_inicio_facturacion",
+        ),
+        CheckConstraint(
+            "fianza >= 0",
+            name="ck_contrato_fianza",
+        ),
+        CheckConstraint(
+            "iva_porcentaje >= 0",
+            name="ck_contrato_iva",
+        ),
+        CheckConstraint(
+            "retencion_porcentaje >= 0",
+            name="ck_contrato_retencion",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    inmueble_id: Mapped[int] = mapped_column(
+        ForeignKey("inmueble.id"),
+        nullable=False,
+    )
+
+    fecha_inicio: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_vencimiento: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_fin: Mapped[date | None] = mapped_column(Date)
+    fecha_inicio_facturacion: Mapped[date] = mapped_column(Date, nullable=False)
+
+    fianza: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    iva_porcentaje: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+    retencion_porcentaje: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    direccion_facturacion: Mapped[str] = mapped_column(Text, nullable=False)
+    codigo_postal_facturacion: Mapped[str | None] = mapped_column(Text)
+    poblacion_facturacion: Mapped[str] = mapped_column(Text, nullable=False)
+    provincia_facturacion: Mapped[str] = mapped_column(Text, nullable=False)
+
+    concepto_factura: Mapped[str] = mapped_column(Text, nullable=False)
+    notas: Mapped[str | None] = mapped_column(Text)
+
+    inmueble: Mapped["Inmueble"] = relationship(
+        back_populates="contratos",
+    )
