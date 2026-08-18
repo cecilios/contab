@@ -1,7 +1,14 @@
 """Define los modelos ORM de la base de datos de Contab."""
 
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Integer, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Integer,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datetime import date
@@ -79,6 +86,10 @@ class Inquilino(Base):
 
     notas: Mapped[str | None] = mapped_column(Text)
 
+    contratos: Mapped[list["ContratoInquilino"]] = relationship(
+        back_populates="inquilino",
+    )
+
 
 class Contrato(Base):
     """Representa un contrato de alquiler asociado a un inmueble."""
@@ -148,3 +159,43 @@ class Contrato(Base):
     inmueble: Mapped["Inmueble"] = relationship(
         back_populates="contratos",
     )
+
+    titulares: Mapped[list["ContratoInquilino"]] = relationship(
+        back_populates="contrato",
+    )
+
+class ContratoInquilino(Base):
+    """Relaciona un contrato con uno de sus titulares y establece su orden."""
+
+    __tablename__ = "contrato_inquilino"
+
+    __table_args__ = (
+        CheckConstraint(
+            "orden > 0",
+            name="ck_contrato_inquilino_orden",
+        ),
+        UniqueConstraint(
+            "contrato_id",
+            "orden",
+            name="uq_contrato_inquilino_orden",
+        ),
+    )
+
+    contrato_id: Mapped[int] = mapped_column(
+        ForeignKey("contrato.id"),
+        primary_key=True,
+    )
+    inquilino_id: Mapped[int] = mapped_column(
+        ForeignKey("inquilino.id"),
+        primary_key=True,
+    )
+
+    orden: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    contrato: Mapped["Contrato"] = relationship(
+        back_populates="titulares",
+    )
+    inquilino: Mapped["Inquilino"] = relationship(
+        back_populates="contratos",
+    )
+
