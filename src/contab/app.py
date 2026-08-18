@@ -1,3 +1,4 @@
+"""Crea y configura la aplicación web Flask de Contab."""
 from flask import Flask
 
 
