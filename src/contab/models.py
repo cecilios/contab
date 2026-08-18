@@ -63,6 +63,7 @@ class Inmueble(Base):
 
     contratos: Mapped[list["Contrato"]] = relationship(
         back_populates="inmueble",
+        passive_deletes="all",
     )
 
 
@@ -88,6 +89,7 @@ class Inquilino(Base):
 
     contratos: Mapped[list["ContratoInquilino"]] = relationship(
         back_populates="inquilino",
+        passive_deletes="all",
     )
 
 
@@ -126,7 +128,7 @@ class Contrato(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     inmueble_id: Mapped[int] = mapped_column(
-        ForeignKey("inmueble.id"),
+        ForeignKey("inmueble.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
@@ -162,18 +164,22 @@ class Contrato(Base):
 
     titulares: Mapped[list["ContratoInquilino"]] = relationship(
         back_populates="contrato",
+        passive_deletes="all",
     )
 
     rentas: Mapped[list["RentaContrato"]] = relationship(
         back_populates="contrato",
+        passive_deletes="all",
     )
 
     revisiones_renta: Mapped[list["RevisionRenta"]] = relationship(
         back_populates="contrato",
+        passive_deletes="all",
     )
 
     ajustes_renta: Mapped[list["AjusteRenta"]] = relationship(
         back_populates="contrato",
+        passive_deletes="all",
     )
 
 
@@ -195,11 +201,12 @@ class ContratoInquilino(Base):
     )
 
     contrato_id: Mapped[int] = mapped_column(
-        ForeignKey("contrato.id"),
+        ForeignKey("contrato.id", ondelete="RESTRICT"),
         primary_key=True,
     )
+
     inquilino_id: Mapped[int] = mapped_column(
-        ForeignKey("inquilino.id"),
+        ForeignKey("inquilino.id", ondelete="RESTRICT"),
         primary_key=True,
     )
 
@@ -233,7 +240,7 @@ class RentaContrato(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     contrato_id: Mapped[int] = mapped_column(
-        ForeignKey("contrato.id"),
+        ForeignKey("contrato.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
@@ -266,7 +273,7 @@ class RevisionRenta(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     contrato_id: Mapped[int] = mapped_column(
-        ForeignKey("contrato.id"),
+        ForeignKey("contrato.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
@@ -308,7 +315,7 @@ class AjusteRenta(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     contrato_id: Mapped[int] = mapped_column(
-        ForeignKey("contrato.id"),
+        ForeignKey("contrato.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
