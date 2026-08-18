@@ -1,0 +1,72 @@
+"""Pruebas del modelo ORM Inmueble."""
+
+import pytest
+from sqlalchemy.exc import IntegrityError
+
+from contab.models import Inmueble
+
+
+def test_crear_inmueble(session) -> None:
+    """Comprueba que puede almacenarse y recuperarse un inmueble válido."""
+    inmueble = Inmueble(
+        referencia="A6",
+        codigo_facturacion="A6",
+        descripcion="Local comercial",
+        direccion="Rúa Michelena, 18",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    session.add(inmueble)
+    session.commit()
+
+    assert inmueble.id is not None
+    assert inmueble.participacion == 10000
+    assert inmueble.activo is True
+
+
+def test_referencia_no_puede_repetirse(session) -> None:
+    """Comprueba que dos inmuebles no pueden compartir la misma referencia."""
+    session.add(
+        Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local 1",
+            direccion="Dirección 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+    )
+    session.commit()
+
+    session.add(
+        Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A2",
+            descripcion="Local 2",
+            direccion="Dirección 2",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_participacion_no_puede_superar_100_por_ciento(session) -> None:
+    """Comprueba que la participación no puede ser superior al 100 %."""
+    session.add(
+        Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=10001,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
