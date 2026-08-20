@@ -287,8 +287,8 @@ La renta no se almacenará directamente en `contrato`.
 Cada contrato tendrá un histórico de rentas ordinarias mediante
 `renta_contrato`.
 
-Cada entrada indica la renta mensual ordinaria aplicable desde un determinado
-mes.
+Cada entrada indica la renta mensual ordinaria aplicable desde una determinada
+fecha.
 
 Los importes monetarios se almacenarán como enteros expresados en céntimos.
 
@@ -299,22 +299,39 @@ Ejemplos:
 
 Esto evita utilizar valores de coma flotante para cantidades monetarias.
 
-`fecha_desde` representa el primer mes al que se aplica la renta y siempre
-será el día 1 de dicho mes.
+La primera entrada de `renta_contrato` representará la renta inicial del
+contrato y deberá tener:
+
+    fecha_desde = contrato.fecha_inicio
+
+Por tanto, la primera renta puede comenzar en cualquier día del mes.
+
+Las rentas posteriores, derivadas normalmente de revisiones, tendrán
+`fecha_desde` correspondiente al primer día del mes desde el que sean
+aplicables.
 
 Ejemplo:
 
-    fecha_desde = 2027-03-01
-    importe     = 106090
+    contrato.fecha_inicio = 2026-06-15
+    primera renta:
+        fecha_desde = 2026-06-15
+        importe     = 100000
 
-La renta ordinaria vigente para un determinado mes será la última entrada de
-`renta_contrato` cuya `fecha_desde` sea anterior o igual al mes consultado.
+    revisión posterior:
+        fecha_desde = 2027-06-01
+        importe     = 102300
 
-La primera entrada de `renta_contrato` representará la renta inicial del
-contrato.
+La renta ordinaria vigente para una determinada fecha será la última entrada de
+`renta_contrato` cuya `fecha_desde` sea anterior o igual a la fecha consultada.
 
-No podrá existir una renta cuya `fecha_desde` sea anterior a
-`contrato.fecha_inicio`.
+La existencia de una renta contractual vigente no implica necesariamente que
+deba facturarse desde esa misma fecha.
+
+`contrato.fecha_inicio_facturacion` determina el primer mes por el que la renta
+es exigible y debe facturarse.
+
+Esto permite representar periodos de carencia sin modificar la renta
+contractual.
 
 ### 5.3. Revisiones de renta
 
@@ -825,7 +842,12 @@ Todo contrato deberá tener al menos un inquilino.
 
     CHECK (importe >= 0)
 
-`fecha_desde` será siempre el día 1 de un mes.
+La primera `fecha_desde` será igual a `contrato.fecha_inicio`.
+
+Las posteriores serán normalmente el día 1 del mes desde el que se aplique la
+nueva renta.
+
+
 
 ### 14.6. revision_renta
 
@@ -908,9 +930,11 @@ lógica de la aplicación deberá controlar inicialmente:
 8. Los porcentajes se expresan internamente en centésimas de punto porcentual.
 9. La numeración de facturas será independiente para cada inmueble y año.
 10. Los meses sin factura no consumirán números de la secuencia.
-11. `renta_contrato.fecha_desde` debe corresponder al primer día de un mes.
-12. No puede existir una renta ordinaria anterior al inicio del contrato.
-13. La primera renta registrada debe representar la renta inicial del contrato.
+11. La primera `renta_contrato.fecha_desde` debe ser igual a
+    `contrato.fecha_inicio`.
+12. Las rentas posteriores deben tener `fecha_desde` correspondiente al primer
+    día del mes desde el que sean aplicables.
+13. No puede existir una renta ordinaria anterior al inicio del contrato.
 14. `revision_renta.fecha_prevista` debe corresponder al primer día de un mes.
 15. Una revisión aplicada debe generar la correspondiente entrada en
     `renta_contrato`.

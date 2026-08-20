@@ -7,12 +7,15 @@ import pytest
 from contab.models import AjusteRenta, RentaContrato
 from contab.contratos.services import (
     AjusteRentaError,
+    RentaContratoError,
     RentaFacturableError,
     RentaNoDisponibleError,
     crear_ajuste_renta,
+    crear_renta_contrato,
     renta_facturable,
     renta_vigente,
 )
+
 
 def test_renta_vigente_devuelve_renta_inicial(session, contrato) -> None:
     """Comprueba que se obtiene la renta inicial antes de cualquier revisión."""
@@ -369,3 +372,91 @@ def test_crear_ajuste_renta_rechaza_solapamiento(contrato) -> None:
             tipo="IMPORTE_FIJO",
             valor=5000,
         )
+
+
+def test_crear_primera_renta_con_fecha_inicio_contrato(contrato) -> None:
+    """Comprueba que la primera renta comienza exactamente al inicio del contrato."""
+    renta = crear_renta_contrato(
+        contrato=contrato,
+        fecha_desde=contrato.fecha_inicio,
+        importe=100000,
+    )
+
+    assert renta.contrato is contrato
+    assert renta.fecha_desde == contrato.fecha_inicio
+    assert renta.importe == 100000
+    assert renta.id is None
+
+
+def test_crear_primera_renta_rechaza_fecha_distinta_al_inicio(contrato) -> None:
+    """Comprueba que la primera renta debe comenzar en la fecha inicial del contrato."""
+    with pytest.raises(RentaContratoError):
+        crear_renta_contrato(
+            contrato=contrato,
+            fecha_desde=date(2026, 2, 1),
+            importe=100000,
+        )
+
+
+def test_crear_renta_posterior_admite_dia_primero(contrato) -> None:
+    """Comprueba que una renta posterior puede comenzar el primer día del mes."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    renta = crear_renta_contrato(
+        contrato=contrato,
+        fecha_desde=date(2027, 2, 1),
+        importe=102300,
+    )
+
+    assert renta.fecha_desde == date(2027, 2, 1)
+    assert renta.importe == 102300
+
+
+def test_crear_renta_posterior_rechaza_fecha_que_no_sea_dia_primero(contrato) -> None:
+    """Comprueba que las rentas posteriores deben comenzar el día 1 del mes."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    with pytest.raises(RentaContratoError):
+        crear_renta_contrato(
+            contrato=contrato,
+            fecha_desde=date(2027, 2, 15),
+            importe=102300,
+        )
+
+
+def test_crear_renta_rechaza_importe_negativo(contrato) -> None:
+    """Comprueba que una renta contractual no puede tener importe negativo."""
+    with pytest.raises(RentaContratoError):
+        crear_renta_contrato(
+            contrato=contrato,
+            fecha_desde=contrato.fecha_inicio,
+            importe=-1,
+        )
+
+
+def test_crear_renta_rechaza_fecha_repetida(contrato) -> None:
+    """Comprueba que no pueden existir dos rentas con la misma fecha de inicio."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    with pytest.raises(RentaContratoError):
+        crear_renta_contrato(
+            contrato=contrato,
+            fecha_desde=contrato.fecha_inicio,
+            importe=110000,
+        )
+

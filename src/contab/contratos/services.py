@@ -14,6 +14,9 @@ class RentaFacturableError(Exception):
 class AjusteRentaError(Exception):
     """Indica que los datos de un ajuste de renta no son válidos."""
 
+class RentaContratoError(Exception):
+    """Indica que los datos de una renta contractual no son válidos."""
+
 
 
 """Funciones auxiliares"""
@@ -149,3 +152,45 @@ def crear_ajuste_renta(
         tipo=tipo,
         valor=valor,
     )
+
+
+def crear_renta_contrato(
+    contrato: Contrato,
+    fecha_desde: date,
+    importe: int,
+    notas: str | None = None,
+) -> RentaContrato:
+    """Valida y crea una renta contractual sin persistirla."""
+    if importe < 0:
+        raise RentaContratoError(
+            "El importe de la renta no puede ser negativo."
+        )
+
+    if fecha_desde < contrato.fecha_inicio:
+        raise RentaContratoError(
+            "La renta no puede comenzar antes del inicio del contrato."
+        )
+
+    if not contrato.rentas:
+        if fecha_desde != contrato.fecha_inicio:
+            raise RentaContratoError(
+                "La primera renta debe comenzar en la fecha de inicio del contrato."
+            )
+    elif fecha_desde.day != 1:
+        raise RentaContratoError(
+            "Las rentas posteriores deben comenzar el día 1 del mes."
+        )
+
+    if any(renta.fecha_desde == fecha_desde for renta in contrato.rentas):
+        raise RentaContratoError(
+            "Ya existe una renta con esa fecha de inicio."
+        )
+
+    return RentaContrato(
+        contrato=contrato,
+        fecha_desde=fecha_desde,
+        importe=importe,
+        notas=notas,
+    )
+
+

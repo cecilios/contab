@@ -108,6 +108,83 @@ El proyecto se instala durante el desarrollo en modo editable:
 De esta forma las modificaciones realizadas en `src/contab` están
 inmediatamente disponibles sin reinstalar el paquete.
 
+## Arquitectura de la aplicación
+
+Contab se desarrollará como un **monolito modular**.
+
+La aplicación utilizará:
+
+- un único proceso;
+- un único servidor web Flask;
+- una única base de datos SQLite;
+- módulos funcionales claramente separados.
+
+La modularidad se realizará dentro de la propia aplicación, evitando
+servidores, procesos o bases de datos independientes para cada módulo.
+Flask actuará como punto de entrada y ensamblará los distintos módulos,
+preferentemente mediante *Blueprints*.
+
+La estructura funcional prevista inicialmente es:
+
+- `inmuebles`: mantenimiento de inmuebles;
+- `inquilinos`: mantenimiento de inquilinos;
+- `contratos`: contratos, rentas, revisiones y ajustes de renta;
+- `previsiones`: previsiones de gastos;
+- `facturacion`: generación y gestión de facturas;
+- `conciliacion`: importación y conciliación de movimientos bancarios;
+- `contabilidad`: elaboración de la información contable;
+- `informes`: informes que combinen información de distintas áreas.
+
+Esta división es inicial y podrá evolucionar conforme se desarrolle la
+aplicación. En particular, las previsiones de gastos y los informes podrán
+reorganizarse si la lógica de negocio aconseja otra agrupación.
+
+Cada módulo deberá mantener separadas, en la medida en que resulte útil,
+la interfaz web y la lógica de negocio. Una estructura típica será:
+
+    modulo/
+        routes.py
+        services.py
+        templates/
+
+`routes.py` se ocupará de la interacción HTTP y la interfaz web, mientras
+que `services.py` contendrá la lógica de negocio. La lógica de negocio no
+deberá depender innecesariamente de Flask, de forma que pueda probarse
+directamente mediante tests automatizados.
+
+`app.py` tendrá principalmente la responsabilidad de crear y configurar
+la aplicación Flask, registrar los módulos y proporcionar la entrada
+general a la aplicación. No deberá acumular lógica propia de los módulos.
+
+Los distintos módulos compartirán los modelos SQLAlchemy y la misma base
+de datos. La separación modular es una separación de responsabilidades
+del código, no una arquitectura de microservicios.
+
+Las URL seguirán igualmente una organización modular, por ejemplo:
+
+    /
+    /inmuebles/
+    /inquilinos/
+    /contratos/
+    /facturacion/
+    /previsiones/
+    /conciliacion/
+    /contabilidad/
+    /informes/
+
+Todos estos recursos serán servidos por el mismo servidor Flask y el mismo
+puerto.
+
+Los informes específicos de una funcionalidad pertenecerán, en principio,
+al módulo correspondiente. El módulo `informes` se reservará principalmente
+para informes que combinen información procedente de varias áreas.
+
+Esta arquitectura deberá favorecer que una implementación pueda sustituirse
+o convivir temporalmente con otra durante su desarrollo y pruebas, sin
+afectar innecesariamente al resto de la aplicación.
+
+
+
 ## 6. Base de datos
 
 Se utilizará SQLite.
