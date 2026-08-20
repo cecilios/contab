@@ -1,12 +1,20 @@
 """Implementa la lógica de negocio relacionada con la facturación."""
 
+from datetime import date
 from dataclasses import dataclass
 
+from contab.models import Contrato, Factura, FacturaLinea, RevisionRenta
+from contab.contratos.services import renta_facturable
+
 from contab.calculos import redondear_division
-from contab.models import Contrato, FacturaLinea
+
 
 class CalculoFacturaError(Exception):
     """Indica que no puede obtenerse un cálculo válido de factura."""
+
+class FacturacionError(Exception):
+    """Indica que no puede generarse una factura válida."""
+
 
 
 @dataclass(frozen=True)
@@ -91,3 +99,86 @@ def calcular_importes_factura(
         retencion_importe=retencion_importe,
         total=total,
     )
+
+
+def crear_factura(
+    contrato: Contrato,
+    periodo: date,
+    fecha_emision: date,
+    ruta_pdf: str,
+    revision_renta: RevisionRenta | None = None,
+    diferencia_revision: int = 0,
+    aviso_revision: str | None = None,
+) -> Factura:
+    """Prepara una factura ordinaria mensual sin persistirla."""
+    if periodo.day != 1:
+        raise FacturacionError(
+            "El periodo facturado debe corresponder al día 1 del mes."
+        )
+
+    if periodo < contrato.fecha_inicio_facturacion:
+        raise FacturacionError(
+            "No puede facturarse un periodo anterior al inicio de facturación."
+        )
+
+    secuencia, numero = siguiente_numero_factura(
+        contrato,
+        periodo.year,
+    )
+
+    importe_renta = renta_facturable(
+        contrato,
+        periodo,
+    )
+
+    linea_renta = FacturaLinea(
+        orden=1,
+        tipo="RENTA",
+        concepto=contrato.concepto_factura,
+        importe=importe_renta,
+    )
+    lineas = [linea_renta]
+
+    if diferencia_revision != 0:
+        if revision_renta is None:
+            raise FacturacionError(
+                "Una diferencia de revisión debe estar vinculada a una revisión."
+            )
+
+        lineas.append(
+            FacturaLinea(
+                orden=2,
+                tipo="DIFERENCIA_REVISION",
+                concepto="Diferencia de revisión de renta",
+                importe=diferencia_revision,
+            )
+        )
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=contrato.iva_porcentaje,
+        retencion_porcentaje=contrato.retencion_porcentaje,
+    )
+
+    factura = Factura(
+        contrato=contrato,
+        numero_secuencia=secuencia,
+        anio=periodo.year,
+        numero_factura=numero,
+        fecha_emision=fecha_emision,
+        periodo=periodo,
+        base=calculo.base,
+        iva_porcentaje=contrato.iva_porcentaje,
+        iva_importe=calculo.iva_importe,
+        retencion_porcentaje=contrato.retencion_porcentaje,
+        retencion_importe=calculo.retencion_importe,
+        total=calculo.total,
+        ruta_pdf=ruta_pdf,
+        revision_renta=revision_renta,
+        aviso_revision=aviso_revision,
+    )
+
+    factura.lineas.extend(lineas)
+
+    return factura
+

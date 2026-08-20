@@ -2,15 +2,24 @@
 
 import pytest
 
-from contab.facturacion.services import (
-    CalculoFacturaError,
-    calcular_importes_factura,
-    siguiente_numero_factura,
-)
-from contab.models import Contrato, Factura, FacturaLinea
-
 from datetime import date
 
+from contab.models import (
+    AjusteRenta,
+    Contrato,
+    Factura,
+    FacturaLinea,
+    RentaContrato,
+    RevisionRenta,
+)
+
+from contab.facturacion.services import (
+    CalculoFacturaError,
+    FacturacionError,
+    calcular_importes_factura,
+    crear_factura,
+    siguiente_numero_factura,
+)
 
 
 def test_primera_factura_del_ano_comienza_en_uno(contrato) -> None:
@@ -431,5 +440,290 @@ def test_calcular_factura_admite_base_cero() -> None:
     assert calculo.total == 0
 
 
+def test_crear_factura_ordinaria(session, contrato) -> None:
+    """Comprueba que se crea una factura mensual ordinaria con una línea de renta."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+        ruta_pdf="facturas/01-2026A1.pdf",
+    )
+
+    assert factura.id is None
+    assert factura.numero_secuencia == 1
+    assert factura.numero_factura == "01/2026A1"
+    assert factura.anio == 2026
+    assert factura.periodo == date(2026, 9, 1)
+    assert factura.fecha_emision == date(2026, 9, 1)
+
+    assert len(factura.lineas) == 1
+    assert factura.lineas[0].tipo == "RENTA"
+    assert factura.lineas[0].importe == 100000
+
+    assert factura.base == 100000
+    assert factura.iva_importe == 0
+    assert factura.retencion_importe == 0
+    assert factura.total == 100000
+
+
+def test_crear_factura_aplica_iva_y_retencion(session, contrato) -> None:
+    """Comprueba que la factura usa los porcentajes fiscales del contrato."""
+    contrato.iva_porcentaje = 2100
+    contrato.retencion_porcentaje = 1900
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+        ruta_pdf="facturas/01-2026A1.pdf",
+    )
+
+    assert factura.base == 100000
+    assert factura.iva_importe == 21000
+    assert factura.retencion_importe == 19000
+    assert factura.total == 102000
+
+
+def test_crear_factura_rechaza_periodo_que_no_sea_dia_primero(
+    session, contrato
+) -> None:
+    """Comprueba que el periodo facturado debe representarse por el día 1."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(FacturacionError):
+        crear_factura(
+            contrato=contrato,
+            periodo=date(2026, 9, 15),
+            fecha_emision=date(2026, 9, 1),
+            ruta_pdf="factura.pdf",
+        )
+
+
+def test_crear_factura_rechaza_periodo_anterior_al_inicio_facturacion(
+    session, contrato
+) -> None:
+    """Comprueba que no puede facturarse un mes anterior al inicio de facturación."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(FacturacionError):
+        crear_factura(
+            contrato=contrato,
+            periodo=date(2026, 1, 1),
+            fecha_emision=date(2026, 1, 1),
+            ruta_pdf="factura.pdf",
+        )
+
+
+def test_crear_factura_usa_renta_facturable_con_ajuste(
+    session, contrato
+) -> None:
+    """Comprueba que la línea de renta usa la renta facturable del periodo."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    contrato.ajustes_renta.append(
+        AjusteRenta(
+            fecha_desde=date(2026, 3, 1),
+            fecha_hasta=date(2026, 10, 1),
+            tipo="REDUCCION_PORCENTUAL",
+            valor=4000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+        ruta_pdf="facturas/01-2026A1.pdf",
+    )
+
+    assert factura.lineas[0].importe == 60000
+    assert factura.base == 60000
+
+
+def test_crear_factura_con_diferencia_revision_positiva(
+    session, contrato
+) -> None:
+    """Comprueba que una diferencia positiva se añade como línea adicional."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 9, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=230,
+        fecha_resolucion=date(2026, 10, 1),
+    )
+    session.add(revision)
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        ruta_pdf="facturas/01-2026A1.pdf",
+        revision_renta=revision,
+        diferencia_revision=2300,
+        aviso_revision="APLICADA",
+    )
+
+    assert len(factura.lineas) == 2
+    assert factura.lineas[0].tipo == "RENTA"
+    assert factura.lineas[1].tipo == "DIFERENCIA_REVISION"
+    assert factura.lineas[1].importe == 2300
+
+    assert factura.base == 102300
+    assert factura.revision_renta is revision
+    assert factura.aviso_revision == "APLICADA"
+
+
+def test_crear_factura_con_diferencia_revision_negativa(
+    session, contrato
+) -> None:
+    """Comprueba que una diferencia negativa reduce la base de la factura."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 9, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=-250,
+        fecha_resolucion=date(2026, 10, 1),
+    )
+    session.add(revision)
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        ruta_pdf="facturas/01-2026A1.pdf",
+        revision_renta=revision,
+        diferencia_revision=-2500,
+        aviso_revision="APLICADA",
+    )
+
+    assert len(factura.lineas) == 2
+    assert factura.lineas[1].importe == -2500
+    assert factura.base == 97500
+
+
+def test_crear_factura_sin_diferencia_no_anade_linea(
+    session, contrato
+) -> None:
+    """Comprueba que una diferencia cero no genera una línea adicional."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+        ruta_pdf="facturas/01-2026A1.pdf",
+        diferencia_revision=0,
+    )
+
+    assert len(factura.lineas) == 1
+    assert factura.lineas[0].tipo == "RENTA"
+
+
+def test_crear_factura_con_revision_sin_diferencia(
+    session, contrato
+) -> None:
+    """Comprueba que una factura puede vincularse a una revisión sin diferencia."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+    )
+    session.add(revision)
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+        ruta_pdf="facturas/01-2026A1.pdf",
+        revision_renta=revision,
+        aviso_revision="PREVIO",
+    )
+
+    assert factura.revision_renta is revision
+    assert factura.aviso_revision == "PREVIO"
+    assert len(factura.lineas) == 1
+
+
+def test_crear_factura_rechaza_diferencia_sin_revision(
+    session, contrato
+) -> None:
+    """Comprueba que una diferencia de revisión exige indicar la revisión."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(FacturacionError):
+        crear_factura(
+            contrato=contrato,
+            periodo=date(2026, 10, 1),
+            fecha_emision=date(2026, 10, 1),
+            ruta_pdf="factura.pdf",
+            diferencia_revision=2300,
+        )
 
 
