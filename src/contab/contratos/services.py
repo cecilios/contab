@@ -11,6 +11,8 @@ from contab.models import (
     RevisionRenta,
 )
 
+from contab.calculos import redondear_division
+
 
 class RentaNoDisponibleError(Exception):
     """Indica que no existe una renta aplicable para la fecha solicitada."""
@@ -32,13 +34,6 @@ class ContratoError(Exception):
 
 
 
-"""Funciones auxiliares"""
-def _redondear_division(numerador: int, denominador: int) -> int:
-    """Redondea una división entera al entero más próximo con mitad hacia arriba."""
-    return (numerador + denominador // 2) // denominador
-
-
-"""Funciones de negocio"""
 def renta_vigente(contrato: Contrato, fecha: date) -> RentaContrato:
     """Devuelve la renta ordinaria vigente de un contrato en una fecha."""
     rentas_aplicables = (
@@ -82,7 +77,7 @@ def renta_facturable(contrato: Contrato, fecha: date) -> int:
     ajuste = ajustes[0]
 
     if ajuste.tipo == "REDUCCION_PORCENTUAL":
-        return _redondear_division(
+        return redondear_division(
             importe * (10000 - ajuste.valor),
             10000,
         )
@@ -276,7 +271,7 @@ def resolver_revision_renta(
             revision.fecha_prevista,
         )
 
-        nuevo_importe = _redondear_division(
+        nuevo_importe = redondear_division(
             renta_anterior.importe * (10000 + porcentaje_aplicado),
             10000,
         )

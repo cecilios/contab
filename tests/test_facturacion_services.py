@@ -1,9 +1,16 @@
 """Pruebas de la lógica de negocio de facturación."""
 
+import pytest
+
+from contab.facturacion.services import (
+    CalculoFacturaError,
+    calcular_importes_factura,
+    siguiente_numero_factura,
+)
+from contab.models import Contrato, Factura, FacturaLinea
+
 from datetime import date
 
-from contab.facturacion.services import siguiente_numero_factura
-from contab.models import Contrato, Factura
 
 
 def test_primera_factura_del_ano_comienza_en_uno(contrato) -> None:
@@ -148,5 +155,158 @@ def test_factura_anulada_sigue_consumiento_numero(session, contrato) -> None:
 
     assert secuencia == 2
     assert numero == "02/2026A1"
+
+
+def test_calcular_factura_sin_impuestos() -> None:
+    """Comprueba el cálculo de una factura sin IVA ni retención."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=100000,
+        )
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=0,
+        retencion_porcentaje=0,
+    )
+
+    assert calculo.base == 100000
+    assert calculo.iva_importe == 0
+    assert calculo.retencion_importe == 0
+    assert calculo.total == 100000
+
+
+def test_calcular_factura_con_iva_y_retencion() -> None:
+    """Comprueba que IVA y retención se calculan sobre la base completa."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=100000,
+        )
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+    )
+
+    assert calculo.base == 100000
+    assert calculo.iva_importe == 21000
+    assert calculo.retencion_importe == 19000
+    assert calculo.total == 102000
+
+
+def test_calcular_factura_suma_todas_las_lineas() -> None:
+    """Comprueba que renta, diferencias y gastos repercutidos forman la base."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=100000,
+        ),
+        FacturaLinea(
+            orden=2,
+            tipo="DIFERENCIA_REVISION",
+            concepto="Diferencia revisión",
+            importe=2300,
+        ),
+        FacturaLinea(
+            orden=3,
+            tipo="REPERCUSION_GASTO",
+            concepto="Agua",
+            importe=8347,
+        ),
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+    )
+
+    assert calculo.base == 110647
+    assert calculo.total == (
+        calculo.base
+        + calculo.iva_importe
+        - calculo.retencion_importe
+    )
+
+
+def test_calcular_factura_admite_diferencia_revision_negativa() -> None:
+    """Comprueba que una diferencia negativa reduce la base de la factura."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=100000,
+        ),
+        FacturaLinea(
+            orden=2,
+            tipo="DIFERENCIA_REVISION",
+            concepto="Diferencia revisión",
+            importe=-2500,
+        ),
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=0,
+        retencion_porcentaje=0,
+    )
+
+    assert calculo.base == 97500
+    assert calculo.total == 97500
+
+
+def test_calcular_factura_redondea_impuestos_al_centimo() -> None:
+    """Comprueba que IVA y retención usan el redondeo contable al céntimo."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=10001,
+        )
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=5000,
+        retencion_porcentaje=0,
+    )
+
+    # 100,01 € x 50 % = 50,005 € -> 50,01 €
+    assert calculo.iva_importe == 5001
+    assert calculo.total == 15002
+
+
+def test_calcular_factura_rechaza_base_negativa() -> None:
+    """Comprueba que las líneas no pueden producir una base negativa."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="DIFERENCIA_REVISION",
+            concepto="Diferencia revisión",
+            importe=-10001,
+        )
+    ]
+
+    with pytest.raises(CalculoFacturaError):
+        calcular_importes_factura(
+            lineas=lineas,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+        )
+
+
 
 
