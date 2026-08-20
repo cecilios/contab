@@ -6,12 +6,13 @@ import pytest
 
 from contab.models import AjusteRenta, RentaContrato
 from contab.contratos.services import (
+    AjusteRentaError,
     RentaFacturableError,
     RentaNoDisponibleError,
+    crear_ajuste_renta,
     renta_facturable,
     renta_vigente,
 )
-
 
 def test_renta_vigente_devuelve_renta_inicial(session, contrato) -> None:
     """Comprueba que se obtiene la renta inicial antes de cualquier revisión."""
@@ -271,3 +272,100 @@ def test_renta_facturable_redondea_al_centimo_abajo(session, contrato) -> None:
     assert renta_facturable(contrato, date(2026, 7, 1)) == 2500
 
 
+def test_crear_ajuste_renta_valido(contrato) -> None:
+    """Comprueba que se crea un ajuste válido sin persistirlo ni hacer commit."""
+    ajuste = crear_ajuste_renta(
+        contrato=contrato,
+        fecha_desde=date(2026, 3, 1),
+        fecha_hasta=date(2026, 6, 1),
+        tipo="REDUCCION_PORCENTUAL",
+        valor=4000,
+    )
+
+    assert ajuste.contrato is contrato
+    assert ajuste.fecha_desde == date(2026, 3, 1)
+    assert ajuste.fecha_hasta == date(2026, 6, 1)
+    assert ajuste.tipo == "REDUCCION_PORCENTUAL"
+    assert ajuste.valor == 4000
+    assert ajuste.id is None
+
+
+def test_crear_ajuste_renta_rechaza_porcentaje_fuera_de_rango(contrato) -> None:
+    """Comprueba que una reducción porcentual debe estar entre 0 % y 100 %."""
+    with pytest.raises(AjusteRentaError):
+        crear_ajuste_renta(
+            contrato=contrato,
+            fecha_desde=date(2026, 3, 1),
+            fecha_hasta=date(2026, 6, 1),
+            tipo="REDUCCION_PORCENTUAL",
+            valor=10001,
+        )
+
+
+def test_crear_ajuste_renta_rechaza_importe_negativo(contrato) -> None:
+    """Comprueba que una reducción fija o importe fijo no puede ser negativo."""
+    with pytest.raises(AjusteRentaError):
+        crear_ajuste_renta(
+            contrato=contrato,
+            fecha_desde=date(2026, 3, 1),
+            fecha_hasta=date(2026, 6, 1),
+            tipo="REDUCCION_FIJA",
+            valor=-1,
+        )
+
+
+def test_crear_ajuste_renta_rechaza_tipo_desconocido(contrato) -> None:
+    """Comprueba que sólo se admiten los tipos de ajuste definidos."""
+    with pytest.raises(AjusteRentaError):
+        crear_ajuste_renta(
+            contrato=contrato,
+            fecha_desde=date(2026, 3, 1),
+            fecha_hasta=date(2026, 6, 1),
+            tipo="DESCONOCIDO",
+            valor=1000,
+        )
+
+
+def test_crear_ajuste_renta_rechaza_fechas_no_mensuales(contrato) -> None:
+    """Comprueba que las fechas de un ajuste deben corresponder al día 1."""
+    with pytest.raises(AjusteRentaError):
+        crear_ajuste_renta(
+            contrato=contrato,
+            fecha_desde=date(2026, 3, 15),
+            fecha_hasta=date(2026, 6, 1),
+            tipo="IMPORTE_FIJO",
+            valor=5000,
+        )
+
+
+def test_crear_ajuste_renta_rechaza_inicio_anterior_al_contrato(contrato) -> None:
+    """Comprueba que un ajuste no puede comenzar antes que el contrato."""
+    with pytest.raises(AjusteRentaError):
+        crear_ajuste_renta(
+            contrato=contrato,
+            fecha_desde=date(2025, 12, 1),
+            fecha_hasta=date(2026, 2, 1),
+            tipo="IMPORTE_FIJO",
+            valor=5000,
+        )
+
+
+def test_crear_ajuste_renta_rechaza_solapamiento(contrato) -> None:
+    """Comprueba que no pueden existir dos ajustes simultáneos."""
+    contrato.ajustes_renta.append(
+        AjusteRenta(
+            fecha_desde=date(2026, 3, 1),
+            fecha_hasta=date(2026, 6, 1),
+            tipo="REDUCCION_PORCENTUAL",
+            valor=4000,
+        )
+    )
+
+    with pytest.raises(AjusteRentaError):
+        crear_ajuste_renta(
+            contrato=contrato,
+            fecha_desde=date(2026, 5, 1),
+            fecha_hasta=date(2026, 8, 1),
+            tipo="IMPORTE_FIJO",
+            valor=5000,
+        )

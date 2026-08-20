@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from contab.models import Contrato, RentaContrato
+from contab.models import AjusteRenta, Contrato, RentaContrato
 
 
 class RentaNoDisponibleError(Exception):
@@ -10,6 +10,10 @@ class RentaNoDisponibleError(Exception):
 
 class RentaFacturableError(Exception):
     """Indica que no puede calcularse una renta facturable válida."""
+
+class AjusteRentaError(Exception):
+    """Indica que los datos de un ajuste de renta no son válidos."""
+
 
 
 """Funciones auxiliares"""
@@ -84,3 +88,64 @@ def renta_facturable(contrato: Contrato, fecha: date) -> int:
         f"Tipo de ajuste desconocido: {ajuste.tipo}."
     )
 
+
+def crear_ajuste_renta(
+    contrato: Contrato,
+    fecha_desde: date,
+    fecha_hasta: date,
+    tipo: str,
+    valor: int,
+) -> AjusteRenta:
+    """Valida y crea un ajuste temporal de renta sin persistirlo."""
+    tipos_validos = {
+        "REDUCCION_PORCENTUAL",
+        "REDUCCION_FIJA",
+        "IMPORTE_FIJO",
+    }
+
+    if tipo not in tipos_validos:
+        raise AjusteRentaError(f"Tipo de ajuste desconocido: {tipo}.")
+
+    if fecha_desde.day != 1 or fecha_hasta.day != 1:
+        raise AjusteRentaError(
+            "Las fechas de los ajustes deben corresponder al día 1 del mes."
+        )
+
+    if fecha_hasta < fecha_desde:
+        raise AjusteRentaError(
+            "La fecha final del ajuste no puede ser anterior a la inicial."
+        )
+
+    if fecha_desde < contrato.fecha_inicio:
+        raise AjusteRentaError(
+            "El ajuste no puede comenzar antes del inicio del contrato."
+        )
+
+    if tipo == "REDUCCION_PORCENTUAL":
+        if valor < 0 or valor > 10000:
+            raise AjusteRentaError(
+                "La reducción porcentual debe estar entre 0 % y 100 %."
+            )
+    elif valor < 0:
+        raise AjusteRentaError(
+            "El valor de una reducción fija o importe fijo no puede ser negativo."
+        )
+
+    for ajuste in contrato.ajustes_renta:
+        hay_solapamiento = (
+            fecha_desde <= ajuste.fecha_hasta
+            and fecha_hasta >= ajuste.fecha_desde
+        )
+
+        if hay_solapamiento:
+            raise AjusteRentaError(
+                "El ajuste se solapa con otro ajuste existente."
+            )
+
+    return AjusteRenta(
+        contrato=contrato,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        tipo=tipo,
+        valor=valor,
+    )
