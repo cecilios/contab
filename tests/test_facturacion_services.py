@@ -16,6 +16,7 @@ from contab.models import (
 from contab.facturacion.services import (
     CalculoFacturaError,
     FacturacionError,
+    RepercusionGasto,
     calcular_importes_factura,
     crear_factura,
     siguiente_numero_factura,
@@ -724,6 +725,97 @@ def test_crear_factura_rechaza_diferencia_sin_revision(
             fecha_emision=date(2026, 10, 1),
             ruta_pdf="factura.pdf",
             diferencia_revision=2300,
+        )
+
+
+def test_crear_factura_con_gasto_repercutido(session, contrato) -> None:
+    """Comprueba que un gasto repercutido se añade como línea de factura."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+        ruta_pdf="factura.pdf",
+        repercusiones=[
+            RepercusionGasto(
+                concepto="Agua del 15/03/2026 al 18/05/2026",
+                importe=8347,
+            )
+        ],
+    )
+
+    assert len(factura.lineas) == 2
+    assert factura.lineas[1].tipo == "REPERCUSION_GASTO"
+    assert factura.lineas[1].importe == 8347
+    assert factura.base == 108347
+
+
+def test_crear_factura_admite_varios_gastos_repercutidos(
+    session, contrato
+) -> None:
+    """Comprueba que pueden añadirse varios gastos repercutidos ordenadamente."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+        ruta_pdf="factura.pdf",
+        repercusiones=[
+            RepercusionGasto(
+                concepto="Agua",
+                importe=5000,
+            ),
+            RepercusionGasto(
+                concepto="Electricidad",
+                importe=7500,
+            ),
+        ],
+    )
+
+    assert len(factura.lineas) == 3
+    assert factura.lineas[1].orden == 2
+    assert factura.lineas[2].orden == 3
+    assert factura.base == 112500
+
+
+def test_crear_factura_rechaza_gasto_repercutido_negativo(
+    session, contrato
+) -> None:
+    """Comprueba que un gasto repercutido no puede tener importe negativo."""
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(FacturacionError):
+        crear_factura(
+            contrato=contrato,
+            periodo=date(2026, 9, 1),
+            fecha_emision=date(2026, 9, 1),
+            ruta_pdf="factura.pdf",
+            repercusiones=[
+                RepercusionGasto(
+                    concepto="Agua",
+                    importe=-1,
+                )
+            ],
         )
 
 

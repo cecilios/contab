@@ -26,6 +26,12 @@ class CalculoFactura:
     retencion_importe: int
     total: int
 
+@dataclass(frozen=True)
+class RepercusionGasto:
+    """Describe un gasto que debe repercutirse como línea de factura."""
+
+    concepto: str
+    importe: int
 
 
 def siguiente_numero_factura(
@@ -109,6 +115,7 @@ def crear_factura(
     revision_renta: RevisionRenta | None = None,
     diferencia_revision: int = 0,
     aviso_revision: str | None = None,
+    repercusiones: list[RepercusionGasto] | None = None,
 ) -> Factura:
     """Prepara una factura ordinaria mensual sin persistirla."""
     if periodo.day != 1:
@@ -153,6 +160,27 @@ def crear_factura(
                 importe=diferencia_revision,
             )
         )
+
+    if repercusiones:
+        for repercusion in repercusiones:
+            if repercusion.importe < 0:
+                raise FacturacionError(
+                    "El importe de un gasto repercutido no puede ser negativo."
+                )
+
+            if not repercusion.concepto.strip():
+                raise FacturacionError(
+                    "Todo gasto repercutido debe tener un concepto."
+                )
+
+            lineas.append(
+                FacturaLinea(
+                    orden=len(lineas) + 1,
+                    tipo="REPERCUSION_GASTO",
+                    concepto=repercusion.concepto,
+                    importe=repercusion.importe,
+                )
+            )
 
     calculo = calcular_importes_factura(
         lineas=lineas,
