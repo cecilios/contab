@@ -308,5 +308,128 @@ def test_calcular_factura_rechaza_base_negativa() -> None:
         )
 
 
+def test_calcular_factura_redondea_iva_hacia_arriba() -> None:
+    """Comprueba el redondeo del IVA hacia arriba al superar medio céntimo."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=10001,
+        )
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=5000,
+        retencion_porcentaje=0,
+    )
+
+    assert calculo.iva_importe == 5001
+
+
+def test_calcular_factura_redondea_iva_hacia_abajo() -> None:
+    """Comprueba el redondeo del IVA hacia abajo por debajo de medio céntimo."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=10001,
+        )
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=2500,
+        retencion_porcentaje=0,
+    )
+
+    # 100,01 € x 25 % = 25,0025 € -> 25,00 €
+    assert calculo.iva_importe == 2500
+
+
+def test_calcular_factura_redondea_retencion_al_centimo() -> None:
+    """Comprueba que la retención usa la misma regla de redondeo monetario."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=10001,
+        )
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=0,
+        retencion_porcentaje=5000,
+    )
+
+    assert calculo.retencion_importe == 5001
+    assert calculo.total == 5000
+
+
+def test_calcular_factura_rechaza_iva_negativo() -> None:
+    """Comprueba que el porcentaje de IVA no puede ser negativo."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=100000,
+        )
+    ]
+
+    with pytest.raises(CalculoFacturaError):
+        calcular_importes_factura(
+            lineas=lineas,
+            iva_porcentaje=-1,
+            retencion_porcentaje=0,
+        )
+
+
+def test_calcular_factura_rechaza_retencion_negativa() -> None:
+    """Comprueba que el porcentaje de retención no puede ser negativo."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=100000,
+        )
+    ]
+
+    with pytest.raises(CalculoFacturaError):
+        calcular_importes_factura(
+            lineas=lineas,
+            iva_porcentaje=0,
+            retencion_porcentaje=-1,
+        )
+
+
+def test_calcular_factura_admite_base_cero() -> None:
+    """Comprueba que una factura con base cero produce importes nulos."""
+    lineas = [
+        FacturaLinea(
+            orden=1,
+            tipo="RENTA",
+            concepto="Alquiler",
+            importe=0,
+        )
+    ]
+
+    calculo = calcular_importes_factura(
+        lineas=lineas,
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+    )
+
+    assert calculo.base == 0
+    assert calculo.iva_importe == 0
+    assert calculo.retencion_importe == 0
+    assert calculo.total == 0
+
+
 
 
