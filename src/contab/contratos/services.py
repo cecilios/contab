@@ -235,4 +235,72 @@ def crear_revision_renta(
         notas=notas,
     )
 
+def resolver_revision_renta(
+    revision: RevisionRenta,
+    fecha_resolucion: date,
+    aplicar: bool,
+    porcentaje_aplicado: int | None,
+) -> tuple[RentaContrato | None, RevisionRenta]:
+    """Resuelve una revisión y prepara la renta y revisión siguientes."""
+    if revision.estado != "PENDIENTE":
+        raise RevisionRentaError(
+            "Sólo puede resolverse una revisión pendiente."
+        )
+
+    if aplicar and porcentaje_aplicado is None:
+        raise RevisionRentaError(
+            "Una revisión aplicada debe indicar el porcentaje."
+        )
+
+    if not aplicar and porcentaje_aplicado is not None:
+        raise RevisionRentaError(
+            "Una revisión no aplicada no debe indicar porcentaje."
+        )
+
+    contrato = revision.contrato
+    nueva_renta = None
+
+    if aplicar:
+        renta_anterior = renta_vigente(
+            contrato,
+            revision.fecha_prevista,
+        )
+
+        nuevo_importe = _redondear_division(
+            renta_anterior.importe * (10000 + porcentaje_aplicado),
+            10000,
+        )
+
+        if nuevo_importe < 0:
+            raise RevisionRentaError(
+                "La revisión produciría una renta negativa."
+            )
+
+        nueva_renta = crear_renta_contrato(
+            contrato=contrato,
+            fecha_desde=revision.fecha_prevista,
+            importe=nuevo_importe,
+        )
+
+        revision.estado = "APLICADA"
+        revision.porcentaje_aplicado = porcentaje_aplicado
+    else:
+        revision.estado = "NO_APLICADA"
+        revision.porcentaje_aplicado = None
+
+    revision.fecha_resolucion = fecha_resolucion
+
+    siguiente_fecha = revision.fecha_prevista.replace(
+        year=revision.fecha_prevista.year + 1,
+    )
+
+    siguiente_revision = crear_revision_renta(
+        contrato=contrato,
+        fecha_prevista=siguiente_fecha,
+        metodo=revision.metodo,
+    )
+
+    return nueva_renta, siguiente_revision
+
+
 

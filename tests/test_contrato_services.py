@@ -17,6 +17,7 @@ from contab.contratos.services import (
     crear_revision_renta,
     renta_facturable,
     renta_vigente,
+    resolver_revision_renta,
 )
 
 
@@ -525,6 +526,210 @@ def test_crear_revision_rechaza_fecha_repetida(contrato) -> None:
             contrato=contrato,
             fecha_prevista=date(2027, 2, 1),
             metodo="IPC_REGIONAL",
+        )
+
+
+def test_resolver_revision_aplicada_crea_nueva_renta(session, contrato) -> None:
+    """Comprueba que aplicar una revisión crea la nueva renta ordinaria."""
+    renta = RentaContrato(
+        contrato=contrato,
+        fecha_desde=contrato.fecha_inicio,
+        importe=100000,
+    )
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 2, 1),
+        metodo="IPC_NACIONAL",
+    )
+
+    session.add_all([renta, revision])
+    session.commit()
+
+    nueva_renta, siguiente_revision = resolver_revision_renta(
+        revision=revision,
+        fecha_resolucion=date(2027, 3, 10),
+        aplicar=True,
+        porcentaje_aplicado=230,
+    )
+
+    assert revision.estado == "APLICADA"
+    assert revision.porcentaje_aplicado == 230
+    assert revision.fecha_resolucion == date(2027, 3, 10)
+
+    assert nueva_renta is not None
+    assert nueva_renta.fecha_desde == date(2027, 2, 1)
+    assert nueva_renta.importe == 102300
+
+    assert siguiente_revision.fecha_prevista == date(2028, 2, 1)
+    assert siguiente_revision.metodo == "IPC_NACIONAL"
+    assert siguiente_revision.estado == "PENDIENTE"
+
+
+def test_resolver_revision_aplicada_admite_porcentaje_negativo(
+    session, contrato
+) -> None:
+    """Comprueba que una revisión negativa reduce correctamente la renta."""
+    session.add_all(
+        [
+            RentaContrato(
+                contrato=contrato,
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            ),
+            RevisionRenta(
+                contrato=contrato,
+                fecha_prevista=date(2027, 2, 1),
+                metodo="IPC_NACIONAL",
+            ),
+        ]
+    )
+    session.commit()
+
+    revision = contrato.revisiones_renta[0]
+
+    nueva_renta, _ = resolver_revision_renta(
+        revision=revision,
+        fecha_resolucion=date(2027, 3, 10),
+        aplicar=True,
+        porcentaje_aplicado=-125,
+    )
+
+    assert nueva_renta is not None
+    assert nueva_renta.importe == 98750
+
+
+def test_resolver_revision_redondea_nueva_renta_al_centimo(
+    session, contrato
+) -> None:
+    """La nueva renta usa el redondeo contable al céntimo.
+       Comprueba  que será 100,01 € × 1,5 = 150,015 € → 150,02 €"""
+    session.add_all(
+        [
+            RentaContrato(
+                contrato=contrato,
+                fecha_desde=contrato.fecha_inicio,
+                importe=10001,
+            ),
+            RevisionRenta(
+                contrato=contrato,
+                fecha_prevista=date(2027, 2, 1),
+                metodo="IPC_NACIONAL",
+            ),
+        ]
+    )
+    session.commit()
+
+    revision = contrato.revisiones_renta[0]
+
+    nueva_renta, _ = resolver_revision_renta(
+        revision=revision,
+        fecha_resolucion=date(2027, 3, 10),
+        aplicar=True,
+        porcentaje_aplicado=5000,
+    )
+
+    assert nueva_renta is not None
+    assert nueva_renta.importe == 15002
+
+
+def test_resolver_revision_no_aplicada_no_crea_renta(session, contrato) -> None:
+    """Comprueba que una revisión no aplicada conserva la renta existente."""
+    session.add_all(
+        [
+            RentaContrato(
+                contrato=contrato,
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            ),
+            RevisionRenta(
+                contrato=contrato,
+                fecha_prevista=date(2027, 2, 1),
+                metodo="IPC_NACIONAL",
+            ),
+        ]
+    )
+    session.commit()
+
+    revision = contrato.revisiones_renta[0]
+
+    nueva_renta, siguiente_revision = resolver_revision_renta(
+        revision=revision,
+        fecha_resolucion=date(2027, 2, 20),
+        aplicar=False,
+        porcentaje_aplicado=None,
+    )
+
+    assert revision.estado == "NO_APLICADA"
+    assert revision.porcentaje_aplicado is None
+    assert revision.fecha_resolucion == date(2027, 2, 20)
+
+    assert nueva_renta is None
+    assert siguiente_revision.fecha_prevista == date(2028, 2, 1)
+
+
+def test_resolver_revision_rechaza_revision_ya_resuelta(session, contrato) -> None:
+    """Comprueba que una revisión sólo puede resolverse una vez."""
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 2, 1),
+        metodo="IPC_NACIONAL",
+        estado="NO_APLICADA",
+        fecha_resolucion=date(2027, 2, 20),
+    )
+
+    session.add(revision)
+    session.commit()
+
+    with pytest.raises(RevisionRentaError):
+        resolver_revision_renta(
+            revision=revision,
+            fecha_resolucion=date(2027, 3, 1),
+            aplicar=True,
+            porcentaje_aplicado=200,
+        )
+
+
+def test_resolver_revision_aplicada_requiere_porcentaje(
+    session, contrato
+) -> None:
+    """Comprueba que una revisión aplicada necesita un porcentaje."""
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 2, 1),
+        metodo="IPC_NACIONAL",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    with pytest.raises(RevisionRentaError):
+        resolver_revision_renta(
+            revision=revision,
+            fecha_resolucion=date(2027, 3, 1),
+            aplicar=True,
+            porcentaje_aplicado=None,
+        )
+
+
+def test_resolver_revision_no_aplicada_rechaza_porcentaje(
+    session, contrato
+) -> None:
+    """Comprueba que una revisión no aplicada no admite porcentaje."""
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 2, 1),
+        metodo="IPC_NACIONAL",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    with pytest.raises(RevisionRentaError):
+        resolver_revision_renta(
+            revision=revision,
+            fecha_resolucion=date(2027, 3, 1),
+            aplicar=False,
+            porcentaje_aplicado=200,
         )
 
 
