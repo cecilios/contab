@@ -4,14 +4,17 @@ from datetime import date
 
 import pytest
 
-from contab.models import AjusteRenta, RentaContrato
+from contab.models import AjusteRenta, RentaContrato, RevisionRenta
+
 from contab.contratos.services import (
     AjusteRentaError,
     RentaContratoError,
     RentaFacturableError,
     RentaNoDisponibleError,
+    RevisionRentaError,
     crear_ajuste_renta,
     crear_renta_contrato,
+    crear_revision_renta,
     renta_facturable,
     renta_vigente,
 )
@@ -459,4 +462,69 @@ def test_crear_renta_rechaza_fecha_repetida(contrato) -> None:
             fecha_desde=contrato.fecha_inicio,
             importe=110000,
         )
+
+
+def test_crear_revision_renta_pendiente(contrato) -> None:
+    """Comprueba que una revisión nueva se crea pendiente por defecto."""
+    revision = crear_revision_renta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 2, 1),
+        metodo="IPC_NACIONAL",
+    )
+
+    assert revision.contrato is contrato
+    assert revision.fecha_prevista == date(2027, 2, 1)
+    assert revision.metodo == "IPC_NACIONAL"
+    assert revision.estado == "PENDIENTE"
+    assert revision.porcentaje_aplicado is None
+    assert revision.fecha_resolucion is None
+    assert revision.id is None
+
+
+def test_crear_revision_rechaza_fecha_que_no_sea_dia_primero(contrato) -> None:
+    """Comprueba que la fecha prevista de revisión debe ser día 1."""
+    with pytest.raises(RevisionRentaError):
+        crear_revision_renta(
+            contrato=contrato,
+            fecha_prevista=date(2027, 2, 15),
+            metodo="IPC_NACIONAL",
+        )
+
+
+def test_crear_revision_rechaza_fecha_anterior_al_contrato(contrato) -> None:
+    """Comprueba que una revisión no puede preceder al inicio del contrato."""
+    with pytest.raises(RevisionRentaError):
+        crear_revision_renta(
+            contrato=contrato,
+            fecha_prevista=date(2025, 12, 1),
+            metodo="IPC_NACIONAL",
+        )
+
+
+def test_crear_revision_rechaza_metodo_vacio(contrato) -> None:
+    """Comprueba que toda revisión debe indicar un método de actualización."""
+    with pytest.raises(RevisionRentaError):
+        crear_revision_renta(
+            contrato=contrato,
+            fecha_prevista=date(2027, 2, 1),
+            metodo="",
+        )
+
+
+def test_crear_revision_rechaza_fecha_repetida(contrato) -> None:
+    """Comprueba que no puede haber dos revisiones previstas en la misma fecha."""
+    contrato.revisiones_renta.append(
+        RevisionRenta(
+            fecha_prevista=date(2027, 2, 1),
+            metodo="IPC_NACIONAL",
+        )
+    )
+
+    with pytest.raises(RevisionRentaError):
+        crear_revision_renta(
+            contrato=contrato,
+            fecha_prevista=date(2027, 2, 1),
+            metodo="IPC_REGIONAL",
+        )
+
 

@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from contab.models import AjusteRenta, Contrato, RentaContrato
+from contab.models import AjusteRenta, Contrato, RentaContrato, RevisionRenta
 
 
 class RentaNoDisponibleError(Exception):
@@ -16,6 +16,9 @@ class AjusteRentaError(Exception):
 
 class RentaContratoError(Exception):
     """Indica que los datos de una renta contractual no son válidos."""
+
+class RevisionRentaError(Exception):
+    """Indica que los datos de una revisión de renta no son válidos."""
 
 
 
@@ -190,6 +193,45 @@ def crear_renta_contrato(
         contrato=contrato,
         fecha_desde=fecha_desde,
         importe=importe,
+        notas=notas,
+    )
+
+
+def crear_revision_renta(
+    contrato: Contrato,
+    fecha_prevista: date,
+    metodo: str,
+    notas: str | None = None,
+) -> RevisionRenta:
+    """Valida y crea una revisión de renta pendiente sin persistirla."""
+    if fecha_prevista.day != 1:
+        raise RevisionRentaError(
+            "La fecha prevista de revisión debe ser el día 1 del mes."
+        )
+
+    if fecha_prevista < contrato.fecha_inicio:
+        raise RevisionRentaError(
+            "La revisión no puede ser anterior al inicio del contrato."
+        )
+
+    if not metodo.strip():
+        raise RevisionRentaError(
+            "La revisión debe indicar un método de actualización."
+        )
+
+    if any(
+        revision.fecha_prevista == fecha_prevista
+        for revision in contrato.revisiones_renta
+    ):
+        raise RevisionRentaError(
+            "Ya existe una revisión prevista para esa fecha."
+        )
+
+    return RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=fecha_prevista,
+        metodo=metodo,
+        estado="PENDIENTE",
         notas=notas,
     )
 
