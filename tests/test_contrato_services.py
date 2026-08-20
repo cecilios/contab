@@ -4,15 +4,24 @@ from datetime import date
 
 import pytest
 
-from contab.models import AjusteRenta, RentaContrato, RevisionRenta
+from contab.models import (
+    AjusteRenta,
+    Contrato,
+    ContratoInquilino,
+    Inquilino,
+    RentaContrato,
+    RevisionRenta,
+)
 
 from contab.contratos.services import (
     AjusteRentaError,
+    ContratoError,
     RentaContratoError,
     RentaFacturableError,
     RentaNoDisponibleError,
     RevisionRentaError,
     crear_ajuste_renta,
+    crear_contrato,
     crear_renta_contrato,
     crear_revision_renta,
     renta_facturable,
@@ -732,4 +741,165 @@ def test_resolver_revision_no_aplicada_rechaza_porcentaje(
             porcentaje_aplicado=200,
         )
 
+
+def test_crear_contrato_completo(inmueble) -> None:
+    """Comprueba que el alta prepara contrato, titulares, renta y revisión inicial."""
+    titular_1 = Inquilino(
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+    titular_2 = Inquilino(
+        nombre="Luis García",
+        nif="22222222B",
+    )
+
+    contrato = crear_contrato(
+        inmueble=inmueble,
+        titulares=[titular_1, titular_2],
+        fecha_inicio=date(2026, 6, 15),
+        fecha_vencimiento=date(2031, 6, 14),
+        fecha_inicio_facturacion=date(2026, 9, 1),
+        fianza=200000,
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        direccion_facturacion="Dirección de facturación",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler del local",
+        renta_inicial=100000,
+        fecha_primera_revision=date(2027, 6, 1),
+        metodo_revision="IPC_NACIONAL",
+    )
+
+    assert contrato.id is None
+    assert contrato.inmueble is inmueble
+    assert len(contrato.titulares) == 2
+    assert contrato.titulares[0].inquilino is titular_1
+    assert contrato.titulares[0].orden == 1
+    assert contrato.titulares[1].inquilino is titular_2
+    assert contrato.titulares[1].orden == 2
+
+    assert len(contrato.rentas) == 1
+    assert contrato.rentas[0].fecha_desde == date(2026, 6, 15)
+    assert contrato.rentas[0].importe == 100000
+
+    assert len(contrato.revisiones_renta) == 1
+    assert contrato.revisiones_renta[0].fecha_prevista == date(2027, 6, 1)
+    assert contrato.revisiones_renta[0].estado == "PENDIENTE"
+
+
+def test_crear_contrato_requiere_al_menos_un_titular(inmueble) -> None:
+    """Comprueba que no puede crearse un contrato sin titulares."""
+    with pytest.raises(ContratoError):
+        crear_contrato(
+            inmueble=inmueble,
+            titulares=[],
+            fecha_inicio=date(2026, 6, 15),
+            fecha_vencimiento=date(2031, 6, 14),
+            fecha_inicio_facturacion=date(2026, 9, 1),
+            fianza=200000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Dirección",
+            codigo_postal_facturacion=None,
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+            renta_inicial=100000,
+            fecha_primera_revision=date(2027, 6, 1),
+            metodo_revision="IPC_NACIONAL",
+        )
+
+
+def test_crear_contrato_rechaza_inicio_facturacion_no_mensual(inmueble) -> None:
+    """Comprueba que la facturación debe comenzar el día 1 de un mes."""
+    titular = Inquilino(nombre="Ana Pérez", nif="11111111A")
+
+    with pytest.raises(ContratoError):
+        crear_contrato(
+            inmueble=inmueble,
+            titulares=[titular],
+            fecha_inicio=date(2026, 6, 15),
+            fecha_vencimiento=date(2031, 6, 14),
+            fecha_inicio_facturacion=date(2026, 9, 15),
+            fianza=200000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Dirección",
+            codigo_postal_facturacion=None,
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+            renta_inicial=100000,
+            fecha_primera_revision=date(2027, 6, 1),
+            metodo_revision="IPC_NACIONAL",
+        )
+
+
+def test_crear_contrato_rechaza_otro_contrato_vigente_en_inmueble(
+    session, inmueble
+) -> None:
+    """Comprueba que un inmueble no puede tener dos contratos vigentes."""
+    existente = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2025, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        fecha_inicio_facturacion=date(2025, 1, 1),
+        fianza=100000,
+        direccion_facturacion="Dirección",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+    )
+    session.add(existente)
+    session.commit()
+
+    titular = Inquilino(nombre="Ana Pérez", nif="11111111A")
+
+    with pytest.raises(ContratoError):
+        crear_contrato(
+            inmueble=inmueble,
+            titulares=[titular],
+            fecha_inicio=date(2026, 6, 15),
+            fecha_vencimiento=date(2031, 6, 14),
+            fecha_inicio_facturacion=date(2026, 9, 1),
+            fianza=200000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            codigo_postal_facturacion=None,
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+            renta_inicial=100000,
+            fecha_primera_revision=date(2027, 6, 1),
+            metodo_revision="IPC_NACIONAL",
+        )
+
+
+def test_crear_contrato_rechaza_inmueble_inactivo(inmueble) -> None:
+    """Comprueba que no puede crearse un contrato para un inmueble inactivo."""
+    inmueble.activo = False
+    titular = Inquilino(nombre="Ana Pérez", nif="11111111A")
+
+    with pytest.raises(ContratoError):
+        crear_contrato(
+            inmueble=inmueble,
+            titulares=[titular],
+            fecha_inicio=date(2026, 6, 15),
+            fecha_vencimiento=date(2031, 6, 14),
+            fecha_inicio_facturacion=date(2026, 9, 1),
+            fianza=200000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            codigo_postal_facturacion=None,
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+            renta_inicial=100000,
+            fecha_primera_revision=date(2027, 6, 1),
+            metodo_revision="IPC_NACIONAL",
+        )
 

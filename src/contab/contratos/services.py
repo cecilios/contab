@@ -2,7 +2,14 @@
 
 from datetime import date
 
-from contab.models import AjusteRenta, Contrato, RentaContrato, RevisionRenta
+from contab.models import (
+    AjusteRenta,
+    Contrato,
+    ContratoInquilino,
+    Inquilino,
+    RentaContrato,
+    RevisionRenta,
+)
 
 
 class RentaNoDisponibleError(Exception):
@@ -19,6 +26,9 @@ class RentaContratoError(Exception):
 
 class RevisionRentaError(Exception):
     """Indica que los datos de una revisión de renta no son válidos."""
+
+class ContratoError(Exception):
+    """Indica que los datos o condiciones de un contrato no son válidos."""
 
 
 
@@ -301,6 +311,114 @@ def resolver_revision_renta(
     )
 
     return nueva_renta, siguiente_revision
+
+
+def crear_contrato(
+    inmueble,
+    titulares: list[Inquilino],
+    fecha_inicio: date,
+    fecha_vencimiento: date,
+    fecha_inicio_facturacion: date,
+    fianza: int,
+    iva_porcentaje: int,
+    retencion_porcentaje: int,
+    direccion_facturacion: str,
+    codigo_postal_facturacion: str | None,
+    poblacion_facturacion: str,
+    provincia_facturacion: str,
+    concepto_factura: str,
+    renta_inicial: int,
+    fecha_primera_revision: date,
+    metodo_revision: str,
+) -> Contrato:
+    """Valida y prepara un contrato completo sin persistirlo."""
+    if not titulares:
+        raise ContratoError(
+            "El contrato debe tener al menos un titular."
+        )
+
+    if fecha_vencimiento < fecha_inicio:
+        raise ContratoError(
+            "La fecha de vencimiento no puede ser anterior al inicio."
+        )
+
+    if fecha_inicio_facturacion < fecha_inicio:
+        raise ContratoError(
+            "La facturación no puede comenzar antes del contrato."
+        )
+
+    if fecha_inicio_facturacion.day != 1:
+        raise ContratoError(
+            "La fecha de inicio de facturación debe ser el día 1 del mes."
+        )
+
+    if fianza < 0:
+        raise ContratoError(
+            "La fianza no puede ser negativa."
+        )
+
+    if iva_porcentaje < 0:
+        raise ContratoError(
+            "El porcentaje de IVA no puede ser negativo."
+        )
+
+    if retencion_porcentaje < 0:
+        raise ContratoError(
+            "El porcentaje de retención no puede ser negativo."
+        )
+
+    if not inmueble.activo:
+        raise ContratoError(
+            "No puede crearse un contrato para un inmueble inactivo."
+        )
+
+    for contrato_existente in inmueble.contratos:
+        if (
+            contrato_existente.fecha_fin is None
+            or contrato_existente.fecha_fin >= fecha_inicio
+        ):
+            raise ContratoError(
+                "El inmueble ya tiene un contrato que se solapa "
+                "con el nuevo contrato."
+            )
+
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=fecha_inicio,
+        fecha_vencimiento=fecha_vencimiento,
+        fecha_inicio_facturacion=fecha_inicio_facturacion,
+        fianza=fianza,
+        iva_porcentaje=iva_porcentaje,
+        retencion_porcentaje=retencion_porcentaje,
+        direccion_facturacion=direccion_facturacion,
+        codigo_postal_facturacion=codigo_postal_facturacion,
+        poblacion_facturacion=poblacion_facturacion,
+        provincia_facturacion=provincia_facturacion,
+        concepto_factura=concepto_factura,
+    )
+
+    for orden, inquilino in enumerate(titulares, start=1):
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=inquilino,
+                orden=orden,
+            )
+        )
+
+    renta = crear_renta_contrato(
+        contrato=contrato,
+        fecha_desde=fecha_inicio,
+        importe=renta_inicial,
+    )
+
+    revision = crear_revision_renta(
+        contrato=contrato,
+        fecha_prevista=fecha_primera_revision,
+        metodo=metodo_revision,
+    )
+
+    return contrato
+
 
 
 
