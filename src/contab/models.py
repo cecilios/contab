@@ -182,6 +182,11 @@ class Contrato(Base):
         passive_deletes="all",
     )
 
+    facturas: Mapped[list["Factura"]] = relationship(
+        back_populates="contrato",
+        passive_deletes="all",
+    )
+
 
 class ContratoInquilino(Base):
     """Relaciona un contrato con uno de sus titulares y establece su orden."""
@@ -295,6 +300,11 @@ class RevisionRenta(Base):
         back_populates="revisiones_renta",
     )
 
+    facturas: Mapped[list["Factura"]] = relationship(
+        back_populates="revision_renta",
+        passive_deletes="all",
+    )
+
 
 class AjusteRenta(Base):
     """Representa una modificación temporal de la renta facturable."""
@@ -331,4 +341,139 @@ class AjusteRenta(Base):
         back_populates="ajustes_renta",
     )
 
+
+class Factura(Base):
+    """Representa una factura emitida por un contrato de alquiler."""
+
+    __tablename__ = "factura"
+
+    __table_args__ = (
+        CheckConstraint(
+            "numero_secuencia > 0",
+            name="ck_factura_numero_secuencia",
+        ),
+        CheckConstraint(
+            "anio > 0",
+            name="ck_factura_anio",
+        ),
+        CheckConstraint(
+            "base >= 0",
+            name="ck_factura_base",
+        ),
+        CheckConstraint(
+            "iva_porcentaje >= 0",
+            name="ck_factura_iva_porcentaje",
+        ),
+        CheckConstraint(
+            "iva_importe >= 0",
+            name="ck_factura_iva_importe",
+        ),
+        CheckConstraint(
+            "retencion_porcentaje >= 0",
+            name="ck_factura_retencion_porcentaje",
+        ),
+        CheckConstraint(
+            "retencion_importe >= 0",
+            name="ck_factura_retencion_importe",
+        ),
+        CheckConstraint(
+            "total >= 0",
+            name="ck_factura_total",
+        ),
+        CheckConstraint(
+            "estado IN ('EMITIDA', 'ANULADA')",
+            name="ck_factura_estado",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    contrato_id: Mapped[int] = mapped_column(
+        ForeignKey("contrato.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    numero_secuencia: Mapped[int] = mapped_column(Integer, nullable=False)
+    anio: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    numero_factura: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        unique=True,
+    )
+
+    fecha_emision: Mapped[date] = mapped_column(Date, nullable=False)
+    periodo: Mapped[date] = mapped_column(Date, nullable=False)
+
+    base: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    iva_porcentaje: Mapped[int] = mapped_column(Integer, nullable=False)
+    iva_importe: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    retencion_porcentaje: Mapped[int] = mapped_column(Integer, nullable=False)
+    retencion_importe: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    total: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    revision_renta_id: Mapped[int | None] = mapped_column(
+        ForeignKey("revision_renta.id", ondelete="RESTRICT"),
+    )
+
+    aviso_revision: Mapped[str | None] = mapped_column(Text)
+
+    estado: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="EMITIDA",
+    )
+
+    ruta_pdf: Mapped[str] = mapped_column(Text, nullable=False)
+    notas: Mapped[str | None] = mapped_column(Text)
+
+    contrato: Mapped["Contrato"] = relationship(
+        back_populates="facturas",
+    )
+
+    revision_renta: Mapped["RevisionRenta | None"] = relationship(
+        back_populates="facturas",
+    )
+
+    lineas: Mapped[list["FacturaLinea"]] = relationship(
+        back_populates="factura",
+        passive_deletes="all",
+    )
+
+
+class FacturaLinea(Base):
+    """Representa un concepto económico incluido en una factura."""
+
+    __tablename__ = "factura_linea"
+
+    __table_args__ = (
+        CheckConstraint(
+            "tipo IN ('RENTA', 'DIFERENCIA_REVISION', 'REPERCUSION_GASTO')",
+            name="ck_factura_linea_tipo",
+        ),
+        UniqueConstraint(
+            "factura_id",
+            "orden",
+            name="uq_factura_linea_orden",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    factura_id: Mapped[int] = mapped_column(
+        ForeignKey("factura.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    orden: Mapped[int] = mapped_column(Integer, nullable=False)
+    tipo: Mapped[str] = mapped_column(Text, nullable=False)
+    concepto: Mapped[str] = mapped_column(Text, nullable=False)
+    importe: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    factura: Mapped["Factura"] = relationship(
+        back_populates="lineas",
+    )
 
