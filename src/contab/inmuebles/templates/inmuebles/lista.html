@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>Inmuebles - Contab</title>
+</head>
+<body>
+    <h1>Inmuebles</h1>
+
+    {% if inmuebles %}
+        <ul>
+        {% for inmueble in inmuebles %}
+            <li>
+                {{ inmueble.referencia }} -
+                {{ inmueble.descripcion }}
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No hay inmuebles registrados.</p>
+    {% endif %}
+
+    <p><a href="/">Volver al inicio</a></p>
+</body>
+</html>

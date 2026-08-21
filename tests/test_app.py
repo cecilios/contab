@@ -10,4 +10,5 @@ def test_index() -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.text == "Contab funciona"
+    assert "Contab" in response.text
+    assert "Inmuebles" in response.text
