@@ -6,10 +6,14 @@ from contab.models import Inmueble
 
 
 def crear_app_test():
-    """Crea una aplicación web con una base SQLite aislada para las pruebas."""
-    app = create_app("sqlite:///:memory:")
+    """Crea una aplicación con una base SQLite aislada para las pruebas."""
+    app = create_app(
+        {
+            "test": "sqlite:///:memory:",
+        }
+    )
 
-    session_factory = app.extensions["contab_session_factory"]
+    session_factory = app.extensions["contab_databases"]["test"]
     engine = session_factory.kw["bind"]
 
     Base.metadata.create_all(engine)
@@ -22,6 +26,11 @@ def test_listado_inmuebles_vacio() -> None:
     app = crear_app_test()
     client = app.test_client()
 
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
     response = client.get("/inmuebles/")
 
     assert response.status_code == 200
@@ -32,7 +41,7 @@ def test_listado_inmuebles_vacio() -> None:
 def test_listado_muestra_inmuebles_registrados() -> None:
     """Comprueba que el listado muestra los inmuebles almacenados."""
     app = crear_app_test()
-    session_factory = app.extensions["contab_session_factory"]
+    session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
         session.add(
@@ -48,6 +57,12 @@ def test_listado_muestra_inmuebles_registrados() -> None:
         session.commit()
 
     client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
     response = client.get("/inmuebles/")
 
     assert response.status_code == 200
@@ -61,6 +76,11 @@ def test_formulario_nuevo_inmueble_responde() -> None:
     app = crear_app_test()
     client = app.test_client()
 
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
     response = client.get("/inmuebles/nuevo")
 
     assert response.status_code == 200
@@ -73,6 +93,11 @@ def test_crear_inmueble_desde_formulario() -> None:
     """Comprueba que un inmueble válido se guarda desde la interfaz web."""
     app = crear_app_test()
     client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
 
     response = client.post(
         "/inmuebles/nuevo",
@@ -102,6 +127,11 @@ def test_crear_inmueble_rechaza_referencia_vacia() -> None:
     app = crear_app_test()
     client = app.test_client()
 
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
     response = client.post(
         "/inmuebles/nuevo",
         data={
@@ -128,6 +158,11 @@ def test_crear_inmueble_convierte_participacion_a_centesimas() -> None:
     app = crear_app_test()
     client = app.test_client()
 
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
     response = client.post(
         "/inmuebles/nuevo",
         data={
@@ -147,7 +182,7 @@ def test_crear_inmueble_convierte_participacion_a_centesimas() -> None:
 
     assert response.status_code == 302
 
-    session_factory = app.extensions["contab_session_factory"]
+    session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
         inmueble = session.query(Inmueble).filter_by(

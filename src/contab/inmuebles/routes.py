@@ -2,7 +2,6 @@
 
 from flask import (
     Blueprint,
-    current_app,
     redirect,
     render_template,
     request,
@@ -11,6 +10,7 @@ from flask import (
 from sqlalchemy import select
 
 from contab.models import Inmueble
+from contab.context import get_session_factory
 
 
 bp = Blueprint(
@@ -30,7 +30,7 @@ def _participacion_a_entero(valor: str) -> int:
 @bp.get("/")
 def listar_inmuebles():
     """Muestra el listado de inmuebles registrados en la base de datos."""
-    session_factory = current_app.extensions["contab_session_factory"]
+    session_factory = get_session_factory()
 
     with session_factory() as session:
         inmuebles = session.scalars(
@@ -65,7 +65,7 @@ def nuevo_inmueble():
             400,
         )
 
-    session_factory = current_app.extensions["contab_session_factory"]
+    session_factory = get_session_factory()
 
     inmueble = Inmueble(
         referencia=datos["referencia"].strip(),
