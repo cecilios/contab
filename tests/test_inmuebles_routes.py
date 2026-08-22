@@ -400,3 +400,153 @@ def test_crear_inmueble_rechaza_codigo_facturacion_duplicado() -> None:
 
     assert response.status_code == 400
     assert "Ya existe un inmueble con ese código de facturación." in response.text
+
+
+def test_formulario_editar_inmueble_muestra_datos_actuales() -> None:
+    """Comprueba que el formulario de edición muestra los datos existentes."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección inicial",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=10000,
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    response = client.get(f"/inmuebles/{inmueble_id}/editar")
+
+    assert response.status_code == 200
+    assert "Editar inmueble" in response.text
+    assert 'value="LOCAL-1"' in response.text
+    assert 'value="Dirección inicial"' in response.text
+    assert 'value="100,00"' in response.text
+
+
+def test_editar_inmueble_guarda_cambios() -> None:
+    """Comprueba que los cambios realizados en un inmueble se guardan."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección inicial",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=10000,
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/editar",
+        data={
+            "referencia": "LOCAL-1",
+            "codigo_facturacion": "A1",
+            "descripcion": "Local reformado",
+            "direccion": "Nueva dirección",
+            "codigo_postal": "36001",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "POL-999",
+            "participacion": "32,56",
+            "notas": "Datos actualizados",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Local reformado" in response.text
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.descripcion == "Local reformado"
+        assert inmueble.direccion == "Nueva dirección"
+        assert inmueble.participacion == 3256
+        assert inmueble.seguro == "POL-999"
+
+
+def test_editar_inmueble_inexistente_devuelve_404() -> None:
+    """Comprueba que editar un inmueble inexistente devuelve 404."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    response = client.get("/inmuebles/99999/editar")
+
+    assert response.status_code == 404
+
+
+def test_editar_inmueble_rechaza_referencia_de_otro_inmueble() -> None:
+    """Comprueba que la edición no puede duplicar la referencia de otro inmueble."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        primero = Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Primero",
+            direccion="Dirección 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        segundo = Inmueble(
+            referencia="LOCAL-2",
+            codigo_facturacion="A2",
+            descripcion="Segundo",
+            direccion="Dirección 2",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        session.add_all([primero, segundo])
+        session.commit()
+
+        segundo_id = segundo.id
+
+    response = client.post(
+        f"/inmuebles/{segundo_id}/editar",
+        data={
+            "referencia": "LOCAL-1",
+            "codigo_facturacion": "A2",
+            "descripcion": "Segundo",
+            "direccion": "Dirección 2",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "100,00",
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Ya existe un inmueble con esa referencia." in response.text

@@ -49,6 +49,77 @@ def _participacion_a_entero(valor: str) -> int:
     )
 
 
+def _validar_datos_inmueble(datos) -> tuple[dict, str | None]:
+    """Valida los datos del formulario y devuelve valores normalizados."""
+    campos_obligatorios = (
+        ("referencia", "La referencia es obligatoria."),
+        ("codigo_facturacion", "El código de facturación es obligatorio."),
+        ("descripcion", "La descripción es obligatoria."),
+        ("direccion", "La dirección es obligatoria."),
+        ("poblacion", "La población es obligatoria."),
+        ("provincia", "La provincia es obligatoria."),
+    )
+
+    for campo, mensaje in campos_obligatorios:
+        if not datos[campo].strip():
+            return {}, mensaje
+
+    try:
+        participacion = _participacion_a_entero(datos["participacion"])
+    except ValueError as exc:
+        return {}, str(exc)
+
+    valores = {
+        "referencia": datos["referencia"].strip(),
+        "codigo_facturacion": datos["codigo_facturacion"].strip(),
+        "descripcion": datos["descripcion"].strip(),
+        "direccion": datos["direccion"].strip(),
+        "codigo_postal": datos["codigo_postal"].strip() or None,
+        "poblacion": datos["poblacion"].strip(),
+        "provincia": datos["provincia"].strip(),
+        "ref_catastral": datos["ref_catastral"].strip() or None,
+        "seguro": datos["seguro"].strip() or None,
+        "participacion": participacion,
+        "notas": datos["notas"].strip() or None,
+    }
+
+    return valores, None
+
+
+def _buscar_duplicado(
+    session,
+    referencia: str,
+    codigo_facturacion: str,
+    excluir_id: int | None = None,
+) -> str | None:
+    """Detecta referencias o códigos de facturación ya utilizados."""
+    inmueble_referencia = session.scalar(
+        select(Inmueble).where(
+            Inmueble.referencia == referencia
+        )
+    )
+
+    if (
+        inmueble_referencia is not None
+        and inmueble_referencia.id != excluir_id
+    ):
+        return "Ya existe un inmueble con esa referencia."
+
+    inmueble_codigo = session.scalar(
+        select(Inmueble).where(
+            Inmueble.codigo_facturacion == codigo_facturacion
+        )
+    )
+
+    if (
+        inmueble_codigo is not None
+        and inmueble_codigo.id != excluir_id
+    ):
+        return "Ya existe un inmueble con ese código de facturación."
+
+    return None
+
+
 @bp.get("/")
 def listar_inmuebles():
     """Muestra el listado de inmuebles registrados en la base de datos."""
@@ -69,50 +140,25 @@ def listar_inmuebles():
 @bp.route("/nuevo", methods=["GET", "POST"])
 def nuevo_inmueble():
     """Permite introducir y guardar un nuevo inmueble."""
+
     if request.method == "GET":
         return render_template(
             "inmuebles/nuevo.html",
             datos={},
             error=None,
+            titulo="Nuevo inmueble",
             database_name=get_database_name(),
         )
 
-    datos = request.form
+    valores, error = _validar_datos_inmueble(request.form)
 
-    campos_obligatorios = (
-        ("referencia", "La referencia es obligatoria."),
-        (
-            "codigo_facturacion",
-            "El código de facturación es obligatorio.",
-        ),
-        ("descripcion", "La descripción es obligatoria."),
-        ("direccion", "La dirección es obligatoria."),
-        ("poblacion", "La población es obligatoria."),
-        ("provincia", "La provincia es obligatoria."),
-    )
-
-    for campo, mensaje in campos_obligatorios:
-        if not datos[campo].strip():
-            return (
-                render_template(
-                    "inmuebles/nuevo.html",
-                    datos=datos,
-                    error=mensaje,
-                    database_name=get_database_name(),
-                ),
-                400,
-            )
-
-    try:
-        participacion = _participacion_a_entero(
-            datos["participacion"]
-        )
-    except ValueError as exc:
+    if error:
         return (
             render_template(
                 "inmuebles/nuevo.html",
-                datos=datos,
-                error=str(exc),
+                datos=request.form,
+                error=error,
+                titulo="Nuevo inmueble",
                 database_name=get_database_name(),
             ),
             400,
@@ -121,61 +167,105 @@ def nuevo_inmueble():
     session_factory = get_session_factory()
 
     with session_factory() as session:
-        referencia = datos["referencia"].strip()
-        codigo_facturacion = datos["codigo_facturacion"].strip()
-
-        inmueble_referencia = session.scalar(
-            select(Inmueble).where(
-                Inmueble.referencia == referencia
-            )
+        error = _buscar_duplicado(
+            session,
+            valores["referencia"],
+            valores["codigo_facturacion"],
         )
 
-        if inmueble_referencia is not None:
+        if error:
             return (
                 render_template(
                     "inmuebles/nuevo.html",
-                    datos=datos,
-                    error="Ya existe un inmueble con esa referencia.",
+                    datos=request.form,
+                    error=error,
+                    titulo="Nuevo inmueble",
                     database_name=get_database_name(),
                 ),
                 400,
             )
 
-        inmueble_codigo = session.scalar(
-            select(Inmueble).where(
-                Inmueble.codigo_facturacion == codigo_facturacion
-            )
-        )
-
-        if inmueble_codigo is not None:
-            return (
-                render_template(
-                    "inmuebles/nuevo.html",
-                    datos=datos,
-                    error=(
-                        "Ya existe un inmueble con ese "
-                        "código de facturación."
-                    ),
-                    database_name=get_database_name(),
-                ),
-                400,
-            )
-
-        inmueble = Inmueble(
-            referencia=referencia,
-            codigo_facturacion=codigo_facturacion,
-            descripcion=datos["descripcion"].strip(),
-            direccion=datos["direccion"].strip(),
-            codigo_postal=datos["codigo_postal"].strip() or None,
-            poblacion=datos["poblacion"].strip(),
-            provincia=datos["provincia"].strip(),
-            ref_catastral=datos["ref_catastral"].strip() or None,
-            seguro=datos["seguro"].strip() or None,
-            participacion=participacion,
-            notas=datos["notas"].strip() or None,
-        )
+        inmueble = Inmueble(**valores)
 
         session.add(inmueble)
+        session.commit()
+
+    return redirect(url_for("inmuebles.listar_inmuebles"))
+
+
+@bp.route("/<int:inmueble_id>/editar", methods=["GET", "POST"])
+def editar_inmueble(inmueble_id: int):
+    """Permite modificar los datos de un inmueble existente."""
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        if inmueble is None:
+            return "Inmueble no encontrado.", 404
+
+        if request.method == "GET":
+            datos = {
+                "referencia": inmueble.referencia,
+                "codigo_facturacion": inmueble.codigo_facturacion,
+                "descripcion": inmueble.descripcion,
+                "direccion": inmueble.direccion,
+                "codigo_postal": inmueble.codigo_postal or "",
+                "poblacion": inmueble.poblacion,
+                "provincia": inmueble.provincia,
+                "ref_catastral": inmueble.ref_catastral or "",
+                "seguro": inmueble.seguro or "",
+                "participacion": f"{inmueble.participacion / 100:.2f}".replace(
+                    ".",
+                    ",",
+                ),
+                "notas": inmueble.notas or "",
+            }
+
+            return render_template(
+                "inmuebles/nuevo.html",
+                datos=datos,
+                error=None,
+                titulo="Editar inmueble",
+                database_name=get_database_name(),
+            )
+
+        valores, error = _validar_datos_inmueble(request.form)
+
+        if error:
+            return (
+                render_template(
+                    "inmuebles/nuevo.html",
+                    datos=request.form,
+                    error=error,
+                    titulo="Editar inmueble",
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+        error = _buscar_duplicado(
+            session,
+            valores["referencia"],
+            valores["codigo_facturacion"],
+            excluir_id=inmueble.id,
+        )
+
+        if error:
+            return (
+                render_template(
+                    "inmuebles/nuevo.html",
+                    datos=request.form,
+                    error=error,
+                    titulo="Editar inmueble",
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+        for campo, valor in valores.items():
+            setattr(inmueble, campo, valor)
+
         session.commit()
 
     return redirect(url_for("inmuebles.listar_inmuebles"))

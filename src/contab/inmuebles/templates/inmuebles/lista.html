@@ -17,6 +17,9 @@
             <li>
                 {{ inmueble.referencia }} -
                 {{ inmueble.descripcion }}
+                <a href="{{ url_for('inmuebles.editar_inmueble', inmueble_id=inmueble.id) }}">
+					Editar
+				</a>
             </li>
         {% endfor %}
         </ul>
