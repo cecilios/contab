@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>{% block title %}Contab{% endblock %}</title>
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/contab.css') }}"
+    >
+</head>
+<body>
+    <header class="site-header">
+        <div>
+            <strong>Contab</strong>
+
+            {% if database_name %}
+                <span class="database-info">
+                    Base activa:
+                    <strong>{{ database_name }}</strong>
+                </span>
+
+                <a href="{{ url_for('index') }}">
+                    Cambiar base de datos
+                </a>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

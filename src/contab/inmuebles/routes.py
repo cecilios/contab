@@ -8,7 +8,7 @@ from flask import (
     url_for,
 )
 from sqlalchemy import select
-
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from contab.models import Inmueble
 from contab.context import get_database_name, get_session_factory
 
@@ -23,7 +23,30 @@ bp = Blueprint(
 def _participacion_a_entero(valor: str) -> int:
     """Convierte un porcentaje escrito por el usuario a centésimas."""
     texto = valor.strip().replace(",", ".")
-    return round(float(texto) * 100)
+
+    try:
+        porcentaje = Decimal(texto)
+    except InvalidOperation as exc:
+        raise ValueError(
+            "La participación debe ser un porcentaje válido."
+        ) from exc
+
+    if porcentaje <= 0:
+        raise ValueError(
+            "La participación debe ser superior al 0 %."
+        )
+
+    if porcentaje > 100:
+        raise ValueError(
+            "La participación no puede superar el 100 %."
+        )
+
+    return int(
+        (porcentaje * 100).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
 
 
 @bp.get("/")
@@ -56,34 +79,102 @@ def nuevo_inmueble():
 
     datos = request.form
 
-    if not datos["referencia"].strip():
+    campos_obligatorios = (
+        ("referencia", "La referencia es obligatoria."),
+        (
+            "codigo_facturacion",
+            "El código de facturación es obligatorio.",
+        ),
+        ("descripcion", "La descripción es obligatoria."),
+        ("direccion", "La dirección es obligatoria."),
+        ("poblacion", "La población es obligatoria."),
+        ("provincia", "La provincia es obligatoria."),
+    )
+
+    for campo, mensaje in campos_obligatorios:
+        if not datos[campo].strip():
+            return (
+                render_template(
+                    "inmuebles/nuevo.html",
+                    datos=datos,
+                    error=mensaje,
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+    try:
+        participacion = _participacion_a_entero(
+            datos["participacion"]
+        )
+    except ValueError as exc:
         return (
             render_template(
                 "inmuebles/nuevo.html",
                 datos=datos,
-                error="La referencia es obligatoria.",
-               database_name=get_database_name(),
+                error=str(exc),
+                database_name=get_database_name(),
             ),
             400,
         )
 
     session_factory = get_session_factory()
 
-    inmueble = Inmueble(
-        referencia=datos["referencia"].strip(),
-        codigo_facturacion=datos["codigo_facturacion"].strip(),
-        descripcion=datos["descripcion"].strip(),
-        direccion=datos["direccion"].strip(),
-        codigo_postal=datos["codigo_postal"].strip() or None,
-        poblacion=datos["poblacion"].strip(),
-        provincia=datos["provincia"].strip(),
-        ref_catastral=datos["ref_catastral"].strip() or None,
-        seguro=datos["seguro"].strip() or None,
-        participacion=_participacion_a_entero(datos["participacion"]),
-        notas=datos["notas"].strip() or None,
-    )
-
     with session_factory() as session:
+        referencia = datos["referencia"].strip()
+        codigo_facturacion = datos["codigo_facturacion"].strip()
+
+        inmueble_referencia = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia == referencia
+            )
+        )
+
+        if inmueble_referencia is not None:
+            return (
+                render_template(
+                    "inmuebles/nuevo.html",
+                    datos=datos,
+                    error="Ya existe un inmueble con esa referencia.",
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+        inmueble_codigo = session.scalar(
+            select(Inmueble).where(
+                Inmueble.codigo_facturacion == codigo_facturacion
+            )
+        )
+
+        if inmueble_codigo is not None:
+            return (
+                render_template(
+                    "inmuebles/nuevo.html",
+                    datos=datos,
+                    error=(
+                        "Ya existe un inmueble con ese "
+                        "código de facturación."
+                    ),
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+        inmueble = Inmueble(
+            referencia=referencia,
+            codigo_facturacion=codigo_facturacion,
+            descripcion=datos["descripcion"].strip(),
+            direccion=datos["direccion"].strip(),
+            codigo_postal=datos["codigo_postal"].strip() or None,
+            poblacion=datos["poblacion"].strip(),
+            provincia=datos["provincia"].strip(),
+            ref_catastral=datos["ref_catastral"].strip() or None,
+            seguro=datos["seguro"].strip() or None,
+            participacion=participacion,
+            notas=datos["notas"].strip() or None,
+        )
+
         session.add(inmueble)
         session.commit()
 

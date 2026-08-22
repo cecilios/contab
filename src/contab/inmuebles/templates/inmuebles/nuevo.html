@@ -1,99 +1,122 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Nuevo inmueble - Contab</title>
-</head>
-<body>
-    <header>
-        <p>
-            Contab —
-            Base activa: <strong>{{ database_name }}</strong>
-            |
-            <a href="/">Cambiar base de datos</a>
-        </p>
-    </header>
+{% extends "base.html" %}
+
+{% block title %}Nuevo inmueble - Contab{% endblock %}
+
+{% block content %}
     <h1>Nuevo inmueble</h1>
 
+    <p class="required-note">
+        Los campos marcados con (*) son obligatorios.
+    </p>
+
     {% if error %}
-        <p>{{ error }}</p>
+        <p class="error">{{ error }}</p>
     {% endif %}
 
     <form method="post">
-        <p>
-            <label>Referencia<br>
-                <input name="referencia" value="{{ datos.get('referencia', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="referencia">Referencia (*)</label>
+            <input
+                id="referencia"
+                name="referencia"
+                value="{{ datos.get('referencia', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Código de facturación<br>
-                <input name="codigo_facturacion"
-                       value="{{ datos.get('codigo_facturacion', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="codigo_facturacion">Código de facturación (*)</label>
+            <input
+                id="codigo_facturacion"
+                name="codigo_facturacion"
+                value="{{ datos.get('codigo_facturacion', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Descripción<br>
-                <input name="descripcion" value="{{ datos.get('descripcion', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="descripcion">Descripción (*)</label>
+            <input
+                id="descripcion"
+                name="descripcion"
+                value="{{ datos.get('descripcion', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Dirección<br>
-                <input name="direccion" value="{{ datos.get('direccion', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="direccion">Dirección (*)</label>
+            <input
+                id="direccion"
+                name="direccion"
+                value="{{ datos.get('direccion', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Código postal<br>
-                <input name="codigo_postal"
-                       value="{{ datos.get('codigo_postal', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="codigo_postal">Código postal</label>
+            <input
+                id="codigo_postal"
+                name="codigo_postal"
+                value="{{ datos.get('codigo_postal', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Población<br>
-                <input name="poblacion" value="{{ datos.get('poblacion', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="poblacion">Población (*)</label>
+            <input
+                id="poblacion"
+                name="poblacion"
+                value="{{ datos.get('poblacion', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Provincia<br>
-                <input name="provincia" value="{{ datos.get('provincia', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="provincia">Provincia (*)</label>
+            <input
+                id="provincia"
+                name="provincia"
+                value="{{ datos.get('provincia', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Referencia catastral<br>
-                <input name="ref_catastral"
-                       value="{{ datos.get('ref_catastral', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="ref_catastral">Referencia catastral</label>
+            <input
+                id="ref_catastral"
+                name="ref_catastral"
+                value="{{ datos.get('ref_catastral', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Seguro<br>
-                <input name="seguro" value="{{ datos.get('seguro', '') }}">
-            </label>
+        <p class="form-field">
+            <label for="seguro">Seguro</label>
+            <input
+                id="seguro"
+                name="seguro"
+                value="{{ datos.get('seguro', '') }}"
+            >
         </p>
 
-        <p>
-            <label>Participación (%)<br>
-                <input name="participacion"
-                       value="{{ datos.get('participacion', '100,00') }}">
-            </label>
+        <p class="form-field">
+            <label for="participacion">Participación (%) (*)</label>
+            <input
+                id="participacion"
+                name="participacion"
+                value="{{ datos.get('participacion', '100,00') }}"
+            >
         </p>
 
-        <p>
-            <label>Notas<br>
-                <textarea name="notas">{{ datos.get('notas', '') }}</textarea>
-            </label>
+        <p class="form-field">
+            <label for="notas">Notas</label>
+            <textarea
+                id="notas"
+                name="notas"
+            >{{ datos.get('notas', '') }}</textarea>
         </p>
 
-        <p>
+        <p class="form-actions">
             <button type="submit">Guardar</button>
-            <a href="/inmuebles/">Cancelar</a>
+            <a href="{{ url_for('inmuebles.listar_inmuebles') }}">
+                Cancelar
+            </a>
         </p>
     </form>
-</body>
-</html>
+{% endblock %}

@@ -1,10 +1,55 @@
 """Pruebas de las rutas web del módulo de inmuebles."""
 
+import pytest
 from contab.app import create_app
 from contab.database import Base
 from contab.models import Inmueble
 
+@pytest.mark.parametrize(
+    ("campo", "mensaje"),
+    [
+        ("referencia", "La referencia es obligatoria."),
+        ("codigo_facturacion", "El código de facturación es obligatorio."),
+        ("descripcion", "La descripción es obligatoria."),
+        ("direccion", "La dirección es obligatoria."),
+        ("poblacion", "La población es obligatoria."),
+        ("provincia", "La provincia es obligatoria."),
+    ],
+)
+def test_crear_inmueble_rechaza_campos_obligatorios_vacios(
+    campo, mensaje
+) -> None:
+    """Comprueba que los campos obligatorios no pueden quedar vacíos."""
+    app = crear_app_test()
+    client = app.test_client()
 
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "referencia": "LOCAL-1",
+        "codigo_facturacion": "A1",
+        "descripcion": "Local comercial",
+        "direccion": "Dirección",
+        "codigo_postal": "",
+        "poblacion": "Pontevedra",
+        "provincia": "Pontevedra",
+        "ref_catastral": "",
+        "seguro": "",
+        "participacion": "100,00",
+        "notas": "",
+    }
+
+    datos[campo] = ""
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert mensaje in response.text
+
+    
 def crear_app_test():
     """Crea una aplicación con una base SQLite aislada para las pruebas."""
     app = create_app(
@@ -207,3 +252,151 @@ def test_listado_muestra_base_activa() -> None:
     assert response.status_code == 200
     assert "Base activa:" in response.text
     assert "test" in response.text
+
+
+def test_crear_inmueble_rechaza_participacion_cero() -> None:
+    """Comprueba que la participación debe ser superior al 0 %."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data={
+            "referencia": "LOCAL-1",
+            "codigo_facturacion": "A1",
+            "descripcion": "Local comercial",
+            "direccion": "Dirección",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "0",
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "La participación debe ser superior al 0 %." in response.text
+
+
+def test_crear_inmueble_rechaza_participacion_superior_a_cien() -> None:
+    """Comprueba que la participación no puede superar el 100 %."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data={
+            "referencia": "LOCAL-1",
+            "codigo_facturacion": "A1",
+            "descripcion": "Local comercial",
+            "direccion": "Dirección",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "100,01",
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "La participación no puede superar el 100 %." in response.text
+
+
+def test_crear_inmueble_rechaza_participacion_no_numerica() -> None:
+    """Comprueba que la participación debe contener un porcentaje válido."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data={
+            "referencia": "LOCAL-1",
+            "codigo_facturacion": "A1",
+            "descripcion": "Local comercial",
+            "direccion": "Dirección",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "abc",
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "La participación debe ser un porcentaje válido." in response.text
+
+
+def test_crear_inmueble_rechaza_referencia_duplicada() -> None:
+    """Comprueba que dos inmuebles no pueden compartir referencia."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "referencia": "LOCAL-1",
+        "codigo_facturacion": "A1",
+        "descripcion": "Local comercial",
+        "direccion": "Dirección",
+        "codigo_postal": "",
+        "poblacion": "Pontevedra",
+        "provincia": "Pontevedra",
+        "ref_catastral": "",
+        "seguro": "",
+        "participacion": "100,00",
+        "notas": "",
+    }
+
+    response = client.post("/inmuebles/nuevo", data=datos)
+    assert response.status_code == 302
+
+    datos["codigo_facturacion"] = "A2"
+
+    response = client.post("/inmuebles/nuevo", data=datos)
+
+    assert response.status_code == 400
+    assert "Ya existe un inmueble con esa referencia." in response.text
+
+
+def test_crear_inmueble_rechaza_codigo_facturacion_duplicado() -> None:
+    """Comprueba que dos inmuebles no pueden compartir código de facturación."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "referencia": "LOCAL-1",
+        "codigo_facturacion": "A1",
+        "descripcion": "Local comercial",
+        "direccion": "Dirección",
+        "codigo_postal": "",
+        "poblacion": "Pontevedra",
+        "provincia": "Pontevedra",
+        "ref_catastral": "",
+        "seguro": "",
+        "participacion": "100,00",
+        "notas": "",
+    }
+
+    response = client.post("/inmuebles/nuevo", data=datos)
+    assert response.status_code == 302
+
+    datos["referencia"] = "LOCAL-2"
+
+    response = client.post("/inmuebles/nuevo", data=datos)
+
+    assert response.status_code == 400
+    assert "Ya existe un inmueble con ese código de facturación." in response.text

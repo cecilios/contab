@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Contab{% endblock %}
+
+{% block content %}
+    <h1>Contab</h1>
+
+    <form method="post">
+        <p>
+            <label for="database">Base de datos</label>
+        </p>
+
+        <p>
+            <select id="database" name="database">
+            {% for nombre in databases %}
+                <option value="{{ nombre }}">
+                    {{ nombre }}
+                </option>
+            {% endfor %}
+            </select>
+        </p>
+
+        <p>
+            <button type="submit">Entrar</button>
+        </p>
+    </form>
+{% endblock %}

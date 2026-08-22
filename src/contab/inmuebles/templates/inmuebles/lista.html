@@ -1,20 +1,15 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Inmuebles - Contab</title>
-</head>
-<body>
-    <header>
-        <p>
-            Contab —
-            Base activa: <strong>{{ database_name }}</strong>
-            |
-            <a href="/">Cambiar base de datos</a>
-        </p>
-    </header>
+{% extends "base.html" %}
+
+{% block title %}Inmuebles - Contab{% endblock %}
+
+{% block content %}
     <h1>Inmuebles</h1>
-    <p><a href="{{ url_for('inmuebles.nuevo_inmueble') }}">Nuevo inmueble</a></p>
+
+    <p>
+        <a href="{{ url_for('inmuebles.nuevo_inmueble') }}">
+            Nuevo inmueble
+        </a>
+    </p>
 
     {% if inmuebles %}
         <ul>
@@ -28,7 +23,4 @@
     {% else %}
         <p>No hay inmuebles registrados.</p>
     {% endif %}
-
-    <p><a href="/">Volver al inicio</a></p>
-</body>
-</html>
+{% endblock %}

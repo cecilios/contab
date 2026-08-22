@@ -1,6 +1,6 @@
 """Crea y configura la aplicación web Flask de Contab."""
 
-from flask import Flask, redirect, render_template_string, request, session, url_for
+from flask import Flask, redirect, render_template, request, session, url_for
 
 from contab.database import create_session_factory, create_sqlite_engine
 from contab.inmuebles.routes import bp as inmuebles_bp
@@ -42,35 +42,10 @@ def create_app(
 
             return redirect(url_for("inmuebles.listar_inmuebles"))
 
-        return render_template_string(
-            """
-            <!doctype html>
-            <html lang="es">
-            <head>
-                <meta charset="utf-8">
-                <title>Contab</title>
-            </head>
-            <body>
-                <h1>Contab</h1>
-
-                <form method="post">
-                    <label>
-                        Base de datos
-                        <select name="database">
-                        {% for nombre in databases %}
-                            <option value="{{ nombre }}">
-                                {{ nombre }}
-                            </option>
-                        {% endfor %}
-                        </select>
-                    </label>
-
-                    <button type="submit">Entrar</button>
-                </form>
-            </body>
-            </html>
-            """,
+        return render_template(
+            "index.html",
             databases=app.extensions["contab_databases"].keys(),
+            database_name=None,
         )
 
     return app
