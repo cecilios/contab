@@ -16,7 +16,6 @@ from datetime import date
 from contab.database import Base
 
 
-
 class Inmueble(Base):
     """Representa un inmueble o unidad arrendable gestionada por Contab."""
 
@@ -75,7 +74,12 @@ class Inquilino(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     nombre: Mapped[str] = mapped_column(Text, nullable=False)
-    nif: Mapped[str] = mapped_column(Text, nullable=False)
+
+    nif: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        unique=True,
+    )
 
     direccion: Mapped[str | None] = mapped_column(Text)
     codigo_postal: Mapped[str | None] = mapped_column(Text)
@@ -220,6 +224,7 @@ class ContratoInquilino(Base):
     contrato: Mapped["Contrato"] = relationship(
         back_populates="titulares",
     )
+
     inquilino: Mapped["Inquilino"] = relationship(
         back_populates="contratos",
     )
@@ -476,4 +481,3 @@ class FacturaLinea(Base):
     factura: Mapped["Factura"] = relationship(
         back_populates="lineas",
     )
-
