@@ -9,22 +9,32 @@
     >
 </head>
 <body>
-    <header class="site-header">
-        <div>
-            <strong>Contab</strong>
+	<header class="site-header">
+		<div>
+			<strong>Contab</strong>
 
-            {% if database_name %}
-                <span class="database-info">
-                    Base activa:
-                    <strong>{{ database_name }}</strong>
-                </span>
+			{% if database_name %}
+				<span class="database-info">
+					Base activa:
+					<strong>{{ database_name }}</strong>
+				</span>
 
-                <a href="{{ url_for('index') }}">
-                    Cambiar base de datos
-                </a>
-            {% endif %}
-        </div>
-    </header>
+				<nav class="main-nav">
+					<a href="{{ url_for('inmuebles.listar_inmuebles') }}">
+						Inmuebles
+					</a>
+
+					<a href="{{ url_for('inquilinos.listar_inquilinos') }}">
+						Inquilinos
+					</a>
+
+					<a href="{{ url_for('index') }}">
+						Cambiar base de datos
+					</a>
+				</nav>
+			{% endif %}
+		</div>
+	</header>
 
     <main class="content">
         {% block content %}{% endblock %}

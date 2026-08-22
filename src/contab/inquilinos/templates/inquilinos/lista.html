@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Inquilinos - Contab{% endblock %}
+
+{% block content %}
+    <h1>Inquilinos</h1>
+
+    <p>
+        <a href="{{ url_for('inquilinos.nuevo_inquilino') }}">
+            Nuevo inquilino
+        </a>
+    </p>
+
+    {% if inquilinos %}
+        <ul>
+        {% for inquilino in inquilinos %}
+			<li>
+				{{ inquilino.nombre }} -
+				{{ inquilino.nif }}
+				-
+				<a href="{{ url_for('inquilinos.editar_inquilino', inquilino_id=inquilino.id) }}">
+					Editar
+				</a>
+			</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No hay inquilinos registrados.</p>
+    {% endif %}
+{% endblock %}

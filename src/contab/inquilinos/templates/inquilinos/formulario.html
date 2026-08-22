@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}{{ titulo }} - Contab{% endblock %}
+
+{% block content %}
+    <h1>{{ titulo }}</h1>
+
+    <p class="required-note">
+        Los campos marcados con (*) son obligatorios.
+    </p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <p class="form-field">
+            <label for="nombre">Nombre (*)</label>
+            <input
+                id="nombre"
+                name="nombre"
+                value="{{ datos.get('nombre', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="nif">NIF (*)</label>
+            <input
+                id="nif"
+                name="nif"
+                value="{{ datos.get('nif', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="direccion">Dirección</label>
+            <input
+                id="direccion"
+                name="direccion"
+                value="{{ datos.get('direccion', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="codigo_postal">Código postal</label>
+            <input
+                id="codigo_postal"
+                name="codigo_postal"
+                value="{{ datos.get('codigo_postal', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="poblacion">Población</label>
+            <input
+                id="poblacion"
+                name="poblacion"
+                value="{{ datos.get('poblacion', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="provincia">Provincia</label>
+            <input
+                id="provincia"
+                name="provincia"
+                value="{{ datos.get('provincia', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="email">Correo electrónico</label>
+            <input
+                id="email"
+                name="email"
+                value="{{ datos.get('email', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="telefono">Teléfono</label>
+            <input
+                id="telefono"
+                name="telefono"
+                value="{{ datos.get('telefono', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="notas">Notas</label>
+            <textarea
+                id="notas"
+                name="notas"
+            >{{ datos.get('notas', '') }}</textarea>
+        </p>
+
+        <p class="form-actions">
+            <button type="submit">Guardar</button>
+            <a href="{{ url_for('inquilinos.listar_inquilinos') }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}
