@@ -10,8 +10,7 @@ from flask import (
 from sqlalchemy import select
 
 from contab.models import Inmueble
-from contab.context import get_session_factory
-
+from contab.context import get_database_name, get_session_factory
 
 bp = Blueprint(
     "inmuebles",
@@ -40,6 +39,7 @@ def listar_inmuebles():
         return render_template(
             "inmuebles/lista.html",
             inmuebles=inmuebles,
+            database_name=get_database_name(),
         )
 
 
@@ -51,6 +51,7 @@ def nuevo_inmueble():
             "inmuebles/nuevo.html",
             datos={},
             error=None,
+            database_name=get_database_name(),
         )
 
     datos = request.form
@@ -61,6 +62,7 @@ def nuevo_inmueble():
                 "inmuebles/nuevo.html",
                 datos=datos,
                 error="La referencia es obligatoria.",
+               database_name=get_database_name(),
             ),
             400,
         )

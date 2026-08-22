@@ -19,3 +19,8 @@ def get_session_factory():
     databases = current_app.extensions["contab_databases"]
 
     return databases[nombre]
+
+
+def get_database_name() -> str | None:
+    """Devuelve el nombre de la base de datos activa en la sesión."""
+    return session.get("database")

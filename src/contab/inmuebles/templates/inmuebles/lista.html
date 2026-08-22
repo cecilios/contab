@@ -5,6 +5,14 @@
     <title>Inmuebles - Contab</title>
 </head>
 <body>
+    <header>
+        <p>
+            Contab —
+            Base activa: <strong>{{ database_name }}</strong>
+            |
+            <a href="/">Cambiar base de datos</a>
+        </p>
+    </header>
     <h1>Inmuebles</h1>
     <p><a href="{{ url_for('inmuebles.nuevo_inmueble') }}">Nuevo inmueble</a></p>
 

@@ -190,3 +190,20 @@ def test_crear_inmueble_convierte_participacion_a_centesimas() -> None:
         ).one()
 
         assert inmueble.participacion == 3256
+
+
+def test_listado_muestra_base_activa() -> None:
+    """Comprueba que la interfaz muestra la base de datos seleccionada."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get("/inmuebles/")
+
+    assert response.status_code == 200
+    assert "Base activa:" in response.text
+    assert "test" in response.text
