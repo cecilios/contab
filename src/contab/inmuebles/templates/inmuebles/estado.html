@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ accion }} inmueble - Contab
+{% endblock %}
+
+{% block content %}
+    <h1>{{ accion }} inmueble</h1>
+
+    {% if inmueble.activo %}
+        <p>
+            Este inmueble quedará inactivo y ya no se tendrá en cuenta
+            en la gestión de Contab. Permanecerá a efectos históricos.
+        </p>
+    {% else %}
+        <p>
+            Este inmueble volverá a estar activo y se tendrá en cuenta
+            en la gestión de Contab.
+        </p>
+    {% endif %}
+
+    <p>
+        <strong>
+            {{ inmueble.referencia }} - {{ inmueble.descripcion }}
+        </strong>
+    </p>
+
+    <form method="post">
+        <button type="submit">{{ accion }}</button>
+
+        <a href="{{ url_for('inmuebles.listar_inmuebles') }}">
+            Cancelar
+        </a>
+    </form>
+{% endblock %}

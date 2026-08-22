@@ -269,3 +269,30 @@ def editar_inmueble(inmueble_id: int):
         session.commit()
 
     return redirect(url_for("inmuebles.listar_inmuebles"))
+
+
+@bp.route("/<int:inmueble_id>/estado", methods=["GET", "POST"])
+def cambiar_estado_inmueble(inmueble_id: int):
+    """Permite activar o desactivar un inmueble previa confirmación."""
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        if inmueble is None:
+            return "Inmueble no encontrado.", 404
+
+        accion = "Desactivar" if inmueble.activo else "Activar"
+
+        if request.method == "GET":
+            return render_template(
+                "inmuebles/estado.html",
+                inmueble=inmueble,
+                accion=accion,
+                database_name=get_database_name(),
+            )
+
+        inmueble.activo = not inmueble.activo
+        session.commit()
+
+    return redirect(url_for("inmuebles.listar_inmuebles"))

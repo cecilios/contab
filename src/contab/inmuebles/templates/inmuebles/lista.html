@@ -14,13 +14,24 @@
     {% if inmuebles %}
         <ul>
         {% for inmueble in inmuebles %}
-            <li>
-                {{ inmueble.referencia }} -
-                {{ inmueble.descripcion }}
-                <a href="{{ url_for('inmuebles.editar_inmueble', inmueble_id=inmueble.id) }}">
+			<li>
+				{{ inmueble.referencia }} -
+				{{ inmueble.descripcion }}
+
+				{% if not inmueble.activo %}
+					- <strong>INACTIVO</strong>
+				{% endif %}
+
+				-
+				<a href="{{ url_for('inmuebles.editar_inmueble', inmueble_id=inmueble.id) }}">
 					Editar
 				</a>
-            </li>
+
+				-
+				<a href="{{ url_for('inmuebles.cambiar_estado_inmueble', inmueble_id=inmueble.id) }}">
+					{{ "Desactivar" if inmueble.activo else "Activar" }}
+				</a>
+			</li>
         {% endfor %}
         </ul>
     {% else %}

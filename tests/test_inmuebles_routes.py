@@ -550,3 +550,151 @@ def test_editar_inmueble_rechaza_referencia_de_otro_inmueble() -> None:
 
     assert response.status_code == 400
     assert "Ya existe un inmueble con esa referencia." in response.text
+
+
+def test_confirmar_desactivacion_inmueble() -> None:
+    """Comprueba que se muestra confirmación antes de desactivar un inmueble."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            activo=True,
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    response = client.get(f"/inmuebles/{inmueble_id}/estado")
+
+    assert response.status_code == 200
+    assert "Este inmueble quedará inactivo" in response.text
+    assert "Permanecerá a efectos históricos" in response.text
+    assert "Desactivar" in response.text
+    assert "Cancelar" in response.text
+
+
+def test_desactivar_inmueble() -> None:
+    """Comprueba que confirmar la desactivación marca el inmueble como inactivo."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            activo=True,
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/estado",
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "INACTIVO" in response.text
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.activo is False
+
+
+def test_confirmar_activacion_inmueble() -> None:
+    """Comprueba que se muestra confirmación antes de activar un inmueble."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            activo=False,
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    response = client.get(f"/inmuebles/{inmueble_id}/estado")
+
+    assert response.status_code == 200
+    assert "Este inmueble volverá a estar activo" in response.text
+    assert "Activar" in response.text
+    assert "Cancelar" in response.text
+
+
+def test_activar_inmueble() -> None:
+    """Comprueba que confirmar la activación marca el inmueble como activo."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            activo=False,
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/estado",
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.activo is True
+
+
+def test_cambiar_estado_inmueble_inexistente_devuelve_404() -> None:
+    """Comprueba que cambiar el estado de un inmueble inexistente devuelve 404."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    response = client.get("/inmuebles/99999/estado")
+
+    assert response.status_code == 404
