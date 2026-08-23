@@ -1,6 +1,7 @@
 """Configura el entorno de migraciones Alembic para los modelos de Contab."""
 
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
@@ -18,10 +19,30 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+DATABASES = {
+    "principal": f"sqlite:///{PROJECT_ROOT / 'contab.db'}",
+    "demo": f"sqlite:///{PROJECT_ROOT / 'demo.db'}",
+}
+
+
+def get_database_url() -> str:
+    """Devuelve la URL de la base seleccionada para la migración."""
+    argumentos = context.get_x_argument(as_dictionary=True)
+    nombre = argumentos.get("database")
+
+    if nombre is None:
+        return config.get_main_option("sqlalchemy.url")
+
+    try:
+        return DATABASES[nombre]
+    except KeyError as exc:
+        disponibles = ", ".join(DATABASES)
+        raise RuntimeError(
+            f"Base de datos desconocida: {nombre}. "
+            f"Disponibles: {disponibles}."
+        ) from exc
 
 
 def run_migrations_offline() -> None:
@@ -36,7 +57,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = get_database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -53,8 +74,12 @@ def run_migrations_online() -> None:
 
     In this scenario we need to create an Engine
     and associate a connection with the context.
-
     """
+    config.set_main_option(
+        "sqlalchemy.url",
+        get_database_url(),
+    )
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -63,12 +88,12 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
         )
 
         with context.begin_transaction():
             context.run_migrations()
-
 
 if context.is_offline_mode():
     run_migrations_offline()
