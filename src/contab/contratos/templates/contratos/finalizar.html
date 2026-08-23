@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Finalizar contrato - Contab{% endblock %}
+
+{% block content %}
+    <h1>Finalizar contrato</h1>
+
+    <p>
+        <strong>
+            {{ contrato.inmueble.referencia }}
+        </strong>
+        -
+        {% for titular in contrato.titulares %}
+            {{ titular.inquilino.nombre }}
+            {% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </p>
+
+    <p>
+        Al finalizar el contrato dejará de considerarse vigente
+        a partir de la fecha indicada, pero permanecerá en la
+        base de datos a efectos históricos.
+    </p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <p class="form-field">
+            <label for="fecha_fin">
+                Fecha de finalización (*)
+            </label>
+
+            <input
+                type="text"
+                id="fecha_fin"
+                name="fecha_fin"
+                placeholder="dd/mm/aaaa"
+                value="{{ request.form.get('fecha_fin', '') }}"
+            >
+        </p>
+
+        <p class="form-actions">
+            <button type="submit">Finalizar</button>
+
+            <a href="{{ url_for('contratos.listar_contratos') }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}

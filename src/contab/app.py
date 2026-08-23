@@ -5,6 +5,7 @@ from flask import Flask, redirect, render_template, request, session, url_for
 from contab.database import create_session_factory, create_sqlite_engine
 from contab.inmuebles.routes import bp as inmuebles_bp
 from contab.inquilinos.routes import bp as inquilinos_bp
+from contab.contratos.routes import bp as contratos_bp
 
 
 def create_app(
@@ -30,6 +31,7 @@ def create_app(
 
     app.register_blueprint(inmuebles_bp)
     app.register_blueprint(inquilinos_bp)
+    app.register_blueprint(contratos_bp)
 
     @app.route("/", methods=["GET", "POST"])
     def index():

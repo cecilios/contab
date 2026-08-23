@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Contratos - Contab{% endblock %}
+
+{% block content %}
+    <h1>Contratos</h1>
+
+    <p>
+        <a href="{{ url_for('contratos.nuevo_contrato') }}">
+            Nuevo contrato
+        </a>
+    </p>
+
+    {% if contratos %}
+        <ul>
+        {% for contrato in contratos %}
+            <li>
+                {{ contrato.inmueble.referencia }}
+                -
+                {% for titular in contrato.titulares %}
+                    {{ titular.inquilino.nombre }}
+                    {% if not loop.last %}, {% endif %}
+                {% endfor %}
+                -
+                {{ contrato.fecha_inicio.strftime('%d/%m/%Y') }}
+
+                {% if contrato.fecha_fin %}
+                    - FINALIZADO
+                -
+                {% endif %}
+                - <a href="{{ url_for('contratos.editar_contrato', contrato_id=contrato.id) }}">
+                    Editar
+                </a>
+                {% if not contrato.fecha_fin %}
+                    |
+                    <a href="{{ url_for(
+                        'contratos.finalizar_contrato',
+                        contrato_id=contrato.id
+                    ) }}">
+                        Finalizar
+                    </a>
+                {% endif %}
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No hay contratos registrados.</p>
+    {% endif %}
+{% endblock %}

@@ -62,3 +62,8 @@ button {
 .main-nav a {
     margin-right: 1rem;
 }
+
+.order-input {
+    width: 4rem;
+    min-width: 4rem;
+}

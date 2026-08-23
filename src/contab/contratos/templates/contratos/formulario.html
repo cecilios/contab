@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}{{ titulo }} - Contab{% endblock %}
+
+{% block content %}
+    <h1>{{ titulo }}</h1>
+
+    <p class="required-note">
+        Los campos marcados con (*) son obligatorios.
+    </p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <p class="form-field">
+            <label for="inmueble_id">Inmueble (*)</label>
+            <select id="inmueble_id" name="inmueble_id">
+                {% for inmueble in inmuebles %}
+                    <option
+                        value="{{ inmueble.id }}"
+                        {% if datos.get('inmueble_id')|string == inmueble.id|string %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ inmueble.referencia }} -
+                        {{ inmueble.descripcion }}
+                    </option>
+                {% endfor %}
+            </select>
+        </p>
+
+        <fieldset>
+            <legend>Titulares (*)</legend>
+
+            {% for inquilino in inquilinos %}
+                <p class="form-field">
+                    <label>
+                        <input
+                            type="checkbox"
+                            name="titular_seleccionado"
+                            value="{{ inquilino.id }}"
+                            {% if inquilino.id|string in titulares_seleccionados %}
+                                checked
+                            {% endif %}
+                        >
+                        {{ inquilino.nombre }} - {{ inquilino.nif }}
+                    </label>
+
+                    <label for="titular_orden_{{ inquilino.id }}">
+                        Orden
+                    </label>
+
+                    <input
+                        type="number"
+                        min="1"
+                        max="99"
+                        class="order-input"
+                        id="titular_orden_{{ inquilino.id }}"
+                        name="titular_orden_{{ inquilino.id }}"
+                        value="{{ datos.get(
+                            'titular_orden_' ~ inquilino.id|string,
+                            ''
+                        ) }}"
+                    >
+                </p>
+            {% endfor %}
+        </fieldset>
+
+        <p class="form-field">
+            <label for="fecha_inicio">Fecha de inicio (*)</label>
+            <input
+                type="text"
+                id="fecha_inicio"
+                name="fecha_inicio"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_inicio', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_vencimiento">Fecha de vencimiento (*)</label>
+            <input
+                type="text"
+                id="fecha_vencimiento"
+                name="fecha_vencimiento"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_vencimiento', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_fin">Fecha de resolución</label>
+            <input
+                type="text"
+                id="fecha_fin"
+                name="fecha_fin"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_fin', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_inicio_facturacion">
+                Inicio de facturación (*)
+            </label>
+            <input
+                type="text"
+                id="fecha_inicio_facturacion"
+                name="fecha_inicio_facturacion"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_inicio_facturacion', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fianza">Fianza (€) (*)</label>
+            <input
+                id="fianza"
+                name="fianza"
+                value="{{ datos.get('fianza', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="iva_porcentaje">IVA (%) (*)</label>
+            <input
+                id="iva_porcentaje"
+                name="iva_porcentaje"
+                value="{{ datos.get('iva_porcentaje', '21,00') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="retencion_porcentaje">Retención (%) (*)</label>
+            <input
+                id="retencion_porcentaje"
+                name="retencion_porcentaje"
+                value="{{ datos.get('retencion_porcentaje', '19,00') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="direccion_facturacion">
+                Dirección de facturación (*)
+            </label>
+            <input
+                id="direccion_facturacion"
+                name="direccion_facturacion"
+                value="{{ datos.get('direccion_facturacion', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="codigo_postal_facturacion">
+                Código postal
+            </label>
+            <input
+                id="codigo_postal_facturacion"
+                name="codigo_postal_facturacion"
+                value="{{ datos.get('codigo_postal_facturacion', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="poblacion_facturacion">
+                Población de facturación (*)
+            </label>
+            <input
+                id="poblacion_facturacion"
+                name="poblacion_facturacion"
+                value="{{ datos.get('poblacion_facturacion', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="provincia_facturacion">
+                Provincia de facturación (*)
+            </label>
+            <input
+                id="provincia_facturacion"
+                name="provincia_facturacion"
+                value="{{ datos.get('provincia_facturacion', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="concepto_factura">
+                Concepto de factura (*)
+            </label>
+            <input
+                id="concepto_factura"
+                name="concepto_factura"
+                value="{{ datos.get('concepto_factura', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="renta_inicial">Renta inicial (€) (*)</label>
+            <input
+                id="renta_inicial"
+                name="renta_inicial"
+                value="{{ datos.get('renta_inicial', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_primera_revision">
+                Primera revisión (*)
+            </label>
+            <input
+                type="text"
+                id="fecha_primera_revision"
+                name="fecha_primera_revision"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_primera_revision', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="metodo_revision">
+                Método de revisión (*)
+            </label>
+            <input
+                id="metodo_revision"
+                name="metodo_revision"
+                value="{{ datos.get('metodo_revision', '') }}"
+            >
+        </p>
+
+        <p class="form-actions">
+            <button type="submit">Guardar</button>
+            <a href="{{ url_for('contratos.listar_contratos') }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}
