@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}Cambio temporal de renta - Contab{% endblock %}
+
+{% block content %}
+    <h1>Cambio temporal de renta</h1>
+    <p>
+        Contrato:
+        <strong>{{ contrato.inmueble.referencia }}</strong>
+        —
+        {% for titular in contrato.titulares %}
+            {{ titular.inquilino.nombre }}
+            {% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </p>
+    <p>
+        Fecha contrato:
+        <strong>
+            {{ contrato.fecha_inicio.strftime('%d/%m/%Y') }}
+        </strong>
+    </p>
+    <p>
+        Renta actual:
+        <strong>
+            {{ "{:,.2f}".format(renta_actual.importe / 100)
+                .replace(",", "X")
+                .replace(".", ",")
+                .replace("X", ".") }}
+            €
+        </strong>
+        desde
+        {{ renta_actual.fecha_desde.strftime('%d/%m/%Y') }}
+    </p>
+    <p>&nbsp;</p>
+    <p class="required-note">
+        Los campos marcados con (*) son obligatorios.
+    </p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <p class="form-field">
+            <label for="fecha">Fecha del anexo (*)</label>
+            <input
+                id="fecha"
+                name="fecha"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_desde">Fecha desde (*)</label>
+            <input
+                id="fecha_desde"
+                name="fecha_desde"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_desde', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_hasta">Fecha hasta (*)</label>
+            <input
+                id="fecha_hasta"
+                name="fecha_hasta"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_hasta', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="tipo">Tipo de ajuste (*)</label>
+            <select id="tipo" name="tipo">
+                <option value="IMPORTE_FIJO">
+                    Importe fijo
+                </option>
+                <option value="REDUCCION_FIJA">
+                    Reducción fija
+                </option>
+                <option value="REDUCCION_PORCENTUAL">
+                    Reducción porcentual
+                </option>
+            </select>
+        </p>
+
+        <p class="form-field">
+            <label for="valor">Valor del ajuste (*)</label>
+            <input
+                id="valor"
+                name="valor"
+                value="{{ datos.get('valor', '') }}"
+            >
+            </br>
+            <small>
+                Introduzca un importe en euros para una reducción fija,
+                o un porcentaje para reducción porcentual.
+            </small>
+       </p>
+
+        <p class="form-field">
+            <label for="descripcion">Descripción</label>
+            <input
+                id="descripcion"
+                name="descripcion"
+                value="{{ datos.get('descripcion', '') }}"
+            >
+        </p>
+
+        <p class="form-actions">
+            <button type="submit">Guardar</button>
+            <a href="{{ url_for(
+                'contratos.seleccionar_tipo_anexo',
+                contrato_id=contrato.id
+            ) }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}

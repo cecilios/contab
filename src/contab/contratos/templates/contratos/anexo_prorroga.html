@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Prórroga del contrato - Contab{% endblock %}
+
+{% block content %}
+    <h1>Prórroga del contrato</h1>
+    <p>
+        Contrato:
+        <strong>{{ contrato.inmueble.referencia }}</strong>
+        —
+        {% for titular in contrato.titulares %}
+            {{ titular.inquilino.nombre }}
+            {% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </p>
+    <p>
+        Fecha contrato:
+        <strong>
+            {{ contrato.fecha_inicio.strftime('%d/%m/%Y') }}
+        </strong>
+    </p>
+    <p>
+        Vencimiento actual:
+        <strong>
+            {{ contrato.fecha_vencimiento.strftime('%d/%m/%Y') }}
+        </strong>
+    </p>
+    <p>&nbsp;</p>
+    <p class="required-note">
+        Los campos marcados con (*) son obligatorios.
+    </p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <p class="form-field">
+            <label for="fecha">Fecha del anexo (*)</label>
+            <input
+                id="fecha"
+                name="fecha"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="nueva_fecha_vencimiento">
+                Nueva fecha de vencimiento (*)
+            </label>
+            <input
+                id="nueva_fecha_vencimiento"
+                name="nueva_fecha_vencimiento"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('nueva_fecha_vencimiento', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="descripcion">Descripción</label>
+            <input
+                id="descripcion"
+                name="descripcion"
+                value="{{ datos.get('descripcion', '') }}"
+            >
+        </p>
+
+        <p class="form-actions">
+            <button type="submit">Guardar</button>
+            <a href="{{ url_for(
+                'contratos.seleccionar_tipo_anexo',
+                contrato_id=contrato.id
+            ) }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}

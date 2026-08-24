@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from contab.app import create_app
 from contab.database import Base
+
 from contab.models import (
     Contrato,
     Inmueble,
@@ -13,7 +14,57 @@ from contab.models import (
     RentaContrato,
     RevisionRenta,
 )
-from contab.contratos.services import crear_contrato
+from contab.contratos.services import (
+    crear_anexo_prorroga,
+    crear_anexo_renta_permanente,
+    crear_anexo_renta_temporal,
+    crear_contrato,
+)
+
+
+
+def _crear_contrato_para_test(session) -> Contrato:
+    """Crea y persiste un contrato completo para pruebas de rutas."""
+    inmueble = Inmueble(
+        referencia="LOCAL-ANEXO",
+        codigo_facturacion="AX",
+        descripcion="Local para anexos",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+    inquilino = Inquilino(
+        nombre="Ana Pérez",
+        nif="99999999R",
+    )
+
+    session.add_all([inmueble, inquilino])
+    session.flush()
+
+    contrato = crear_contrato(
+        inmueble=inmueble,
+        titulares=[inquilino],
+        fecha_inicio=date(2026, 9, 15),
+        fecha_vencimiento=date(2031, 9, 14),
+        fecha_inicio_facturacion=date(2026, 10, 1),
+        fianza=150000,
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        direccion_facturacion="Dirección",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+        renta_inicial=150000,
+        fecha_primera_revision=date(2027, 10, 1),
+        metodo_revision="IPC",
+    )
+
+    session.add(contrato)
+    session.commit()
+    session.refresh(contrato)
+
+    return contrato
 
 
 
@@ -1112,4 +1163,487 @@ def test_editar_contrato_permite_eliminar_fecha_fin() -> None:
     with session_factory() as session:
         contrato = session.get(Contrato, contrato_id)
         assert contrato.fecha_fin is None
+
+
+def test_seleccionar_tipo_anexo_responde() -> None:
+    """Comprueba que puede elegirse el tipo de anexo a crear."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        inquilino = Inquilino(
+            nombre="Ana Pérez",
+            nif="11111111A",
+        )
+
+        session.add_all([inmueble, inquilino])
+        session.flush()
+
+        contrato = crear_contrato(
+            inmueble=inmueble,
+            titulares=[inquilino],
+            fecha_inicio=date(2026, 9, 15),
+            fecha_vencimiento=date(2031, 9, 14),
+            fecha_inicio_facturacion=date(2026, 10, 1),
+            fianza=150000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Dirección",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+            renta_inicial=150000,
+            fecha_primera_revision=date(2027, 10, 1),
+            metodo_revision="IPC",
+        )
+
+        session.add(contrato)
+        session.commit()
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexo"
+    )
+
+    assert response.status_code == 200
+    assert "Añadir anexo" in response.text
+    assert "Prórroga del contrato" in response.text
+    assert "Cambio permanente de renta" in response.text
+    assert "Cambio temporal de renta" in response.text
+
+
+def test_formulario_anexo_prorroga_responde() -> None:
+    """Comprueba que puede abrirse el formulario de prórroga."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexo/prorroga"
+    )
+
+    assert response.status_code == 200
+    assert "Prórroga del contrato" in response.text
+    assert "Fecha del anexo" in response.text
+    assert "Nueva fecha de vencimiento" in response.text
+
+
+def test_formulario_anexo_renta_permanente_responde() -> None:
+    """Comprueba que puede abrirse el formulario de cambio permanente."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexo/renta-permanente"
+    )
+
+    assert response.status_code == 200
+    assert "Cambio permanente de renta" in response.text
+    assert "Fecha de efecto" in response.text
+    assert "Nueva renta" in response.text
+
+
+def test_formulario_anexo_renta_temporal_responde() -> None:
+    """Comprueba que puede abrirse el formulario de cambio temporal."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexo/renta-temporal"
+    )
+
+    assert response.status_code == 200
+    assert "Cambio temporal de renta" in response.text
+    assert "Fecha desde" in response.text
+    assert "Fecha hasta" in response.text
+
+
+def test_anexo_contrato_inexistente_devuelve_404() -> None:
+    """Comprueba que no pueden añadirse anexos a un contrato inexistente."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    response = client.get("/contratos/99999/anexo")
+
+    assert response.status_code == 404
+
+
+def test_guardar_anexo_prorroga() -> None:
+    """Comprueba que una prórroga se guarda y actualiza el vencimiento."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/prorroga",
+        data={
+            "fecha": "01/06/2031",
+            "nueva_fecha_vencimiento": "14/09/2036",
+            "descripcion": "Prórroga por cinco años",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        assert contrato.fecha_vencimiento == date(2036, 9, 14)
+        assert len(contrato.anexos) == 1
+
+        anexo = contrato.anexos[0]
+
+        assert anexo.tipo == "PRORROGA"
+        assert anexo.fecha == date(2031, 6, 1)
+        assert anexo.nueva_fecha_vencimiento == date(2036, 9, 14)
+
+
+def test_guardar_anexo_renta_permanente() -> None:
+    """Comprueba que un cambio permanente crea una nueva renta vinculada."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/renta-permanente",
+        data={
+            "fecha": "20/05/2028",
+            "fecha_desde": "01/06/2028",
+            "importe": "1750,00",
+            "descripcion": "Nueva renta pactada",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        rentas = sorted(
+            contrato.rentas,
+            key=lambda renta: renta.fecha_desde,
+        )
+
+        assert len(contrato.anexos) == 1
+        assert len(rentas) == 2
+
+        anexo = contrato.anexos[0]
+        nueva_renta = rentas[-1]
+
+        assert anexo.tipo == "CAMBIO_RENTA"
+        assert nueva_renta.fecha_desde == date(2028, 6, 1)
+        assert nueva_renta.importe == 175000
+        assert nueva_renta.anexo_id == anexo.id
+
+
+def test_guardar_anexo_renta_temporal() -> None:
+    """Comprueba que un cambio temporal crea un ajuste vinculado."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/renta-temporal",
+        data={
+            "fecha": "20/05/2028",
+            "fecha_desde": "01/06/2028",
+            "fecha_hasta": "31/12/2028",
+            "tipo": "IMPORTE_FIJO",
+            "valor": "1200,00",
+            "descripcion": "Renta temporal reducida",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        assert len(contrato.anexos) == 1
+        assert len(contrato.ajustes_renta) == 1
+
+        anexo = contrato.anexos[0]
+        ajuste = contrato.ajustes_renta[0]
+
+        assert anexo.tipo == "CAMBIO_RENTA"
+        assert ajuste.fecha_desde == date(2028, 6, 1)
+        assert ajuste.fecha_hasta == date(2028, 12, 31)
+        assert ajuste.tipo == "IMPORTE_FIJO"
+        assert ajuste.valor == 120000
+        assert ajuste.anexo_id == anexo.id
+
+
+def test_historico_anexos_vacio() -> None:
+    """Comprueba que se informa cuando un contrato no tiene anexos."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexos"
+    )
+
+    assert response.status_code == 200
+    assert "Histórico de anexos" in response.text
+    assert "No hay anexos registrados." in response.text
+
+
+def test_historico_anexos_muestra_prorroga_y_cambios_renta() -> None:
+    """Comprueba que el histórico muestra los efectos de los anexos."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+
+        with session.begin_nested():
+            anexo_prorroga = crear_anexo_prorroga(
+                contrato=contrato,
+                fecha=date(2028, 5, 10),
+                nueva_fecha_vencimiento=date(2036, 9, 14),
+                descripcion="Prórroga acordada",
+            )
+
+            anexo_renta, renta = crear_anexo_renta_permanente(
+                contrato=contrato,
+                fecha=date(2028, 6, 15),
+                fecha_desde=date(2028, 7, 1),
+                importe=175000,
+                descripcion="Nueva renta",
+            )
+
+            anexo_temporal, ajuste = crear_anexo_renta_temporal(
+                contrato=contrato,
+                fecha=date(2029, 1, 15),
+                fecha_desde=date(2029, 2, 1),
+                fecha_hasta=date(2029, 4, 30),
+                tipo="IMPORTE_FIJO",
+                valor=120000,
+                descripcion="Reducción temporal",
+            )
+
+            session.add_all(
+                [
+                    anexo_prorroga,
+                    anexo_renta,
+                    anexo_temporal,
+                ]
+            )
+
+        session.commit()
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexos"
+    )
+
+    assert response.status_code == 200
+
+    assert "Prórroga acordada" in response.text
+    assert "14/09/2036" in response.text
+
+    assert "Nueva renta" in response.text
+    assert "1.750,00" in response.text
+    assert "01/07/2028" in response.text
+
+    assert "Reducción temporal" in response.text
+    assert "01/02/2029" in response.text
+    assert "30/04/2029" in response.text
+    assert "1.200,00" in response.text
+
+
+def test_historico_anexos_contrato_inexistente_devuelve_404() -> None:
+    """Comprueba que el histórico de un contrato inexistente devuelve 404."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    response = client.get("/contratos/99999/anexos")
+
+    assert response.status_code == 404
+
+
+def test_anexo_prorroga_rechaza_vencimiento_no_posterior() -> None:
+    """Comprueba que una prórroga debe ampliar realmente el vencimiento."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/prorroga",
+        data={
+            "fecha": "01/06/2031",
+            "nueva_fecha_vencimiento": "14/09/2031",
+            "descripcion": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "debe ser posterior" in response.text
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+        assert contrato.anexos == []
+
+
+def test_anexo_renta_permanente_rechaza_fecha_que_no_es_dia_uno() -> None:
+    """Comprueba que una renta permanente debe comenzar el día 1."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/renta-permanente",
+        data={
+            "fecha": "20/05/2028",
+            "fecha_desde": "15/06/2028",
+            "importe": "1750,00",
+            "descripcion": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "día 1 del mes" in response.text
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+        assert len(contrato.rentas) == 1
+        assert contrato.anexos == []
+
+
+def test_anexo_renta_temporal_rechaza_fecha_hasta_que_no_es_fin_de_mes() -> None:
+    """Comprueba que un ajuste temporal debe terminar a fin de mes."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/renta-temporal",
+        data={
+            "fecha": "20/05/2028",
+            "fecha_desde": "01/06/2028",
+            "fecha_hasta": "29/11/2028",
+            "tipo": "IMPORTE_FIJO",
+            "valor": "1200,00",
+            "descripcion": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "último día del mes" in response.text
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+        assert contrato.ajustes_renta == []
+        assert contrato.anexos == []
+
+
+def test_anexo_renta_temporal_rechaza_porcentaje_superior_a_cien() -> None:
+    """Comprueba que una reducción porcentual no puede superar el 100 %."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/renta-temporal",
+        data={
+            "fecha": "20/05/2028",
+            "fecha_desde": "01/06/2028",
+            "fecha_hasta": "30/11/2028",
+            "tipo": "REDUCCION_PORCENTUAL",
+            "valor": "120,00",
+            "descripcion": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "entre 0 % y 100 %" in response.text
+
 

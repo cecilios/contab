@@ -31,7 +31,21 @@
                 - <a href="{{ url_for('contratos.editar_contrato', contrato_id=contrato.id) }}">
                     Editar
                 </a>
-                {% if not contrato.fecha_fin %}
+                |
+                <a href="{{ url_for(
+                    'contratos.seleccionar_tipo_anexo',
+                    contrato_id=contrato.id
+                ) }}">
+                    Añadir anexo
+                </a>
+                |
+                <a href="{{ url_for(
+                    'contratos.historico_anexos',
+                    contrato_id=contrato.id
+                ) }}">
+                    Ver anexos
+                </a>
+               {% if not contrato.fecha_fin %}
                     |
                     <a href="{{ url_for(
                         'contratos.finalizar_contrato',

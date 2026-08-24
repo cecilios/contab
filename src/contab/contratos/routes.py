@@ -7,7 +7,14 @@ from flask import Blueprint, redirect, render_template, request, url_for
 from sqlalchemy import select
 
 from contab.context import get_database_name, get_session_factory
-from contab.contratos.services import ContratoError, crear_contrato
+
+from contab.contratos.services import (
+    ContratoError,
+    crear_anexo_prorroga,
+    crear_anexo_renta_permanente,
+    crear_anexo_renta_temporal,
+    crear_contrato,
+)
 from contab.models import (
     Contrato,
     ContratoInquilino,
@@ -146,6 +153,19 @@ def _renta_inicial(contrato: Contrato) -> RentaContrato:
         )
 
     return min(
+        contrato.rentas,
+        key=lambda renta: renta.fecha_desde,
+    )
+
+
+def _renta_actual(contrato: Contrato) -> RentaContrato:
+    """Devuelve la renta contractual más reciente del contrato."""
+    if not contrato.rentas:
+        raise ContratoError(
+            "El contrato no tiene ninguna renta registrada."
+        )
+
+    return max(
         contrato.rentas,
         key=lambda renta: renta.fecha_desde,
     )
@@ -802,3 +822,344 @@ def finalizar_contrato(contrato_id: int):
     return redirect(
         url_for("contratos.listar_contratos")
     )
+
+
+@bp.get("/<int:contrato_id>/anexo")
+def seleccionar_tipo_anexo(contrato_id: int):
+    """Permite elegir el tipo de anexo que se desea añadir."""
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        if contrato is None:
+            return "Contrato no encontrado.", 404
+
+        return render_template(
+            "contratos/anexo_seleccion.html",
+            contrato=contrato,
+            database_name=get_database_name(),
+        )
+
+
+@bp.route(
+    "/<int:contrato_id>/anexo/prorroga",
+    methods=["GET", "POST"],
+)
+def formulario_anexo_prorroga(contrato_id: int):
+    """Permite crear un anexo de prórroga."""
+    session_factory = get_session_factory()
+
+    if request.method == "GET":
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
+            return render_template(
+                "contratos/anexo_prorroga.html",
+                contrato=contrato,
+                datos={},
+                error=None,
+                database_name=get_database_name(),
+            )
+
+    try:
+        fecha = _fecha(request.form["fecha"])
+        nueva_fecha_vencimiento = _fecha(
+            request.form["nueva_fecha_vencimiento"]
+        )
+    except (KeyError, ValueError) as exc:
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
+            return (
+                render_template(
+                    "contratos/anexo_prorroga.html",
+                    contrato=contrato,
+                    datos=request.form,
+                    error=str(exc),
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                contrato = session.get(Contrato, contrato_id)
+
+                if contrato is None:
+                    raise LookupError
+
+                anexo = crear_anexo_prorroga(
+                    contrato=contrato,
+                    fecha=fecha,
+                    nueva_fecha_vencimiento=nueva_fecha_vencimiento,
+                    descripcion=(
+                        request.form.get("descripcion", "").strip()
+                        or None
+                    ),
+                )
+
+                session.add(anexo)
+
+    except LookupError:
+        return "Contrato no encontrado.", 404
+
+    except ContratoError as exc:
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            return (
+                render_template(
+                    "contratos/anexo_prorroga.html",
+                    contrato=contrato,
+                    datos=request.form,
+                    error=str(exc),
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+    return redirect(
+        url_for("contratos.listar_contratos")
+    )
+
+
+@bp.route(
+    "/<int:contrato_id>/anexo/renta-permanente",
+    methods=["GET", "POST"],
+)
+def formulario_anexo_renta_permanente(contrato_id: int):
+    """Permite crear un anexo de cambio permanente de renta."""
+    session_factory = get_session_factory()
+
+    if request.method == "GET":
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+                
+            renta_actual = _renta_actual(contrato)
+
+            return render_template(
+                "contratos/anexo_renta_permanente.html",
+                contrato=contrato,
+                renta_actual=renta_actual,
+                datos={},
+                error=None,
+                database_name=get_database_name(),
+            )
+
+    try:
+        fecha = _fecha(request.form["fecha"])
+        fecha_desde = _fecha(request.form["fecha_desde"])
+        importe = _importe_a_centimos(
+            request.form["importe"]
+        )
+    except (KeyError, ValueError) as exc:
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
+            return (
+                render_template(
+                    "contratos/anexo_renta_permanente.html",
+                    contrato=contrato,
+                    datos=request.form,
+                    error=str(exc),
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                contrato = session.get(Contrato, contrato_id)
+
+                if contrato is None:
+                    raise LookupError
+
+                anexo, renta = crear_anexo_renta_permanente(
+                    contrato=contrato,
+                    fecha=fecha,
+                    fecha_desde=fecha_desde,
+                    importe=importe,
+                    descripcion=(
+                        request.form.get("descripcion", "").strip()
+                        or None
+                    ),
+                )
+
+                session.add(anexo)
+
+    except LookupError:
+        return "Contrato no encontrado.", 404
+
+    except ContratoError as exc:
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            return (
+                render_template(
+                    "contratos/anexo_renta_permanente.html",
+                    contrato=contrato,
+                    datos=request.form,
+                    error=str(exc),
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+    return redirect(
+        url_for("contratos.listar_contratos")
+    )
+
+
+@bp.route(
+    "/<int:contrato_id>/anexo/renta-temporal",
+    methods=["GET", "POST"],
+)
+def formulario_anexo_renta_temporal(contrato_id: int):
+    """Permite crear un anexo de cambio temporal de renta."""
+    session_factory = get_session_factory()
+
+    if request.method == "GET":
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+                
+            renta_actual = _renta_actual(contrato)
+
+            return render_template(
+                "contratos/anexo_renta_temporal.html",
+                contrato=contrato,
+                renta_actual=renta_actual,
+                datos={},
+                error=None,
+                database_name=get_database_name(),
+            )
+
+    try:
+        fecha = _fecha(request.form["fecha"])
+        fecha_desde = _fecha(request.form["fecha_desde"])
+        fecha_hasta = _fecha(request.form["fecha_hasta"])
+
+        tipo = request.form["tipo"]
+
+        if tipo == "REDUCCION_PORCENTUAL":
+            valor = _porcentaje_a_entero(
+                request.form["valor"]
+            )
+        else:
+            valor = _importe_a_centimos(
+                request.form["valor"]
+            )
+
+    except (KeyError, ValueError) as exc:
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+            
+            renta_actual = _renta_actual(contrato)
+
+            return (
+                render_template(
+                    "contratos/anexo_renta_temporal.html",
+                    contrato=contrato,
+                    datos=request.form,
+                    renta_actual=renta_actual,
+                    error=str(exc),
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                contrato = session.get(Contrato, contrato_id)
+
+                if contrato is None:
+                    raise LookupError
+
+                anexo, ajuste = crear_anexo_renta_temporal(
+                    contrato=contrato,
+                    fecha=fecha,
+                    fecha_desde=fecha_desde,
+                    fecha_hasta=fecha_hasta,
+                    tipo=tipo,
+                    valor=valor,
+                    descripcion=(
+                        request.form.get("descripcion", "").strip()
+                        or None
+                    ),
+                )
+
+                session.add(anexo)
+
+    except LookupError:
+        return "Contrato no encontrado.", 404
+
+    except ContratoError as exc:
+        with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+            renta_actual = _renta_actual(contrato)
+
+            return (
+                render_template(
+                    "contratos/anexo_renta_temporal.html",
+                    contrato=contrato,
+                    datos=request.form,
+                    renta_actual=renta_actual,
+                    error=str(exc),
+                    database_name=get_database_name(),
+                ),
+                400,
+            )
+
+    return redirect(
+        url_for("contratos.listar_contratos")
+    )
+
+
+@bp.get("/<int:contrato_id>/anexos")
+def historico_anexos(contrato_id: int):
+    """Muestra el histórico de anexos de un contrato."""
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        if contrato is None:
+            return "Contrato no encontrado.", 404
+
+        anexos = sorted(
+            contrato.anexos,
+            key=lambda anexo: (
+                anexo.fecha,
+                anexo.id or 0,
+            ),
+        )
+
+        return render_template(
+            "contratos/anexos.html",
+            contrato=contrato,
+            anexos=anexos,
+            database_name=get_database_name(),
+        )
+
+

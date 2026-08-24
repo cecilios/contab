@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Histórico de anexos - Contab{% endblock %}
+
+{% block content %}
+    <h1>Histórico de anexos</h1>
+
+    <p>
+        <strong>{{ contrato.inmueble.referencia }}</strong>
+        -
+        {% for titular in contrato.titulares %}
+            {{ titular.inquilino.nombre }}
+            {% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </p>
+
+    {% if anexos %}
+        {% for anexo in anexos %}
+            <div class="anexo">
+                {% if anexo.tipo == "PRORROGA" %}
+                    <h2>
+                        Anexo {{ "%02d"|format(loop.index) }}
+                        - {{ anexo.fecha.strftime('%d/%m/%Y') }}
+                        - Prórroga
+                    </h2>
+
+                    <p>
+                        Nuevo vencimiento:
+                        {{ anexo.nueva_fecha_vencimiento.strftime('%d/%m/%Y') }}
+                    </p>
+
+                {% elif anexo.tipo == "CAMBIO_RENTA" %}
+
+                    {% if anexo.rentas %}
+                        <h2>
+                            Anexo {{ "%02d"|format(loop.index) }}
+                            - {{ anexo.fecha.strftime('%d/%m/%Y') }}
+                            - Cambio de renta — permanente
+                        </h2>
+
+                        {% for renta in anexo.rentas %}
+                            <p>
+                                Desde
+                                {{ renta.fecha_desde.strftime('%d/%m/%Y') }}:
+                                {{ "{:,.2f}".format(renta.importe / 100)
+                                    .replace(",", "X")
+                                    .replace(".", ",")
+                                    .replace("X", ".") }}
+                                €
+                            </p>
+                        {% endfor %}
+
+                    {% elif anexo.ajustes_renta %}
+                        <h2>
+                            Anexo {{ "%02d"|format(loop.index) }}
+                            - {{ anexo.fecha.strftime('%d/%m/%Y') }}
+                            - Cambio de renta — temporal</h2>
+
+                        {% for ajuste in anexo.ajustes_renta %}
+                            <p>
+                                Periodo: 
+                                {{ ajuste.fecha_desde.strftime('%d/%m/%Y') }}
+                                a
+                                {{ ajuste.fecha_hasta.strftime('%d/%m/%Y') }}
+                            </p>
+
+                            {% if ajuste.tipo == "IMPORTE_FIJO" %}
+                                <p>
+                                    Importe fijo:
+                                    {{ "{:,.2f}".format(ajuste.valor / 100)
+                                        .replace(",", "X")
+                                        .replace(".", ",")
+                                        .replace("X", ".") }}
+                                    €
+                                </p>
+
+                            {% elif ajuste.tipo == "REDUCCION_FIJA" %}
+                                <p>
+                                    Reducción fija:
+                                    {{ "{:,.2f}".format(ajuste.valor / 100)
+                                        .replace(",", "X")
+                                        .replace(".", ",")
+                                        .replace("X", ".") }}
+                                    €
+                                </p>
+
+                            {% elif ajuste.tipo == "REDUCCION_PORCENTUAL" %}
+                                <p>
+                                    Reducción:
+                                    {{ "{:.2f}".format(ajuste.valor / 100)
+                                        .replace(".", ",") }}
+                                    %
+                                </p>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                {% endif %}
+
+                {% if anexo.descripcion %}
+                    <p>{{ anexo.descripcion }}</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>No hay anexos registrados.</p>
+    {% endif %}
+
+    <p>
+        <a href="{{ url_for(
+            'contratos.seleccionar_tipo_anexo',
+            contrato_id=contrato.id
+        ) }}">
+            Añadir anexo
+        </a>
+    </p>
+
+    <p>
+        <a href="{{ url_for('contratos.listar_contratos') }}">
+            Volver a contratos
+        </a>
+    </p>
+{% endblock %}

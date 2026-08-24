@@ -130,7 +130,7 @@ def test_renta_facturable_con_reduccion_porcentual(session, contrato) -> None:
             AjusteRenta(
                 contrato=contrato,
                 fecha_desde=date(2026, 3, 1),
-                fecha_hasta=date(2026, 10, 1),
+                fecha_hasta=date(2026, 10, 31),
                 tipo="REDUCCION_PORCENTUAL",
                 valor=4000,
             ),
@@ -153,7 +153,7 @@ def test_renta_facturable_con_reduccion_fija(session, contrato) -> None:
             AjusteRenta(
                 contrato=contrato,
                 fecha_desde=date(2026, 3, 1),
-                fecha_hasta=date(2026, 10, 1),
+                fecha_hasta=date(2026, 10, 31),
                 tipo="REDUCCION_FIJA",
                 valor=20000,
             ),
@@ -176,7 +176,7 @@ def test_renta_facturable_con_importe_fijo(session, contrato) -> None:
             AjusteRenta(
                 contrato=contrato,
                 fecha_desde=date(2026, 3, 1),
-                fecha_hasta=date(2026, 6, 1),
+                fecha_hasta=date(2026, 6, 30),
                 tipo="IMPORTE_FIJO",
                 valor=5000,
             ),
@@ -204,7 +204,7 @@ def test_reduccion_porcentual_se_aplica_a_renta_revisada(session, contrato) -> N
             AjusteRenta(
                 contrato=contrato,
                 fecha_desde=date(2026, 3, 1),
-                fecha_hasta=date(2026, 10, 1),
+                fecha_hasta=date(2026, 10, 31),
                 tipo="REDUCCION_PORCENTUAL",
                 valor=4000,
             ),
@@ -227,7 +227,7 @@ def test_reduccion_fija_no_puede_producir_renta_negativa(session, contrato) -> N
             AjusteRenta(
                 contrato=contrato,
                 fecha_desde=date(2026, 3, 1),
-                fecha_hasta=date(2026, 10, 1),
+                fecha_hasta=date(2026, 10, 31),
                 tipo="REDUCCION_FIJA",
                 valor=20000,
             ),
@@ -252,7 +252,7 @@ def test_renta_facturable_redondea_al_centimo_arriba(session, contrato) -> None:
             AjusteRenta(
                 contrato=contrato,
                 fecha_desde=date(2026, 3, 1),
-                fecha_hasta=date(2026, 10, 1),
+                fecha_hasta=date(2026, 10, 31),
                 tipo="REDUCCION_PORCENTUAL",
                 valor=5000,
             ),
@@ -278,7 +278,7 @@ def test_renta_facturable_redondea_al_centimo_abajo(session, contrato) -> None:
             AjusteRenta(
                 contrato=contrato,
                 fecha_desde=date(2026, 3, 1),
-                fecha_hasta=date(2026, 10, 1),
+                fecha_hasta=date(2026, 10, 31),
                 tipo="REDUCCION_PORCENTUAL",
                 valor=7500,
             ),
@@ -294,14 +294,14 @@ def test_crear_ajuste_renta_valido(contrato) -> None:
     ajuste = crear_ajuste_renta(
         contrato=contrato,
         fecha_desde=date(2026, 3, 1),
-        fecha_hasta=date(2026, 6, 1),
+        fecha_hasta=date(2026, 6, 30),
         tipo="REDUCCION_PORCENTUAL",
         valor=4000,
     )
 
     assert ajuste.contrato is contrato
     assert ajuste.fecha_desde == date(2026, 3, 1)
-    assert ajuste.fecha_hasta == date(2026, 6, 1)
+    assert ajuste.fecha_hasta == date(2026, 6, 30)
     assert ajuste.tipo == "REDUCCION_PORCENTUAL"
     assert ajuste.valor == 4000
     assert ajuste.id is None
@@ -313,7 +313,7 @@ def test_crear_ajuste_renta_rechaza_porcentaje_fuera_de_rango(contrato) -> None:
         crear_ajuste_renta(
             contrato=contrato,
             fecha_desde=date(2026, 3, 1),
-            fecha_hasta=date(2026, 6, 1),
+            fecha_hasta=date(2026, 6, 30),
             tipo="REDUCCION_PORCENTUAL",
             valor=10001,
         )
@@ -325,7 +325,7 @@ def test_crear_ajuste_renta_rechaza_importe_negativo(contrato) -> None:
         crear_ajuste_renta(
             contrato=contrato,
             fecha_desde=date(2026, 3, 1),
-            fecha_hasta=date(2026, 6, 1),
+            fecha_hasta=date(2026, 6, 30),
             tipo="REDUCCION_FIJA",
             valor=-1,
         )
@@ -337,7 +337,7 @@ def test_crear_ajuste_renta_rechaza_tipo_desconocido(contrato) -> None:
         crear_ajuste_renta(
             contrato=contrato,
             fecha_desde=date(2026, 3, 1),
-            fecha_hasta=date(2026, 6, 1),
+            fecha_hasta=date(2026, 6, 30),
             tipo="DESCONOCIDO",
             valor=1000,
         )
@@ -349,7 +349,7 @@ def test_crear_ajuste_renta_rechaza_fechas_no_mensuales(contrato) -> None:
         crear_ajuste_renta(
             contrato=contrato,
             fecha_desde=date(2026, 3, 15),
-            fecha_hasta=date(2026, 6, 1),
+            fecha_hasta=date(2026, 6, 30),
             tipo="IMPORTE_FIJO",
             valor=5000,
         )
@@ -361,7 +361,7 @@ def test_crear_ajuste_renta_rechaza_inicio_anterior_al_contrato(contrato) -> Non
         crear_ajuste_renta(
             contrato=contrato,
             fecha_desde=date(2025, 12, 1),
-            fecha_hasta=date(2026, 2, 1),
+            fecha_hasta=date(2026, 2, 28),
             tipo="IMPORTE_FIJO",
             valor=5000,
         )
@@ -372,7 +372,7 @@ def test_crear_ajuste_renta_rechaza_solapamiento(contrato) -> None:
     contrato.ajustes_renta.append(
         AjusteRenta(
             fecha_desde=date(2026, 3, 1),
-            fecha_hasta=date(2026, 6, 1),
+            fecha_hasta=date(2026, 6, 30),
             tipo="REDUCCION_PORCENTUAL",
             valor=4000,
         )
@@ -382,7 +382,7 @@ def test_crear_ajuste_renta_rechaza_solapamiento(contrato) -> None:
         crear_ajuste_renta(
             contrato=contrato,
             fecha_desde=date(2026, 5, 1),
-            fecha_hasta=date(2026, 8, 1),
+            fecha_hasta=date(2026, 8, 31),
             tipo="IMPORTE_FIJO",
             valor=5000,
         )

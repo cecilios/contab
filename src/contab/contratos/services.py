@@ -1,9 +1,11 @@
 """Implementa la lógica de negocio relacionada con contratos y rentas."""
 
+from calendar import monthrange
 from datetime import date
 
 from contab.models import (
     AjusteRenta,
+    AnexoContrato,
     Contrato,
     ContratoInquilino,
     Inquilino,
@@ -31,6 +33,18 @@ class RevisionRentaError(Exception):
 
 class ContratoError(Exception):
     """Indica que los datos o condiciones de un contrato no son válidos."""
+
+
+
+def _es_ultimo_dia_del_mes(fecha: date) -> bool:
+    """Indica si una fecha corresponde al último día de su mes."""
+    ultimo_dia = monthrange(
+        fecha.year,
+        fecha.month,
+    )[1]
+
+    return fecha.day == ultimo_dia
+
 
 
 
@@ -62,7 +76,11 @@ def renta_facturable(contrato: Contrato, fecha: date) -> int:
     ajustes = [
         ajuste
         for ajuste in contrato.ajustes_renta
-        if ajuste.fecha_desde <= fecha <= ajuste.fecha_hasta
+        if (
+            ajuste.fecha_desde
+            <= fecha
+            <= ajuste.fecha_hasta
+        )
     ]
 
     if len(ajustes) > 1:
@@ -115,16 +133,26 @@ def crear_ajuste_renta(
     }
 
     if tipo not in tipos_validos:
-        raise AjusteRentaError(f"Tipo de ajuste desconocido: {tipo}.")
-
-    if fecha_desde.day != 1 or fecha_hasta.day != 1:
         raise AjusteRentaError(
-            "Las fechas de los ajustes deben corresponder al día 1 del mes."
+            f"Tipo de ajuste desconocido: {tipo}."
+        )
+
+    if fecha_desde.day != 1:
+        raise AjusteRentaError(
+            "La fecha inicial del ajuste debe ser "
+            "el primer día del mes."
+        )
+
+    if not _es_ultimo_dia_del_mes(fecha_hasta):
+        raise AjusteRentaError(
+            "La fecha final del ajuste debe ser "
+            "el último día del mes."
         )
 
     if fecha_hasta < fecha_desde:
         raise AjusteRentaError(
-            "La fecha final del ajuste no puede ser anterior a la inicial."
+            "La fecha final del ajuste no puede ser anterior "
+            "a la inicial."
         )
 
     if fecha_desde < contrato.fecha_inicio:
@@ -135,11 +163,13 @@ def crear_ajuste_renta(
     if tipo == "REDUCCION_PORCENTUAL":
         if valor < 0 or valor > 10000:
             raise AjusteRentaError(
-                "La reducción porcentual debe estar entre 0 % y 100 %."
+                "La reducción porcentual debe estar "
+                "entre 0 % y 100 %."
             )
     elif valor < 0:
         raise AjusteRentaError(
-            "El valor de una reducción fija o importe fijo no puede ser negativo."
+            "El valor de una reducción fija o importe fijo "
+            "no puede ser negativo."
         )
 
     for ajuste in contrato.ajustes_renta:
@@ -415,5 +445,106 @@ def crear_contrato(
     return contrato
 
 
+def crear_anexo_prorroga(
+    contrato: Contrato,
+    fecha: date,
+    nueva_fecha_vencimiento: date,
+    descripcion: str | None = None,
+) -> AnexoContrato:
+    """Crea un anexo de prórroga y actualiza el vencimiento del contrato."""
+    if fecha < contrato.fecha_inicio:
+        raise ContratoError(
+            "La fecha del anexo no puede ser anterior al inicio del contrato."
+        )
+
+    if nueva_fecha_vencimiento <= contrato.fecha_vencimiento:
+        raise ContratoError(
+            "La nueva fecha de vencimiento debe ser posterior "
+            "al vencimiento actual."
+        )
+
+    anexo = AnexoContrato(
+        contrato=contrato,
+        fecha=fecha,
+        tipo="PRORROGA",
+        nueva_fecha_vencimiento=nueva_fecha_vencimiento,
+        descripcion=descripcion,
+    )
+
+    contrato.fecha_vencimiento = nueva_fecha_vencimiento
+
+    return anexo
+
+
+def crear_anexo_renta_permanente(
+    contrato: Contrato,
+    fecha: date,
+    fecha_desde: date,
+    importe: int,
+    descripcion: str | None = None,
+) -> tuple[AnexoContrato, RentaContrato]:
+    """Crea un anexo que establece una nueva renta permanente."""
+    if fecha < contrato.fecha_inicio:
+        raise ContratoError(
+            "La fecha del anexo no puede ser anterior al inicio del contrato."
+        )
+
+    anexo = AnexoContrato(
+        contrato=contrato,
+        fecha=fecha,
+        tipo="CAMBIO_RENTA",
+        descripcion=descripcion,
+    )
+
+    try:
+        renta = crear_renta_contrato(
+            contrato=contrato,
+            fecha_desde=fecha_desde,
+            importe=importe,
+        )
+    except RentaContratoError as exc:
+        raise ContratoError(str(exc)) from exc
+
+    renta.anexo = anexo
+
+    return anexo, renta
+
+
+def crear_anexo_renta_temporal(
+    contrato: Contrato,
+    fecha: date,
+    fecha_desde: date,
+    fecha_hasta: date,
+    tipo: str,
+    valor: int,
+    descripcion: str | None = None,
+) -> tuple[AnexoContrato, AjusteRenta]:
+    """Crea un anexo que establece una modificación temporal de la renta."""
+    if fecha < contrato.fecha_inicio:
+        raise ContratoError(
+            "La fecha del anexo no puede ser anterior al inicio del contrato."
+        )
+
+    anexo = AnexoContrato(
+        contrato=contrato,
+        fecha=fecha,
+        tipo="CAMBIO_RENTA",
+        descripcion=descripcion,
+    )
+
+    try:
+        ajuste = crear_ajuste_renta(
+            contrato=contrato,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+            tipo=tipo,
+            valor=valor,
+        )
+    except AjusteRentaError as exc:
+        raise ContratoError(str(exc)) from exc
+
+    ajuste.anexo = anexo
+
+    return anexo, ajuste
 
 

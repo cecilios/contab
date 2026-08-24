@@ -185,6 +185,11 @@ class Contrato(Base):
         back_populates="contrato",
         passive_deletes="all",
     )
+    
+    anexos: Mapped[list["AnexoContrato"]] = relationship(
+        back_populates="contrato",
+        passive_deletes="all",
+    )
 
     facturas: Mapped[list["Factura"]] = relationship(
         back_populates="contrato",
@@ -230,6 +235,51 @@ class ContratoInquilino(Base):
     )
 
 
+class AnexoContrato(Base):
+    """Representa una modificación contractual formalizada mediante anexo."""
+
+    __tablename__ = "anexo_contrato"
+
+    __table_args__ = (
+        CheckConstraint(
+            "tipo IN ('CAMBIO_RENTA', 'PRORROGA')",
+            name="ck_anexo_contrato_tipo",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    contrato_id: Mapped[int] = mapped_column(
+        ForeignKey("contrato.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    fecha: Mapped[date] = mapped_column(Date, nullable=False)
+
+    tipo: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    nueva_fecha_vencimiento: Mapped[date | None] = mapped_column(Date)
+
+    descripcion: Mapped[str | None] = mapped_column(Text)
+
+    contrato: Mapped["Contrato"] = relationship(
+        back_populates="anexos",
+    )
+
+    rentas: Mapped[list["RentaContrato"]] = relationship(
+        back_populates="anexo",
+        passive_deletes="all",
+    )
+
+    ajustes_renta: Mapped[list["AjusteRenta"]] = relationship(
+        back_populates="anexo",
+        passive_deletes="all",
+    )
+
+
 class RentaContrato(Base):
     """Representa una renta ordinaria aplicable a un contrato desde un mes."""
 
@@ -254,6 +304,10 @@ class RentaContrato(Base):
         nullable=False,
     )
 
+    anexo_id: Mapped[int | None] = mapped_column(
+        ForeignKey("anexo_contrato.id", ondelete="RESTRICT"),
+    )
+
     fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
     importe: Mapped[int] = mapped_column(Integer, nullable=False)
     notas: Mapped[str | None] = mapped_column(Text)
@@ -262,6 +316,10 @@ class RentaContrato(Base):
         back_populates="rentas",
     )
 
+    anexo: Mapped["AnexoContrato | None"] = relationship(
+        back_populates="rentas",
+    )
+    
 
 class RevisionRenta(Base):
     """Representa una revisión prevista o resuelta de la renta de un contrato."""
@@ -334,6 +392,10 @@ class AjusteRenta(Base):
         nullable=False,
     )
 
+    anexo_id: Mapped[int | None] = mapped_column(
+        ForeignKey("anexo_contrato.id", ondelete="RESTRICT"),
+    )
+
     fecha_desde: Mapped[date] = mapped_column(Date, nullable=False)
     fecha_hasta: Mapped[date] = mapped_column(Date, nullable=False)
 
@@ -343,6 +405,10 @@ class AjusteRenta(Base):
     notas: Mapped[str | None] = mapped_column(Text)
 
     contrato: Mapped["Contrato"] = relationship(
+        back_populates="ajustes_renta",
+    )
+
+    anexo: Mapped["AnexoContrato | None"] = relationship(
         back_populates="ajustes_renta",
     )
 

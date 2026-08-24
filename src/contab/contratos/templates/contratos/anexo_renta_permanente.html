@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Cambio permanente de renta - Contab{% endblock %}
+
+{% block content %}
+    <h1>Cambio permanente de renta</h1>
+    <p>
+        Contrato:
+        <strong>{{ contrato.inmueble.referencia }}</strong>
+        —
+        {% for titular in contrato.titulares %}
+            {{ titular.inquilino.nombre }}
+            {% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </p>
+    <p>
+        Fecha contrato:
+        <strong>
+            {{ contrato.fecha_inicio.strftime('%d/%m/%Y') }}
+        </strong>
+    </p>
+    <p>
+        Renta actual:
+        <strong>
+            {{ "{:,.2f}".format(renta_actual.importe / 100)
+                .replace(",", "X")
+                .replace(".", ",")
+                .replace("X", ".") }}
+            €
+        </strong>
+        desde
+        {{ renta_actual.fecha_desde.strftime('%d/%m/%Y') }}
+    </p>
+    <p>&nbsp;</p>
+    <p class="required-note">
+        Los campos marcados con (*) son obligatorios.
+    </p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+    
+    <form method="post">
+        <p class="form-field">
+            <label for="fecha">Fecha del anexo (*)</label>
+            <input
+                id="fecha"
+                name="fecha"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_desde">Fecha de efecto (*)</label>
+            <input
+                id="fecha_desde"
+                name="fecha_desde"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_desde', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="importe">Nueva renta (€) (*)</label>
+            <input
+                id="importe"
+                name="importe"
+                value="{{ datos.get('importe', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="descripcion">Descripción</label>
+            <input
+                id="descripcion"
+                name="descripcion"
+                value="{{ datos.get('descripcion', '') }}"
+            >
+        </p>
+
+        <p class="form-actions">
+            <button type="submit">Guardar</button>
+            <a href="{{ url_for(
+                'contratos.seleccionar_tipo_anexo',
+                contrato_id=contrato.id
+            ) }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}

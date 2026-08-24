@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Añadir anexo - Contab{% endblock %}
+
+{% block content %}
+    <h1>Añadir anexo</h1>
+
+    <p>
+        <strong>{{ contrato.inmueble.referencia }}</strong>
+        -
+        {% for titular in contrato.titulares %}
+            {{ titular.inquilino.nombre }}
+            {% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </p>
+
+    <p>
+        <a href="{{ url_for(
+            'contratos.formulario_anexo_prorroga',
+            contrato_id=contrato.id
+        ) }}">
+            Prórroga del contrato
+        </a>
+    </p>
+
+    <p>
+        <a href="{{ url_for(
+            'contratos.formulario_anexo_renta_permanente',
+            contrato_id=contrato.id
+        ) }}">
+            Cambio permanente de renta
+        </a>
+    </p>
+
+    <p>
+        <a href="{{ url_for(
+            'contratos.formulario_anexo_renta_temporal',
+            contrato_id=contrato.id
+        ) }}">
+            Cambio temporal de renta
+        </a>
+    </p>
+
+    <p>
+        <a href="{{ url_for('contratos.listar_contratos') }}">
+            Cancelar
+        </a>
+    </p>
+{% endblock %}
