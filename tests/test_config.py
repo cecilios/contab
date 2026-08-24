@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from contab.config import ConfigError, cargar_bases_datos
+from contab.config import ConfigError, cargar_bases_datos, cargar_secret_key
 
 
 def test_cargar_bases_datos_lee_una_base(tmp_path: Path) -> None:
@@ -88,3 +88,37 @@ def test_cargar_bases_datos_rechaza_lista_vacia(
         match="No hay ninguna base de datos configurada",
     ):
         cargar_bases_datos(ruta)
+
+
+def test_cargar_secret_key(tmp_path: Path) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[app]
+secret_key = clave-de-prueba
+""".strip(),
+        encoding="utf-8",
+    )
+
+    assert cargar_secret_key(ruta) == "clave-de-prueba"
+
+
+def test_cargar_secret_key_rechaza_clave_vacia(
+    tmp_path: Path,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[app]
+secret_key =
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="secret_key",
+    ):
+        cargar_secret_key(ruta)
+
+

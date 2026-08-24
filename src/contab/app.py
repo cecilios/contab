@@ -2,7 +2,7 @@
 
 from flask import Flask, redirect, render_template, request, session, url_for
 
-from contab.config import cargar_bases_datos
+from contab.config import cargar_bases_datos, cargar_secret_key
 from contab.database import create_session_factory, create_sqlite_engine
 from contab.inmuebles.routes import bp as inmuebles_bp
 from contab.inquilinos.routes import bp as inquilinos_bp
@@ -11,15 +11,19 @@ from contab.contratos.routes import bp as contratos_bp
 
 def create_app(
     databases: dict[str, str] | None = None,
+    secret_key: str | None = None,
 ) -> Flask:
     """Crea la aplicación Flask y configura las bases de datos disponibles."""
     app = Flask(__name__)
 
-    app.secret_key = "contab-development-key"
+    if secret_key is None:
+        secret_key = cargar_secret_key()
+
+    app.secret_key = secret_key
 
     if databases is None:
         databases = cargar_bases_datos()
-    
+
     app.extensions["contab_databases"] = {
         nombre: create_session_factory(
             create_sqlite_engine(database_url)

@@ -71,9 +71,10 @@ def _crear_contrato_para_test(session) -> Contrato:
 def crear_app_test():
     """Crea una aplicación con una base SQLite aislada para las pruebas."""
     app = create_app(
-        {
+        databases={
             "test": "sqlite:///:memory:",
-        }
+        },
+        secret_key="test-secret-key",
     )
 
     session_factory = app.extensions["contab_databases"]["test"]
