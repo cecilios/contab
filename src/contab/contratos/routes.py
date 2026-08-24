@@ -963,6 +963,7 @@ def formulario_anexo_renta_permanente(contrato_id: int):
         importe = _importe_a_centimos(
             request.form["importe"]
         )
+
     except (KeyError, ValueError) as exc:
         with session_factory() as session:
             contrato = session.get(Contrato, contrato_id)
@@ -970,10 +971,13 @@ def formulario_anexo_renta_permanente(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
+            renta_actual = _renta_actual(contrato)
+
             return (
                 render_template(
                     "contratos/anexo_renta_permanente.html",
                     contrato=contrato,
+                    renta_actual=renta_actual,
                     datos=request.form,
                     error=str(exc),
                     database_name=get_database_name(),
@@ -1009,10 +1013,13 @@ def formulario_anexo_renta_permanente(contrato_id: int):
         with session_factory() as session:
             contrato = session.get(Contrato, contrato_id)
 
+            renta_actual = _renta_actual(contrato)
+
             return (
                 render_template(
                     "contratos/anexo_renta_permanente.html",
                     contrato=contrato,
+                    renta_actual=renta_actual,
                     datos=request.form,
                     error=str(exc),
                     database_name=get_database_name(),
