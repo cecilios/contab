@@ -1,0 +1,3 @@
+[databases]
+demo = sqlite:///demo.db
+principal = sqlite:///contab.db
