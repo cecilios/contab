@@ -167,28 +167,27 @@ def nuevo_inmueble():
     session_factory = get_session_factory()
 
     with session_factory() as session:
-        error = _buscar_duplicado(
-            session,
-            valores["referencia"],
-            valores["codigo_facturacion"],
-        )
-
-        if error:
-            return (
-                render_template(
-                    "inmuebles/nuevo.html",
-                    datos=request.form,
-                    error=error,
-                    titulo="Nuevo inmueble",
-                    database_name=get_database_name(),
-                ),
-                400,
+        with session.begin():
+            error = _buscar_duplicado(
+                session,
+                valores["referencia"],
+                valores["codigo_facturacion"],
             )
 
-        inmueble = Inmueble(**valores)
+            if error:
+                return (
+                    render_template(
+                        "inmuebles/nuevo.html",
+                        datos=request.form,
+                        error=error,
+                        titulo="Nuevo inmueble",
+                        database_name=get_database_name(),
+                    ),
+                    400,
+                )
 
-        session.add(inmueble)
-        session.commit()
+            inmueble = Inmueble(**valores)
+            session.add(inmueble)
 
     return redirect(url_for("inmuebles.listar_inmuebles"))
 
@@ -198,13 +197,13 @@ def editar_inmueble(inmueble_id: int):
     """Permite modificar los datos de un inmueble existente."""
     session_factory = get_session_factory()
 
-    with session_factory() as session:
-        inmueble = session.get(Inmueble, inmueble_id)
+    if request.method == "GET":
+        with session_factory() as session:
+            inmueble = session.get(Inmueble, inmueble_id)
 
-        if inmueble is None:
-            return "Inmueble no encontrado.", 404
+            if inmueble is None:
+                return "Inmueble no encontrado.", 404
 
-        if request.method == "GET":
             datos = {
                 "referencia": inmueble.referencia,
                 "codigo_facturacion": inmueble.codigo_facturacion,
@@ -215,9 +214,9 @@ def editar_inmueble(inmueble_id: int):
                 "provincia": inmueble.provincia,
                 "ref_catastral": inmueble.ref_catastral or "",
                 "seguro": inmueble.seguro or "",
-                "participacion": f"{inmueble.participacion / 100:.2f}".replace(
-                    ".",
-                    ",",
+                "participacion": (
+                    f"{inmueble.participacion / 100:.2f}"
+                    .replace(".", ",")
                 ),
                 "notas": inmueble.notas or "",
             }
@@ -230,19 +229,25 @@ def editar_inmueble(inmueble_id: int):
                 database_name=get_database_name(),
             )
 
-        valores, error = _validar_datos_inmueble(request.form)
+    valores, error = _validar_datos_inmueble(request.form)
 
-        if error:
-            return (
-                render_template(
-                    "inmuebles/nuevo.html",
-                    datos=request.form,
-                    error=error,
-                    titulo="Editar inmueble",
-                    database_name=get_database_name(),
-                ),
-                400,
-            )
+    if error:
+        return (
+            render_template(
+                "inmuebles/nuevo.html",
+                datos=request.form,
+                error=error,
+                titulo="Editar inmueble",
+                database_name=get_database_name(),
+            ),
+            400,
+        )
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        if inmueble is None:
+            return "Inmueble no encontrado.", 404
 
         error = _buscar_duplicado(
             session,
@@ -263,10 +268,15 @@ def editar_inmueble(inmueble_id: int):
                 400,
             )
 
-        for campo, valor in valores.items():
-            setattr(inmueble, campo, valor)
+    with session_factory() as session:
+        with session.begin():
+            inmueble = session.get(Inmueble, inmueble_id)
 
-        session.commit()
+            if inmueble is None:
+                return "Inmueble no encontrado.", 404
+
+            for campo, valor in valores.items():
+                setattr(inmueble, campo, valor)
 
     return redirect(url_for("inmuebles.listar_inmuebles"))
 
@@ -276,15 +286,15 @@ def cambiar_estado_inmueble(inmueble_id: int):
     """Permite activar o desactivar un inmueble previa confirmación."""
     session_factory = get_session_factory()
 
-    with session_factory() as session:
-        inmueble = session.get(Inmueble, inmueble_id)
+    if request.method == "GET":
+        with session_factory() as session:
+            inmueble = session.get(Inmueble, inmueble_id)
 
-        if inmueble is None:
-            return "Inmueble no encontrado.", 404
+            if inmueble is None:
+                return "Inmueble no encontrado.", 404
 
-        accion = "Desactivar" if inmueble.activo else "Activar"
+            accion = "Desactivar" if inmueble.activo else "Activar"
 
-        if request.method == "GET":
             return render_template(
                 "inmuebles/estado.html",
                 inmueble=inmueble,
@@ -292,7 +302,15 @@ def cambiar_estado_inmueble(inmueble_id: int):
                 database_name=get_database_name(),
             )
 
-        inmueble.activo = not inmueble.activo
-        session.commit()
+    with session_factory() as session:
+        with session.begin():
+            inmueble = session.get(Inmueble, inmueble_id)
+
+            if inmueble is None:
+                return "Inmueble no encontrado.", 404
+
+            inmueble.activo = not inmueble.activo
 
     return redirect(url_for("inmuebles.listar_inmuebles"))
+
+
