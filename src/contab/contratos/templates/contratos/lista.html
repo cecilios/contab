@@ -11,9 +11,11 @@
         </a>
     </p>
 
-    {% if contratos %}
+    <h2>Vigentes</h2>
+
+    {% if vigentes %}
         <ul>
-        {% for contrato in contratos %}
+        {% for contrato in vigentes %}
             <li>
                 {{ contrato.inmueble.referencia }}
                 -
@@ -24,11 +26,11 @@
                 -
                 {{ contrato.fecha_inicio.strftime('%d/%m/%Y') }}
 
-                {% if contrato.fecha_fin %}
-                    - FINALIZADO
                 -
-                {% endif %}
-                - <a href="{{ url_for('contratos.editar_contrato', contrato_id=contrato.id) }}">
+                <a href="{{ url_for(
+                    'contratos.editar_contrato',
+                    contrato_id=contrato.id
+                ) }}">
                     Editar
                 </a>
                 |
@@ -45,19 +47,56 @@
                 ) }}">
                     Ver anexos
                 </a>
-               {% if not contrato.fecha_fin %}
-                    |
-                    <a href="{{ url_for(
-                        'contratos.finalizar_contrato',
-                        contrato_id=contrato.id
-                    ) }}">
-                        Finalizar
-                    </a>
-                {% endif %}
+                |
+                <a href="{{ url_for(
+                    'contratos.finalizar_contrato',
+                    contrato_id=contrato.id
+                ) }}">
+                    Finalizar
+                </a>
             </li>
         {% endfor %}
         </ul>
     {% else %}
-        <p>No hay contratos registrados.</p>
+        <p>No hay contratos vigentes.</p>
+    {% endif %}
+
+    <h2>Finalizados</h2>
+
+    {% if finalizados %}
+        <ul>
+        {% for contrato in finalizados %}
+            <li>
+                {{ contrato.inmueble.referencia }}
+                -
+                {% for titular in contrato.titulares %}
+                    {{ titular.inquilino.nombre }}
+                    {% if not loop.last %}, {% endif %}
+                {% endfor %}
+                -
+                {{ contrato.fecha_inicio.strftime('%d/%m/%Y') }}
+                -
+                Resolución:
+                {{ contrato.fecha_fin.strftime('%d/%m/%Y') }}
+
+                -
+                <a href="{{ url_for(
+                    'contratos.editar_contrato',
+                    contrato_id=contrato.id
+                ) }}">
+                    Editar
+                </a>
+                |
+                <a href="{{ url_for(
+                    'contratos.historico_anexos',
+                    contrato_id=contrato.id
+                ) }}">
+                    Ver anexos
+                </a>
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No hay contratos finalizados.</p>
     {% endif %}
 {% endblock %}

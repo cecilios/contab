@@ -279,9 +279,22 @@ def listar_contratos():
             )
         ).all()
 
+        vigentes = [
+            contrato
+            for contrato in contratos
+            if contrato.fecha_fin is None
+        ]
+
+        finalizados = [
+            contrato
+            for contrato in contratos
+            if contrato.fecha_fin is not None
+        ]
+
         return render_template(
             "contratos/lista.html",
-            contratos=contratos,
+            vigentes=vigentes,
+            finalizados=finalizados,
             database_name=get_database_name(),
         )
 

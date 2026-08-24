@@ -102,7 +102,8 @@ def test_listado_contratos_vacio() -> None:
 
     assert response.status_code == 200
     assert "Contratos" in response.text
-    assert "No hay contratos registrados." in response.text
+    assert "No hay contratos vigentes." in response.text
+    assert "No hay contratos finalizados." in response.text
 
 
 def test_formulario_nuevo_contrato_muestra_inmuebles_e_inquilinos() -> None:
@@ -877,7 +878,9 @@ def test_finalizar_contrato_guarda_fecha_fin() -> None:
     )
 
     assert response.status_code == 200
-    assert "FINALIZADO" in response.text
+    assert "Finalizados" in response.text
+    assert "LOCAL-1" in response.text
+    assert "31/08/2028" in response.text
 
     with session_factory() as session:
         contrato = session.get(Contrato, contrato_id)
@@ -1646,4 +1649,113 @@ def test_anexo_renta_temporal_rechaza_porcentaje_superior_a_cien() -> None:
     assert response.status_code == 400
     assert "entre 0 % y 100 %" in response.text
 
+
+def test_formulario_nuevo_contrato_no_muestra_fecha_resolucion() -> None:
+    """Comprueba que fecha de resolucion no se muestra en un contrato nuevo"""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get("/contratos/nuevo")
+
+    assert response.status_code == 200
+    assert "Fecha de resolución" not in response.text
+
+
+def test_editar_contrato_vigente_no_muestra_fecha_resolucion() -> None:
+    """Comprueba que fecha de resolucion no se muestra en un contrato vigente"""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/editar"
+    )
+
+    assert response.status_code == 200
+    assert "Fecha de resolución" not in response.text
+    
+
+def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
+    """Comprueba que la lista separa contratos vigentes y finalizados."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        vigente = _crear_contrato_para_test(session)
+
+        inmueble = Inmueble(
+            referencia="LOCAL-FINALIZADO",
+            codigo_facturacion="AF",
+            descripcion="Local finalizado",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        inquilino = Inquilino(
+            nombre="Luis García",
+            nif="88888888Q",
+        )
+
+        session.add_all([inmueble, inquilino])
+        session.flush()
+
+        finalizado = crear_contrato(
+            inmueble=inmueble,
+            titulares=[inquilino],
+            fecha_inicio=date(2024, 1, 1),
+            fecha_vencimiento=date(2029, 12, 31),
+            fecha_inicio_facturacion=date(2024, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Dirección",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+            renta_inicial=100000,
+            fecha_primera_revision=date(2025, 1, 1),
+            metodo_revision="IPC",
+        )
+
+        finalizado.fecha_fin = date(2026, 6, 30)
+
+        session.add(finalizado)
+        session.commit()
+
+    response = client.get("/contratos/")
+
+    assert response.status_code == 200
+
+    html = response.text
+
+    assert "Vigentes" in html
+    assert "Finalizados" in html
+
+    posicion_vigentes = html.index("Vigentes")
+    posicion_finalizados = html.index("Finalizados")
+    posicion_contrato_vigente = html.index("LOCAL-ANEXO")
+    posicion_contrato_finalizado = html.index("LOCAL-FINALIZADO")
+
+    assert posicion_vigentes < posicion_contrato_vigente < posicion_finalizados
+    assert posicion_finalizados < posicion_contrato_finalizado
+
+    assert "Resolución:" in html
+    assert "30/06/2026" in html
 
