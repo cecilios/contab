@@ -18,8 +18,8 @@ def create_app(
 
     if databases is None:
         databases = {
-            "principal": "sqlite:///contab.db",
             "demo": "sqlite:///demo.db",
+            "principal": "sqlite:///contab.db",
         }
 
     app.extensions["contab_databases"] = {
