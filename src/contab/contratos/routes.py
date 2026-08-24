@@ -264,6 +264,105 @@ def _reemplazar_titulares(
         )
 
 
+def _validar_coherencia_historica_edicion(
+    contrato: Contrato,
+    fecha_inicio: date,
+    fecha_vencimiento: date,
+    fecha_inicio_facturacion: date,
+    fecha_fin: date | None,
+    fecha_primera_revision: date,
+) -> None:
+    """Impide que una edición deje incoherente el histórico del contrato."""
+    renta_inicial = _renta_inicial(contrato)
+    primera_revision = _primera_revision(contrato)
+
+    for renta in contrato.rentas:
+        if renta is renta_inicial:
+            continue
+
+        if renta.fecha_desde < fecha_inicio:
+            raise ContratoError(
+                "La nueva fecha de inicio es posterior a una renta "
+                "ya registrada en el histórico."
+            )
+
+    for revision in contrato.revisiones_renta:
+        if revision is primera_revision:
+            continue
+
+        if revision.fecha_prevista < fecha_inicio:
+            raise ContratoError(
+                "La nueva fecha de inicio es posterior a una revisión "
+                "de renta ya registrada."
+            )
+
+    for ajuste in contrato.ajustes_renta:
+        if ajuste.fecha_desde < fecha_inicio:
+            raise ContratoError(
+                "La nueva fecha de inicio es posterior a un ajuste "
+                "de renta ya registrado."
+            )
+
+    for anexo in contrato.anexos:
+        if anexo.fecha < fecha_inicio:
+            raise ContratoError(
+                "La nueva fecha de inicio es posterior a un anexo "
+                "ya registrado."
+            )
+
+        if (
+            anexo.tipo == "PRORROGA"
+            and anexo.nueva_fecha_vencimiento is not None
+            and anexo.nueva_fecha_vencimiento > fecha_vencimiento
+        ):
+            raise ContratoError(
+                "La fecha de vencimiento no puede ser anterior "
+                "al vencimiento establecido por una prórroga."
+            )
+
+    for factura in contrato.facturas:
+        if factura.periodo < fecha_inicio_facturacion:
+            raise ContratoError(
+                "El nuevo inicio de facturación es posterior "
+                "a una factura ya registrada."
+            )
+
+    if fecha_fin is None:
+        return
+
+    for renta in contrato.rentas:
+        if renta is renta_inicial:
+            continue
+
+        if renta.fecha_desde > fecha_fin:
+            raise ContratoError(
+                "La fecha de resolución es anterior a una renta "
+                "ya registrada."
+            )
+
+    for ajuste in contrato.ajustes_renta:
+        if ajuste.fecha_hasta > fecha_fin:
+            raise ContratoError(
+                "La fecha de resolución es anterior a un ajuste "
+                "de renta ya registrado."
+            )
+
+    for anexo in contrato.anexos:
+        if anexo.fecha > fecha_fin:
+            raise ContratoError(
+                "La fecha de resolución es anterior a un anexo "
+                "ya registrado."
+            )
+
+    for factura in contrato.facturas:
+        if factura.periodo > fecha_fin:
+            raise ContratoError(
+                "La fecha de resolución es anterior a una factura "
+                "ya registrada."
+            )
+
+
+
 
 
 @bp.get("/")
@@ -673,6 +772,15 @@ def editar_contrato(contrato_id: int):
 
                 renta = _renta_inicial(contrato)
                 revision = _primera_revision(contrato)
+
+                _validar_coherencia_historica_edicion(
+                    contrato=contrato,
+                    fecha_inicio=fecha_inicio,
+                    fecha_vencimiento=fecha_vencimiento,
+                    fecha_inicio_facturacion=fecha_inicio_facturacion,
+                    fecha_fin=fecha_fin,
+                    fecha_primera_revision=fecha_primera_revision,
+                )
 
                 contrato.inmueble = inmueble
                 contrato.fecha_inicio = fecha_inicio

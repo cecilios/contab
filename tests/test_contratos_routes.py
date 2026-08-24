@@ -1759,3 +1759,158 @@ def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
     assert "Resolución:" in html
     assert "30/06/2026" in html
 
+
+def test_editar_contrato_rechaza_inicio_posterior_a_renta_historica() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=date(2028, 6, 1),
+                importe=175000,
+            )
+        )
+
+        session.commit()
+        contrato_id = contrato.id
+        inmueble_id = contrato.inmueble_id
+        inquilino_id = contrato.titulares[0].inquilino_id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "titular_seleccionado": [str(inquilino_id)],
+            f"titular_orden_{inquilino_id}": "1",
+            "fecha_inicio": "01/07/2028",
+            "fecha_vencimiento": "30/09/2031",
+            "fecha_inicio_facturacion": "01/08/2028",
+            "fianza": "1600,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección corregida",
+            "codigo_postal_facturacion": "36002",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Concepto corregido",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/07/2029",
+            "metodo_revision": "IPC",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "renta ya registrada" in response.text
+
+
+def test_editar_contrato_rechaza_vencimiento_anterior_a_prorroga() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+
+        anexo = crear_anexo_prorroga(
+            contrato=contrato,
+            fecha=date(2030, 6, 1),
+            nueva_fecha_vencimiento=date(2036, 9, 14),
+            descripcion="Prórroga",
+        )
+
+        session.add(anexo)
+        session.commit()
+
+        contrato_id = contrato.id
+        inmueble_id = contrato.inmueble_id
+        inquilino_id = contrato.titulares[0].inquilino_id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "titular_seleccionado": [str(inquilino_id)],
+            f"titular_orden_{inquilino_id}": "1",
+            "fecha_inicio": "01/07/2028",
+            "fecha_vencimiento": "14/09/2031",
+            "fecha_inicio_facturacion": "01/07/2028",
+            "fianza": "1500,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/08/2028",
+            "metodo_revision": "IPC",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "vencimiento establecido por una prórroga" in response.text
+
+
+def test_editar_contrato_rechaza_inicio_posterior_a_ajuste() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+
+        anexo, ajuste = crear_anexo_renta_temporal(
+            contrato=contrato,
+            fecha=date(2028, 5, 20),
+            fecha_desde=date(2028, 6, 1),
+            fecha_hasta=date(2028, 8, 31),
+            tipo="IMPORTE_FIJO",
+            valor=120000,
+            descripcion="Reducción temporal",
+        )
+
+        session.add(anexo)
+        session.commit()
+
+        contrato_id = contrato.id
+        inmueble_id = contrato.inmueble_id
+        inquilino_id = contrato.titulares[0].inquilino_id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "titular_seleccionado": [str(inquilino_id)],
+            f"titular_orden_{inquilino_id}": "1",
+            "fecha_inicio": "01/07/2028",
+            "fecha_vencimiento": "14/09/2031",
+            "fecha_inicio_facturacion": "01/08/2028",
+            "fianza": "1500,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2028",
+            "metodo_revision": "IPC",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "ajuste de renta ya registrado" in response.text
+
+
