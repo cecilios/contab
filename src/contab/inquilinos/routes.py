@@ -102,27 +102,26 @@ def nuevo_inquilino():
     session_factory = get_session_factory()
 
     with session_factory() as session:
-        error = _buscar_nif_duplicado(
-            session,
-            valores["nif"],
-        )
-
-        if error:
-            return (
-                render_template(
-                    "inquilinos/formulario.html",
-                    titulo="Nuevo inquilino",
-                    datos=request.form,
-                    error=error,
-                    database_name=get_database_name(),
-                ),
-                400,
+        with session.begin():
+            error = _buscar_nif_duplicado(
+                session,
+                valores["nif"],
             )
 
-        inquilino = Inquilino(**valores)
+            if error:
+                return (
+                    render_template(
+                        "inquilinos/formulario.html",
+                        titulo="Nuevo inquilino",
+                        datos=request.form,
+                        error=error,
+                        database_name=get_database_name(),
+                    ),
+                    400,
+                )
 
-        session.add(inquilino)
-        session.commit()
+            inquilino = Inquilino(**valores)
+            session.add(inquilino)
 
     return redirect(url_for("inquilinos.listar_inquilinos"))
 
@@ -132,13 +131,13 @@ def editar_inquilino(inquilino_id: int):
     """Permite modificar los datos de un inquilino existente."""
     session_factory = get_session_factory()
 
-    with session_factory() as session:
-        inquilino = session.get(Inquilino, inquilino_id)
+    if request.method == "GET":
+        with session_factory() as session:
+            inquilino = session.get(Inquilino, inquilino_id)
 
-        if inquilino is None:
-            return "Inquilino no encontrado.", 404
+            if inquilino is None:
+                return "Inquilino no encontrado.", 404
 
-        if request.method == "GET":
             datos = {
                 "nombre": inquilino.nombre,
                 "nif": inquilino.nif,
@@ -159,42 +158,47 @@ def editar_inquilino(inquilino_id: int):
                 database_name=get_database_name(),
             )
 
-        valores, error = _validar_datos_inquilino(request.form)
+    valores, error = _validar_datos_inquilino(request.form)
 
-        if error:
-            return (
-                render_template(
-                    "inquilinos/formulario.html",
-                    titulo="Editar inquilino",
-                    datos=request.form,
-                    error=error,
-                    database_name=get_database_name(),
-                ),
-                400,
-            )
-
-        error = _buscar_nif_duplicado(
-            session,
-            valores["nif"],
-            excluir_id=inquilino.id,
+    if error:
+        return (
+            render_template(
+                "inquilinos/formulario.html",
+                titulo="Editar inquilino",
+                datos=request.form,
+                error=error,
+                database_name=get_database_name(),
+            ),
+            400,
         )
 
-        if error:
-            return (
-                render_template(
-                    "inquilinos/formulario.html",
-                    titulo="Editar inquilino",
-                    datos=request.form,
-                    error=error,
-                    database_name=get_database_name(),
-                ),
-                400,
+    with session_factory() as session:
+        with session.begin():
+            inquilino = session.get(Inquilino, inquilino_id)
+
+            if inquilino is None:
+                return "Inquilino no encontrado.", 404
+
+            error = _buscar_nif_duplicado(
+                session,
+                valores["nif"],
+                excluir_id=inquilino.id,
             )
 
-        for campo, valor in valores.items():
-            setattr(inquilino, campo, valor)
+            if error:
+                return (
+                    render_template(
+                        "inquilinos/formulario.html",
+                        titulo="Editar inquilino",
+                        datos=request.form,
+                        error=error,
+                        database_name=get_database_name(),
+                    ),
+                    400,
+                )
 
-        session.commit()
+            for campo, valor in valores.items():
+                setattr(inquilino, campo, valor)
 
     return redirect(url_for("inquilinos.listar_inquilinos"))
 
