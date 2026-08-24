@@ -698,3 +698,5 @@ def test_cambiar_estado_inmueble_inexistente_devuelve_404() -> None:
     response = client.get("/inmuebles/99999/estado")
 
     assert response.status_code == 404
+
+
