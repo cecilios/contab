@@ -1,3 +1,4 @@
+import os
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -6,10 +7,23 @@ class ConfigError(Exception):
     """Indica un error en la configuración de Contab."""
 
 
+def ruta_configuracion() -> Path:
+    """Devuelve la ruta del archivo de configuración de Contab."""
+    ruta = os.environ.get("CONTAB_CONFIG")
+
+    if ruta:
+        return Path(ruta)
+
+    return Path("contab.ini")
+
+
 def cargar_secret_key(
-    ruta: str | Path = "contab.ini",
+    ruta: str | Path | None = None,
 ) -> str:
     """Carga la clave secreta de la aplicación."""
+    if ruta is None:
+        ruta = ruta_configuracion()
+
     ruta = Path(ruta)
 
     if not ruta.exists():
@@ -41,9 +55,12 @@ def cargar_secret_key(
 
 
 def cargar_bases_datos(
-    ruta: str | Path = "contab.ini",
+    ruta: str | Path | None = None,
 ) -> dict[str, str]:
     """Carga las bases de datos definidas en el archivo de configuración."""
+    if ruta is None:
+        ruta = ruta_configuracion()
+
     ruta = Path(ruta)
 
     if not ruta.exists():

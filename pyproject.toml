@@ -8,6 +8,7 @@ dependencies = [
     "Flask",
     "SQLAlchemy",
     "Alembic",
+    "waitress",
 ]
 
 [dependency-groups]
@@ -15,5 +16,29 @@ dev = [
     "pytest",
 ]
 
+[project.scripts]
+contab = "contab.cli:main"
+contab-db = "contab.db_cli:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+contab = [
+    "templates/*.html",
+    "static/**/*",
+    "migrations/*.py",
+    "migrations/*.mako",
+    "migrations/versions/*.py",
+]
+"contab.inmuebles" = [
+    "templates/inmuebles/*.html",
+]
+"contab.inquilinos" = [
+    "templates/inquilinos/*.html",
+]
+"contab.contratos" = [
+    "templates/contratos/*.html",
+]
+
+

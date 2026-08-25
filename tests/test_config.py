@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from contab.config import ConfigError, cargar_bases_datos, cargar_secret_key
+from contab.config import (
+    ConfigError,
+    cargar_bases_datos,
+    cargar_secret_key,
+    ruta_configuracion,
+)
+
 
 
 def test_cargar_bases_datos_lee_una_base(tmp_path: Path) -> None:
@@ -120,5 +126,29 @@ secret_key =
         match="secret_key",
     ):
         cargar_secret_key(ruta)
+
+
+def test_ruta_configuracion_por_defecto(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv(
+        "CONTAB_CONFIG",
+        raising=False,
+    )
+
+    assert ruta_configuracion() == Path("contab.ini")
+
+
+def test_ruta_configuracion_desde_variable_entorno(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        "/opt/contab/contab.ini",
+    )
+
+    assert ruta_configuracion() == Path(
+        "/opt/contab/contab.ini"
+    )
 
 

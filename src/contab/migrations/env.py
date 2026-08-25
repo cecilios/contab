@@ -2,10 +2,8 @@
 
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 from contab.config import cargar_bases_datos
 from contab.database import Base
@@ -35,7 +33,7 @@ def get_database_url() -> str:
 
         raise RuntimeError(
             "Hay varias bases de datos configuradas. "
-            "Indica una con -x database=NOMBRE. "
+            "Indica una con --database NOMBRE. "
             f"Disponibles: {disponibles}."
         )
 
@@ -51,11 +49,9 @@ def get_database_url() -> str:
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
-    url = get_database_url()
-
+    """Ejecuta las migraciones en modo offline."""
     context.configure(
-        url=url,
+        url=get_database_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -66,7 +62,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
+    """Ejecuta las migraciones en modo online."""
     config.set_main_option(
         "sqlalchemy.url",
         get_database_url(),
