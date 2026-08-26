@@ -1,11 +1,14 @@
 """Pruebas de las rutas web del módulo de contratos."""
 
-from datetime import date
+import pytest
 
+from datetime import date
 from sqlalchemy import select
+from werkzeug.datastructures import MultiDict
 
 from contab.app import create_app
 from contab.database import Base
+from contab.contratos.routes import _titulares_formulario, _resolver_titulares
 
 from contab.models import (
     Contrato,
@@ -15,6 +18,7 @@ from contab.models import (
     RevisionRenta,
 )
 from contab.contratos.services import (
+    ContratoError,
     crear_anexo_prorroga,
     crear_anexo_renta_permanente,
     crear_anexo_renta_temporal,
@@ -35,7 +39,7 @@ def _crear_contrato_para_test(session) -> Contrato:
     )
     inquilino = Inquilino(
         nombre="Ana Pérez",
-        nif="99999999R",
+        nif="11111111A",
     )
 
     session.add_all([inmueble, inquilino])
@@ -66,6 +70,22 @@ def _crear_contrato_para_test(session) -> Contrato:
 
     return contrato
 
+
+def _datos_titulares(
+    *titulares: tuple[str, str],
+) -> dict[str, str]:
+    datos = {}
+
+    for posicion in range(1, 5):
+        if posicion <= len(titulares):
+            nombre, nif = titulares[posicion - 1]
+        else:
+            nombre, nif = "", ""
+
+        datos[f"titular_{posicion}_nombre"] = nombre
+        datos[f"titular_{posicion}_nif"] = nif
+
+    return datos
 
 
 def crear_app_test():
@@ -108,7 +128,6 @@ def test_listado_contratos_vacio() -> None:
 
 
 def test_formulario_nuevo_contrato_muestra_inmuebles_e_inquilinos() -> None:
-    """Comprueba que el formulario ofrece inmuebles activos e inquilinos."""
     app = crear_app_test()
     client = app.test_client()
     seleccionar_base(client)
@@ -139,7 +158,10 @@ def test_formulario_nuevo_contrato_muestra_inmuebles_e_inquilinos() -> None:
     assert response.status_code == 200
     assert "Nuevo contrato" in response.text
     assert "LOCAL-1" in response.text
-    assert "Ana Pérez" in response.text
+    assert 'name="titular_1_nombre"' in response.text
+    assert 'name="titular_1_nif"' in response.text
+    assert 'name="titular_4_nombre"' in response.text
+    assert 'name="titular_4_nif"' in response.text
 
 
 def test_formulario_nuevo_contrato_no_muestra_inmuebles_inactivos() -> None:
@@ -207,12 +229,14 @@ def test_crear_contrato_desde_formulario() -> None:
         "/contratos/nuevo",
         data={
             "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [
-                str(primero_id),
-                str(segundo_id),
-            ],
-            f"titular_orden_{primero_id}": "2",
-            f"titular_orden_{segundo_id}": "1",
+            "titular_1_nombre": "Luis García",
+            "titular_1_nif": "22222222B",
+            "titular_2_nombre": "Ana Pérez",
+            "titular_2_nif": "11111111A",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
             "fecha_inicio": "15/09/2026",
             "fecha_vencimiento": "14/09/2031",
             "fecha_inicio_facturacion": "01/10/2026",
@@ -270,125 +294,6 @@ def test_crear_contrato_desde_formulario() -> None:
         assert titulares[1].orden == 2
 
 
-def test_crear_contrato_rechaza_orden_titulares_repetido() -> None:
-    """Comprueba que dos titulares no pueden compartir el mismo orden."""
-    app = crear_app_test()
-    client = app.test_client()
-    seleccionar_base(client)
-
-    session_factory = app.extensions["contab_databases"]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-        primero = Inquilino(nombre="Ana Pérez", nif="11111111A")
-        segundo = Inquilino(nombre="Luis García", nif="22222222B")
-
-        session.add_all([inmueble, primero, segundo])
-        session.commit()
-
-        inmueble_id = inmueble.id
-        primero_id = primero.id
-        segundo_id = segundo.id
-
-    response = client.post(
-        "/contratos/nuevo",
-        data={
-            "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [
-                str(primero_id),
-                str(segundo_id),
-            ],
-            f"titular_orden_{primero_id}": "1",
-            f"titular_orden_{segundo_id}": "1",
-            "fecha_inicio": "15/09/2026",
-            "fecha_vencimiento": "14/09/2031",
-            "fecha_inicio_facturacion": "01/10/2026",
-            "fianza": "1500,00",
-            "iva_porcentaje": "21,00",
-            "retencion_porcentaje": "19,00",
-            "direccion_facturacion": "Dirección",
-            "codigo_postal_facturacion": "36001",
-            "poblacion_facturacion": "Pontevedra",
-            "provincia_facturacion": "Pontevedra",
-            "concepto_factura": "Alquiler",
-            "renta_inicial": "1500,00",
-            "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
-        },
-    )
-
-    assert response.status_code == 400
-    assert "El orden de los titulares no puede repetirse." in response.text
-
-
-def test_crear_contrato_rechaza_orden_titulares_no_consecutivo() -> None:
-    """Comprueba que el orden de titulares debe ser consecutivo desde 1."""
-    app = crear_app_test()
-    client = app.test_client()
-    seleccionar_base(client)
-
-    session_factory = app.extensions["contab_databases"]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-        primero = Inquilino(nombre="Ana Pérez", nif="11111111A")
-        segundo = Inquilino(nombre="Luis García", nif="22222222B")
-
-        session.add_all([inmueble, primero, segundo])
-        session.commit()
-
-        inmueble_id = inmueble.id
-        primero_id = primero.id
-        segundo_id = segundo.id
-
-    response = client.post(
-        "/contratos/nuevo",
-        data={
-            "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [
-                str(primero_id),
-                str(segundo_id),
-            ],
-            f"titular_orden_{primero_id}": "1",
-            f"titular_orden_{segundo_id}": "3",
-            "fecha_inicio": "15/09/2026",
-            "fecha_vencimiento": "14/09/2031",
-            "fecha_inicio_facturacion": "01/10/2026",
-            "fianza": "1500,00",
-            "iva_porcentaje": "21,00",
-            "retencion_porcentaje": "19,00",
-            "direccion_facturacion": "Dirección",
-            "codigo_postal_facturacion": "36001",
-            "poblacion_facturacion": "Pontevedra",
-            "provincia_facturacion": "Pontevedra",
-            "concepto_factura": "Alquiler",
-            "renta_inicial": "1500,00",
-            "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
-        },
-    )
-
-    assert response.status_code == 400
-    assert (
-        "El orden de los titulares debe ser consecutivo desde 1."
-        in response.text
-    )
-
-
 def test_crear_contrato_rechaza_fecha_inexistente() -> None:
     """Comprueba que una fecha inexistente no crea parcialmente el contrato."""
     app = crear_app_test()
@@ -421,68 +326,14 @@ def test_crear_contrato_rechaza_fecha_inexistente() -> None:
         "/contratos/nuevo",
         data={
             "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [str(inquilino_id)],
-            f"titular_orden_{inquilino_id}": "1",
-            "fecha_inicio": "30/02/2026",
-            "fecha_vencimiento": "14/09/2031",
-            "fecha_inicio_facturacion": "01/10/2026",
-            "fianza": "1500,00",
-            "iva_porcentaje": "21,00",
-            "retencion_porcentaje": "19,00",
-            "direccion_facturacion": "Dirección",
-            "codigo_postal_facturacion": "36001",
-            "poblacion_facturacion": "Pontevedra",
-            "provincia_facturacion": "Pontevedra",
-            "concepto_factura": "Alquiler",
-            "renta_inicial": "1500,00",
-            "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
-        },
-    )
-
-    assert response.status_code == 400
-    assert "La fecha indicada no es válida." in response.text
-
-    with session_factory() as session:
-        assert session.scalars(select(Contrato)).all() == []
-        assert session.scalars(select(RentaContrato)).all() == []
-        assert session.scalars(select(RevisionRenta)).all() == []
-
-
-def test_crear_contrato_rechaza_fecha_inexistente() -> None:
-    """Comprueba que una fecha inexistente no crea parcialmente el contrato."""
-    app = crear_app_test()
-    client = app.test_client()
-    seleccionar_base(client)
-
-    session_factory = app.extensions["contab_databases"]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-        inquilino = Inquilino(
-            nombre="Ana Pérez",
-            nif="11111111A",
-        )
-
-        session.add_all([inmueble, inquilino])
-        session.commit()
-
-        inmueble_id = inmueble.id
-        inquilino_id = inquilino.id
-
-    response = client.post(
-        "/contratos/nuevo",
-        data={
-            "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [str(inquilino_id)],
-            f"titular_orden_{inquilino_id}": "1",
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "11111111A",
+            "titular_2_nombre": "",
+            "titular_2_nif": "",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
             "fecha_inicio": "30/02/2026",
             "fecha_vencimiento": "14/09/2031",
             "fecha_inicio_facturacion": "01/10/2026",
@@ -510,6 +361,7 @@ def test_crear_contrato_rechaza_fecha_inexistente() -> None:
         assert session.scalars(select(Contrato)).all() == []
         assert session.scalars(select(RentaContrato)).all() == []
         assert session.scalars(select(RevisionRenta)).all() == []
+
 
 def test_formulario_editar_contrato_muestra_datos_actuales() -> None:
     """Comprueba que el formulario de edición muestra los datos del contrato."""
@@ -627,8 +479,9 @@ def test_editar_contrato_guarda_cambios() -> None:
         f"/contratos/{contrato_id}/editar",
         data={
             "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [str(inquilino_id)],
-            f"titular_orden_{inquilino_id}": "1",
+            **_datos_titulares(
+                ("Ana Pérez", "11111111A"),
+            ),
             "fecha_inicio": "15/09/2026",
             "fecha_vencimiento": "30/09/2031",
             "fecha_inicio_facturacion": "01/10/2026",
@@ -706,19 +559,19 @@ def test_editar_contrato_permite_reordenar_titulares() -> None:
 
         contrato_id = contrato.id
         inmueble_id = inmueble.id
-        primero_id = primero.id
-        segundo_id = segundo.id
 
     response = client.post(
         f"/contratos/{contrato_id}/editar",
         data={
             "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [
-                str(primero_id),
-                str(segundo_id),
-            ],
-            f"titular_orden_{primero_id}": "2",
-            f"titular_orden_{segundo_id}": "1",
+            "titular_1_nombre": "Luis García",
+            "titular_1_nif": "22222222B",
+            "titular_2_nombre": "Ana Pérez",
+            "titular_2_nif": "11111111A",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
             "fecha_inicio": "15/09/2026",
             "fecha_vencimiento": "14/09/2031",
             "fecha_inicio_facturacion": "01/10/2026",
@@ -746,9 +599,9 @@ def test_editar_contrato_permite_reordenar_titulares() -> None:
             key=lambda titular: titular.orden,
         )
 
-        assert titulares[0].inquilino_id == segundo_id
+        assert titulares[0].inquilino.nombre == "Luis García"
         assert titulares[0].orden == 1
-        assert titulares[1].inquilino_id == primero_id
+        assert titulares[1].inquilino.nombre == "Ana Pérez"
         assert titulares[1].orden == 2
 
 
@@ -1141,8 +994,9 @@ def test_editar_contrato_permite_eliminar_fecha_fin() -> None:
         f"/contratos/{contrato_id}/editar",
         data={
             "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [str(inquilino_id)],
-            f"titular_orden_{inquilino_id}": "1",
+            **_datos_titulares(
+                ("Ana Pérez", "11111111A"),
+            ),
             "fecha_inicio": "15/09/2026",
             "fecha_vencimiento": "14/09/2031",
             "fecha_fin": "",
@@ -1787,8 +1641,14 @@ def test_editar_contrato_rechaza_inicio_posterior_a_renta_historica() -> None:
         f"/contratos/{contrato_id}/editar",
         data={
             "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [str(inquilino_id)],
-            f"titular_orden_{inquilino_id}": "1",
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "99999999R",
+            "titular_2_nombre": "",
+            "titular_2_nif": "",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
             "fecha_inicio": "01/07/2028",
             "fecha_vencimiento": "30/09/2031",
             "fecha_inicio_facturacion": "01/08/2028",
@@ -1838,8 +1698,14 @@ def test_editar_contrato_rechaza_vencimiento_anterior_a_prorroga() -> None:
         f"/contratos/{contrato_id}/editar",
         data={
             "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [str(inquilino_id)],
-            f"titular_orden_{inquilino_id}": "1",
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "99999999R",
+            "titular_2_nombre": "",
+            "titular_2_nif": "",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
             "fecha_inicio": "01/07/2028",
             "fecha_vencimiento": "14/09/2031",
             "fecha_inicio_facturacion": "01/07/2028",
@@ -1892,8 +1758,14 @@ def test_editar_contrato_rechaza_inicio_posterior_a_ajuste() -> None:
         f"/contratos/{contrato_id}/editar",
         data={
             "inmueble_id": str(inmueble_id),
-            "titular_seleccionado": [str(inquilino_id)],
-            f"titular_orden_{inquilino_id}": "1",
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "99999999R",
+            "titular_2_nombre": "",
+            "titular_2_nif": "",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
             "fecha_inicio": "01/07/2028",
             "fecha_vencimiento": "14/09/2031",
             "fecha_inicio_facturacion": "01/08/2028",
@@ -1914,4 +1786,298 @@ def test_editar_contrato_rechaza_inicio_posterior_a_ajuste() -> None:
     assert response.status_code == 400
     assert "ajuste de renta ya registrado" in response.text
 
+
+def test_titulares_formulario_ignora_bloques_vacios() -> None:
+    datos = MultiDict(
+        {
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "11111111H",
+            "titular_2_nombre": "",
+            "titular_2_nif": "",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
+        }
+    )
+
+    assert _titulares_formulario(datos) == [
+        ("Ana Pérez", "11111111H", 1),
+    ]
+
+
+def test_titulares_formulario_exige_nombre_y_nif() -> None:
+    datos = MultiDict(
+        {
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "",
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="debe indicar nombre y NIF",
+    ):
+        _titulares_formulario(datos)
+
+
+def test_titulares_formulario_rechaza_nif_repetido() -> None:
+    datos = MultiDict(
+        {
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "11111111H",
+            "titular_2_nombre": "Ana Pérez",
+            "titular_2_nif": "11111111H",
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="No puede repetirse el mismo NIF",
+    ):
+        _titulares_formulario(datos)
+
+
+def test_titulares_formulario_exige_al_menos_un_titular() -> None:
+    datos = MultiDict()
+
+    with pytest.raises(
+        ValueError,
+        match="al menos un titular",
+    ):
+        _titulares_formulario(datos)
+
+
+def test_resolver_titulares_reutiliza_inquilino_existente() -> None:
+    app = crear_app_test()
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        existente = Inquilino(
+            nombre="Ana Pérez",
+            nif="11111111H",
+        )
+        session.add(existente)
+        session.commit()
+
+        existente_id = existente.id
+
+    with session_factory() as session:
+        titulares = _resolver_titulares(
+            session,
+            [
+                ("Ana Pérez", "11111111H", 1),
+            ],
+        )
+
+        inquilino, orden = titulares[0]
+
+        assert inquilino.id == existente_id
+        assert orden == 1
+
+
+def test_resolver_titulares_crea_inquilino_nuevo() -> None:
+    app = crear_app_test()
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        with session.begin():
+            titulares = _resolver_titulares(
+                session,
+                [
+                    ("Luis García", "22222222J", 1),
+                ],
+            )
+
+            inquilino, orden = titulares[0]
+
+            assert inquilino.nombre == "Luis García"
+            assert inquilino.nif == "22222222J"
+            assert orden == 1
+
+    with session_factory() as session:
+        guardado = session.scalar(
+            select(Inquilino).where(
+                Inquilino.nif == "22222222J"
+            )
+        )
+
+        assert guardado is not None
+        assert guardado.nombre == "Luis García"
+
+
+def test_resolver_titulares_rechaza_nombre_distinto_para_nif_existente() -> None:
+    app = crear_app_test()
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        session.add(
+            Inquilino(
+                nombre="Ana Pérez",
+                nif="11111111H",
+            )
+        )
+        session.commit()
+
+    with session_factory() as session:
+        with pytest.raises(
+            ContratoError,
+            match="ya pertenece",
+        ):
+            _resolver_titulares(
+                session,
+                [
+                    ("María López", "11111111H", 1),
+                ],
+            )
+
+
+def test_nuevo_contrato_crea_inquilino_desde_formulario() -> None:
+    """Comprueba que el alta crea un inquilino inexistente por su NIF."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-NUEVO",
+            codigo_facturacion="N1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        session.add(inmueble)
+        session.commit()
+
+        inmueble_id = inmueble.id
+
+    response = client.post(
+        "/contratos/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "titular_1_nombre": "María López",
+            "titular_1_nif": "33333333C",
+            "titular_2_nombre": "",
+            "titular_2_nif": "",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
+            "fecha_inicio": "15/09/2026",
+            "fecha_vencimiento": "14/09/2031",
+            "fecha_inicio_facturacion": "01/10/2026",
+            "fianza": "1500,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección de facturación",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler local comercial",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2027",
+            "metodo_revision": "IPC",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        inquilino = session.scalar(
+            select(Inquilino).where(
+                Inquilino.nif == "33333333C"
+            )
+        )
+
+        assert inquilino is not None
+        assert inquilino.nombre == "María López"
+
+        contrato = session.scalar(select(Contrato))
+
+        assert contrato is not None
+        assert len(contrato.titulares) == 1
+        assert contrato.titulares[0].inquilino_id == inquilino.id
+        assert contrato.titulares[0].orden == 1
+
+
+def test_nuevo_contrato_reutiliza_inquilino_por_nif() -> None:
+    """Comprueba que el alta reutiliza un inquilino ya existente."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-EXISTENTE",
+            codigo_facturacion="E1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        inquilino = Inquilino(
+            nombre="Ana Pérez",
+            nif="11111111A",
+        )
+
+        session.add_all([inmueble, inquilino])
+        session.commit()
+
+        inmueble_id = inmueble.id
+        inquilino_id = inquilino.id
+
+    response = client.post(
+        "/contratos/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "11111111A",
+            "titular_2_nombre": "",
+            "titular_2_nif": "",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
+            "fecha_inicio": "15/09/2026",
+            "fecha_vencimiento": "14/09/2031",
+            "fecha_inicio_facturacion": "01/10/2026",
+            "fianza": "1500,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección de facturación",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler local comercial",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2027",
+            "metodo_revision": "IPC",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        inquilinos = session.scalars(
+            select(Inquilino)
+        ).all()
+
+        assert len(inquilinos) == 1
+        assert inquilinos[0].id == inquilino_id
+
+        contrato = session.scalar(select(Contrato))
+
+        assert contrato is not None
+        assert len(contrato.titulares) == 1
+        assert contrato.titulares[0].inquilino_id == inquilino_id
+        assert contrato.titulares[0].orden == 1
 

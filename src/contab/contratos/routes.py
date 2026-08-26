@@ -80,69 +80,13 @@ def _fecha(valor: str) -> date:
         ) from exc
 
 
-def _opciones_formulario(session):
-    """Obtiene inmuebles activos e inquilinos para el formulario."""
-    inmuebles = session.scalars(
+def _inmuebles_formulario(session):
+    """Obtiene los inmuebles activos para el formulario."""
+    return session.scalars(
         select(Inmueble)
         .where(Inmueble.activo.is_(True))
         .order_by(Inmueble.referencia)
     ).all()
-
-    inquilinos = session.scalars(
-        select(Inquilino).order_by(Inquilino.nombre)
-    ).all()
-
-    return inmuebles, inquilinos
-
-
-def _titulares_ordenados(datos) -> list[tuple[int, int]]:
-    """Obtiene los titulares seleccionados y valida su orden."""
-    ids = [
-        int(valor)
-        for valor in datos.getlist("titular_seleccionado")
-    ]
-
-    if not ids:
-        raise ValueError(
-            "El contrato debe tener al menos un titular."
-        )
-
-    titulares = []
-
-    for inquilino_id in ids:
-        nombre_campo = f"titular_orden_{inquilino_id}"
-        valor = datos.get(nombre_campo, "").strip()
-
-        try:
-            orden = int(valor)
-        except ValueError as exc:
-            raise ValueError(
-                "Todos los titulares seleccionados deben indicar orden."
-            ) from exc
-
-        if orden <= 0:
-            raise ValueError(
-                "El orden de los titulares debe ser positivo."
-            )
-
-        titulares.append((inquilino_id, orden))
-
-    ordenes = [orden for _, orden in titulares]
-
-    if len(set(ordenes)) != len(ordenes):
-        raise ValueError(
-            "El orden de los titulares no puede repetirse."
-        )
-
-    if sorted(ordenes) != list(range(1, len(ordenes) + 1)):
-        raise ValueError(
-            "El orden de los titulares debe ser consecutivo desde 1."
-        )
-
-    return sorted(
-        titulares,
-        key=lambda elemento: elemento[1],
-    )
 
 
 def _renta_inicial(contrato: Contrato) -> RentaContrato:
@@ -238,9 +182,9 @@ def _datos_contrato_formulario(contrato: Contrato) -> dict[str, str]:
 def _reemplazar_titulares(
     session,
     contrato: Contrato,
-    titulares_ordenados: list[tuple[int, int]],
+    titulares_resueltos: list[tuple[Inquilino, int]],
 ) -> None:
-    """Sustituye los titulares del contrato respetando su orden explícito."""
+    """Sustituye los titulares del contrato respetando su orden."""
     anteriores = list(contrato.titulares)
 
     for titular in anteriores:
@@ -248,14 +192,7 @@ def _reemplazar_titulares(
 
     session.flush()
 
-    for inquilino_id, orden in titulares_ordenados:
-        inquilino = session.get(Inquilino, inquilino_id)
-
-        if inquilino is None:
-            raise ContratoError(
-                "Uno de los inquilinos seleccionados no existe."
-            )
-
+    for inquilino, orden in titulares_resueltos:
         contrato.titulares.append(
             ContratoInquilino(
                 inquilino=inquilino,
@@ -361,9 +298,86 @@ def _validar_coherencia_historica_edicion(
                 "ya registrada."
             )
 
+def _titulares_formulario(datos) -> list[tuple[str, str, int]]:
+    """Obtiene y valida los titulares introducidos en el formulario."""
+    titulares = []
+
+    for orden in range(1, 5):
+        nombre = datos.get(
+            f"titular_{orden}_nombre",
+            "",
+        ).strip()
+
+        nif = datos.get(
+            f"titular_{orden}_nif",
+            "",
+        ).strip()
+
+        if not nombre and not nif:
+            continue
+
+        if not nombre or not nif:
+            raise ValueError(
+                f"El titular {orden} debe indicar nombre y NIF."
+            )
+
+        titulares.append((nombre, nif, orden))
+
+    if not titulares:
+        raise ValueError(
+            "El contrato debe tener al menos un titular."
+        )
+
+    nifs = [nif for _, nif, _ in titulares]
+
+    if len(set(nifs)) != len(nifs):
+        raise ValueError(
+            "No puede repetirse el mismo NIF entre los titulares."
+        )
+
+    return titulares
+
+
+def _resolver_titulares(
+    session,
+    titulares_formulario: list[tuple[str, str, int]],
+) -> list[tuple[Inquilino, int]]:
+    """Busca o crea los inquilinos indicados en el formulario."""
+    titulares = []
+
+    for nombre, nif, orden in titulares_formulario:
+        inquilino = session.scalar(
+            select(Inquilino).where(
+                Inquilino.nif == nif
+            )
+        )
+
+        if inquilino is None:
+            inquilino = Inquilino(
+                nombre=nombre,
+                nif=nif,
+            )
+            session.add(inquilino)
+
+        elif inquilino.nombre != nombre:
+            raise ContratoError(
+                f"El NIF {nif} ya pertenece a "
+                f"'{inquilino.nombre}', no a '{nombre}'."
+            )
+
+        titulares.append(
+            (
+                inquilino,
+                orden,
+            )
+        )
+
+    return titulares
 
 
 
+
+"""Rutas ------------------------------------------------------------------------------"""
 
 @bp.get("/")
 def listar_contratos():
@@ -405,23 +419,21 @@ def nuevo_contrato():
 
     if request.method == "GET":
         with session_factory() as session:
-            inmuebles, inquilinos = _opciones_formulario(session)
+            inmuebles = _inmuebles_formulario(session)
 
-            return render_template(
-                "contratos/formulario.html",
-                titulo="Nuevo contrato",
-                datos={},
-                inmuebles=inmuebles,
-                inquilinos=inquilinos,
-                titulares_seleccionados=[],
-                error=None,
-                database_name=get_database_name(),
-            )
+        return render_template(
+            "contratos/formulario.html",
+            titulo="Nuevo contrato",
+            datos={},
+            inmuebles=inmuebles,
+            error=None,
+            database_name=get_database_name(),
+        )
 
     try:
         inmueble_id = int(request.form["inmueble_id"])
 
-        titulares_ordenados = _titulares_ordenados(
+        titulares_formulario = _titulares_formulario(
             request.form
         )
 
@@ -454,9 +466,7 @@ def nuevo_contrato():
 
     except (KeyError, ValueError) as exc:
         with session_factory() as session:
-            inmuebles, inquilinos = _opciones_formulario(
-                session
-            )
+            inmuebles = _inmuebles_formulario(session)
 
             return (
                 render_template(
@@ -464,18 +474,12 @@ def nuevo_contrato():
                     titulo="Nuevo contrato",
                     datos=request.form,
                     inmuebles=inmuebles,
-                    inquilinos=inquilinos,
-                    titulares_seleccionados=(
-                        request.form.getlist(
-                            "titular_seleccionado"
-                        )
-                    ),
                     error=str(exc),
                     database_name=get_database_name(),
                 ),
                 400,
             )
-
+        
     try:
         with session_factory() as session:
             with session.begin():
@@ -489,21 +493,15 @@ def nuevo_contrato():
                         "El inmueble seleccionado no existe."
                     )
 
-                titulares = []
+                titulares_resueltos = _resolver_titulares(
+                    session,
+                    titulares_formulario,
+                )
 
-                for inquilino_id, orden in titulares_ordenados:
-                    inquilino = session.get(
-                        Inquilino,
-                        inquilino_id,
-                    )
-
-                    if inquilino is None:
-                        raise ContratoError(
-                            "Uno de los inquilinos "
-                            "seleccionados no existe."
-                        )
-
-                    titulares.append(inquilino)
+                titulares = [
+                    inquilino
+                    for inquilino, _ in titulares_resueltos
+                ]
 
                 contrato = crear_contrato(
                     inmueble=inmueble,
@@ -559,9 +557,7 @@ def nuevo_contrato():
 
     except ContratoError as exc:
         with session_factory() as session:
-            inmuebles, inquilinos = _opciones_formulario(
-                session
-            )
+            inmuebles = _inmuebles_formulario(session)
 
             return (
                 render_template(
@@ -569,18 +565,12 @@ def nuevo_contrato():
                     titulo="Nuevo contrato",
                     datos=request.form,
                     inmuebles=inmuebles,
-                    inquilinos=inquilinos,
-                    titulares_seleccionados=(
-                        request.form.getlist(
-                            "titular_seleccionado"
-                        )
-                    ),
                     error=str(exc),
                     database_name=get_database_name(),
                 ),
                 400,
             )
-
+        
     return redirect(
         url_for("contratos.listar_contratos")
     )
@@ -598,27 +588,25 @@ def editar_contrato(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            inmuebles, inquilinos = _opciones_formulario(session)
+            inmuebles = _inmuebles_formulario(session)
 
             datos = _datos_contrato_formulario(contrato)
 
-            titulares_seleccionados = [
-                str(titular.inquilino_id)
-                for titular in contrato.titulares
-            ]
-
-            for titular in contrato.titulares:
-                datos[
-                    f"titular_orden_{titular.inquilino_id}"
-                ] = str(titular.orden)
+            for posicion, titular in enumerate(
+                sorted(
+                    contrato.titulares,
+                    key=lambda titular: titular.orden,
+                ),
+                start=1,
+            ):
+                datos[f"titular_{posicion}_nombre"] = titular.inquilino.nombre
+                datos[f"titular_{posicion}_nif"] = titular.inquilino.nif
 
             return render_template(
                 "contratos/formulario.html",
                 titulo="Editar contrato",
                 datos=datos,
                 inmuebles=inmuebles,
-                inquilinos=inquilinos,
-                titulares_seleccionados=titulares_seleccionados,
                 error=None,
                 database_name=get_database_name(),
             )
@@ -626,7 +614,7 @@ def editar_contrato(contrato_id: int):
     try:
         inmueble_id = int(request.form["inmueble_id"])
 
-        titulares_ordenados = _titulares_ordenados(
+        titulares_formulario = _titulares_formulario(
             request.form
         )
 
@@ -729,7 +717,7 @@ def editar_contrato(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            inmuebles, inquilinos = _opciones_formulario(session)
+            inmuebles = _inmuebles_formulario(session)
 
             return (
                 render_template(
@@ -737,12 +725,6 @@ def editar_contrato(contrato_id: int):
                     titulo="Editar contrato",
                     datos=request.form,
                     inmuebles=inmuebles,
-                    inquilinos=inquilinos,
-                    titulares_seleccionados=(
-                        request.form.getlist(
-                            "titular_seleccionado"
-                        )
-                    ),
                     error=str(exc),
                     database_name=get_database_name(),
                 ),
@@ -833,10 +815,15 @@ def editar_contrato(contrato_id: int):
                     ].strip()
                 )
 
+                titulares_resueltos = _resolver_titulares(
+                    session,
+                    titulares_formulario,
+                )
+
                 _reemplazar_titulares(
                     session,
                     contrato,
-                    titulares_ordenados,
+                    titulares_resueltos,
                 )
 
     except LookupError:
@@ -844,7 +831,7 @@ def editar_contrato(contrato_id: int):
 
     except ContratoError as exc:
         with session_factory() as session:
-            inmuebles, inquilinos = _opciones_formulario(session)
+            inmuebles = _inmuebles_formulario(session)
 
             return (
                 render_template(
@@ -852,12 +839,6 @@ def editar_contrato(contrato_id: int):
                     titulo="Editar contrato",
                     datos=request.form,
                     inmuebles=inmuebles,
-                    inquilinos=inquilinos,
-                    titulares_seleccionados=(
-                        request.form.getlist(
-                            "titular_seleccionado"
-                        )
-                    ),
                     error=str(exc),
                     database_name=get_database_name(),
                 ),

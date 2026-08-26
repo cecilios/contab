@@ -34,33 +34,34 @@
         <fieldset>
             <legend>Titulares (*)</legend>
 
-            {% for inquilino in inquilinos %}
+            {% for orden in range(1, 5) %}
                 <p class="form-field">
-                    <label>
-                        <input
-                            type="checkbox"
-                            name="titular_seleccionado"
-                            value="{{ inquilino.id }}"
-                            {% if inquilino.id|string in titulares_seleccionados %}
-                                checked
-                            {% endif %}
-                        >
-                        {{ inquilino.nombre }} - {{ inquilino.nif }}
-                    </label>
+                    <strong>Titular {{ orden }}</strong>
+                </p>
 
-                    <label for="titular_orden_{{ inquilino.id }}">
-                        Orden
+                <p class="form-field">
+                    <label for="titular_{{ orden }}_nombre">
+                        Nombre
                     </label>
-
                     <input
-                        type="number"
-                        min="1"
-                        max="99"
-                        class="order-input"
-                        id="titular_orden_{{ inquilino.id }}"
-                        name="titular_orden_{{ inquilino.id }}"
+                        id="titular_{{ orden }}_nombre"
+                        name="titular_{{ orden }}_nombre"
                         value="{{ datos.get(
-                            'titular_orden_' ~ inquilino.id|string,
+                            'titular_' ~ orden|string ~ '_nombre',
+                            ''
+                        ) }}"
+                    >
+                </p>
+
+                <p class="form-field">
+                    <label for="titular_{{ orden }}_nif">
+                        NIF
+                    </label>
+                    <input
+                        id="titular_{{ orden }}_nif"
+                        name="titular_{{ orden }}_nif"
+                        value="{{ datos.get(
+                            'titular_' ~ orden|string ~ '_nif',
                             ''
                         ) }}"
                     >
