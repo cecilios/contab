@@ -14,6 +14,7 @@ from contab.contratos.services import (
     crear_anexo_renta_permanente,
     crear_anexo_renta_temporal,
     crear_contrato,
+    METODOS_REVISION,
 )
 from contab.models import (
     Contrato,
@@ -426,6 +427,7 @@ def nuevo_contrato():
             titulo="Nuevo contrato",
             datos={},
             inmuebles=inmuebles,
+            metodos_revision=METODOS_REVISION,
             error=None,
             database_name=get_database_name(),
         )
@@ -474,6 +476,7 @@ def nuevo_contrato():
                     titulo="Nuevo contrato",
                     datos=request.form,
                     inmuebles=inmuebles,
+                    metodos_revision=METODOS_REVISION,
                     error=str(exc),
                     database_name=get_database_name(),
                 ),
@@ -607,6 +610,7 @@ def editar_contrato(contrato_id: int):
                 titulo="Editar contrato",
                 datos=datos,
                 inmuebles=inmuebles,
+                metodos_revision=METODOS_REVISION,
                 error=None,
                 database_name=get_database_name(),
             )
@@ -725,6 +729,7 @@ def editar_contrato(contrato_id: int):
                     titulo="Editar contrato",
                     datos=request.form,
                     inmuebles=inmuebles,
+                    metodos_revision=METODOS_REVISION,
                     error=str(exc),
                     database_name=get_database_name(),
                 ),
@@ -839,6 +844,7 @@ def editar_contrato(contrato_id: int):
                     titulo="Editar contrato",
                     datos=request.form,
                     inmuebles=inmuebles,
+                    metodos_revision=METODOS_REVISION,
                     error=str(exc),
                     database_name=get_database_name(),
                 ),

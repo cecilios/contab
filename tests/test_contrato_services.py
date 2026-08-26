@@ -1090,4 +1090,41 @@ def test_crear_contrato_rechaza_solapamiento_con_contrato_finalizado(
         )
 
 
+@pytest.mark.parametrize(
+    "metodo",
+    [
+        "IPC_NACIONAL",
+        "IPC_AUTONOMICO",
+        "IRAV",
+        "FIJO",
+    ],
+)
+def test_crear_revision_renta_acepta_metodos_validos(
+    contrato,
+    metodo,
+) -> None:
+    """Comprueba que se admiten los métodos de revisión definidos."""
+    revision = crear_revision_renta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 2, 1),
+        metodo=metodo,
+    )
+
+    assert revision.metodo == metodo
+
+
+def test_crear_revision_renta_rechaza_metodo_desconocido(
+    contrato,
+) -> None:
+    """Comprueba que no se admite un método de revisión arbitrario."""
+    with pytest.raises(
+        RevisionRentaError,
+        match="método de revisión indicado no es válido",
+    ):
+        crear_revision_renta(
+            contrato=contrato,
+            fecha_prevista=date(2027, 2, 1),
+            metodo="OTRO",
+        )
+
 

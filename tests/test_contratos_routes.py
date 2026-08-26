@@ -61,7 +61,7 @@ def _crear_contrato_para_test(session) -> Contrato:
         concepto_factura="Alquiler",
         renta_inicial=150000,
         fecha_primera_revision=date(2027, 10, 1),
-        metodo_revision="IPC",
+        metodo_revision="IPC_NACIONAL",
     )
 
     session.add(contrato)
@@ -250,7 +250,7 @@ def test_crear_contrato_desde_formulario() -> None:
             "concepto_factura": "Alquiler local comercial",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
         follow_redirects=True,
     )
@@ -347,7 +347,7 @@ def test_crear_contrato_rechaza_fecha_inexistente() -> None:
             "concepto_factura": "Alquiler",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
     )
 
@@ -404,7 +404,7 @@ def test_formulario_editar_contrato_muestra_datos_actuales() -> None:
             concepto_factura="Alquiler local",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         session.add(contrato)
@@ -465,7 +465,7 @@ def test_editar_contrato_guarda_cambios() -> None:
             concepto_factura="Concepto antiguo",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         session.add(contrato)
@@ -495,7 +495,7 @@ def test_editar_contrato_guarda_cambios() -> None:
             "concepto_factura": "Concepto corregido",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
         follow_redirects=True,
     )
@@ -551,7 +551,7 @@ def test_editar_contrato_permite_reordenar_titulares() -> None:
             concepto_factura="Alquiler",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         session.add(contrato)
@@ -585,7 +585,7 @@ def test_editar_contrato_permite_reordenar_titulares() -> None:
             "concepto_factura": "Alquiler",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
     )
 
@@ -657,7 +657,7 @@ def test_formulario_finalizar_contrato_responde() -> None:
             concepto_factura="Alquiler",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         session.add(contrato)
@@ -716,7 +716,7 @@ def test_finalizar_contrato_guarda_fecha_fin() -> None:
             concepto_factura="Alquiler",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         session.add(contrato)
@@ -783,7 +783,7 @@ def test_finalizar_contrato_rechaza_fecha_anterior_al_inicio() -> None:
             concepto_factura="Alquiler",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         session.add(contrato)
@@ -851,7 +851,7 @@ def test_finalizar_contrato_rechaza_fecha_invalida() -> None:
             concepto_factura="Alquiler",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         session.add(contrato)
@@ -924,7 +924,7 @@ def test_formulario_editar_contrato_muestra_fecha_fin() -> None:
             concepto_factura="Alquiler",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
         contrato.fecha_fin = date(2028, 8, 31)
 
@@ -979,7 +979,7 @@ def test_editar_contrato_permite_eliminar_fecha_fin() -> None:
             concepto_factura="Alquiler",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
         contrato.fecha_fin = date(2028, 8, 31)
 
@@ -1011,7 +1011,7 @@ def test_editar_contrato_permite_eliminar_fecha_fin() -> None:
             "concepto_factura": "Alquiler",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
         follow_redirects=True,
     )
@@ -1064,7 +1064,7 @@ def test_seleccionar_tipo_anexo_responde() -> None:
             concepto_factura="Alquiler",
             renta_inicial=150000,
             fecha_primera_revision=date(2027, 10, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         session.add(contrato)
@@ -1586,7 +1586,7 @@ def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
             concepto_factura="Alquiler",
             renta_inicial=100000,
             fecha_primera_revision=date(2025, 1, 1),
-            metodo_revision="IPC",
+            metodo_revision="IPC_NACIONAL",
         )
 
         finalizado.fecha_fin = date(2026, 6, 30)
@@ -1662,7 +1662,7 @@ def test_editar_contrato_rechaza_inicio_posterior_a_renta_historica() -> None:
             "concepto_factura": "Concepto corregido",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/07/2029",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
     )
 
@@ -1719,7 +1719,7 @@ def test_editar_contrato_rechaza_vencimiento_anterior_a_prorroga() -> None:
             "concepto_factura": "Alquiler",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/08/2028",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
     )
 
@@ -1779,7 +1779,7 @@ def test_editar_contrato_rechaza_inicio_posterior_a_ajuste() -> None:
             "concepto_factura": "Alquiler",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/10/2028",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
     )
 
@@ -1983,7 +1983,7 @@ def test_nuevo_contrato_crea_inquilino_desde_formulario() -> None:
             "concepto_factura": "Alquiler local comercial",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
     )
 
@@ -2060,7 +2060,7 @@ def test_nuevo_contrato_reutiliza_inquilino_por_nif() -> None:
             "concepto_factura": "Alquiler local comercial",
             "renta_inicial": "1500,00",
             "fecha_primera_revision": "01/10/2027",
-            "metodo_revision": "IPC",
+            "metodo_revision": "IPC_NACIONAL",
         },
     )
 
@@ -2080,4 +2080,35 @@ def test_nuevo_contrato_reutiliza_inquilino_por_nif() -> None:
         assert len(contrato.titulares) == 1
         assert contrato.titulares[0].inquilino_id == inquilino_id
         assert contrato.titulares[0].orden == 1
+
+
+def test_formulario_contrato_muestra_metodos_revision() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        session.add(
+            Inmueble(
+                referencia="LOCAL-1",
+                codigo_facturacion="A1",
+                descripcion="Local comercial",
+                direccion="Dirección",
+                poblacion="Pontevedra",
+                provincia="Pontevedra",
+            )
+        )
+        session.commit()
+
+    response = client.get("/contratos/nuevo")
+
+    assert response.status_code == 200
+    assert "IPC Nacional" in response.text
+    assert "IPC Autonómico" in response.text
+    assert "IRAV" in response.text
+    assert "Fijo" in response.text
+    assert 'value="IPC_NACIONAL"' in response.text
+
 

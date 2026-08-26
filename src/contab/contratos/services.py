@@ -34,6 +34,13 @@ class RevisionRentaError(Exception):
 class ContratoError(Exception):
     """Indica que los datos o condiciones de un contrato no son válidos."""
 
+METODOS_REVISION = {
+    "IPC_NACIONAL": "IPC Nacional",
+    "IPC_AUTONOMICO": "IPC Autonómico",
+    "IRAV": "IRAV (Indice ref. anual para Viviendas)",
+    "FIJO": "Fijo",
+}
+
 
 
 def _es_ultimo_dia_del_mes(fecha: date) -> bool:
@@ -249,9 +256,9 @@ def crear_revision_renta(
             "La revisión no puede ser anterior al inicio del contrato."
         )
 
-    if not metodo.strip():
+    if metodo not in METODOS_REVISION:
         raise RevisionRentaError(
-            "La revisión debe indicar un método de actualización."
+            "El método de revisión indicado no es válido."
         )
 
     if any(

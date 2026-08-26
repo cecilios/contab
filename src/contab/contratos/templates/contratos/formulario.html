@@ -225,11 +225,24 @@
             <label for="metodo_revision">
                 Método de revisión (*)
             </label>
-            <input
+
+            <select
                 id="metodo_revision"
                 name="metodo_revision"
-                value="{{ datos.get('metodo_revision', '') }}"
             >
+                <option value="">Seleccione...</option>
+
+                {% for valor, etiqueta in metodos_revision.items() %}
+                    <option
+                        value="{{ valor }}"
+                        {% if datos.get("metodo_revision") == valor %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ etiqueta }}
+                    </option>
+                {% endfor %}
+            </select>
         </p>
 
         <p class="form-actions">
