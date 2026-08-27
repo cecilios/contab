@@ -15,6 +15,23 @@
 
     <form method="post">
         <p class="form-field">
+            <label for="tipo">Tipo (*)</label>
+            <select id="tipo" name="tipo">
+                <option value="">Seleccione...</option>
+
+                {% for valor, etiqueta in tipos_inmueble.items() %}
+                    <option
+                        value="{{ valor }}"
+                        {% if datos.get("tipo") == valor %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ etiqueta }}
+                    </option>
+                {% endfor %}
+            </select>
+        </p>
+        <p class="form-field">
             <label for="referencia">Referencia (*)</label>
             <input
                 id="referencia"

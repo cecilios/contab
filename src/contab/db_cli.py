@@ -49,6 +49,28 @@ def main() -> None:
     upgrade_parser.add_argument(
         "--database",
     )
+    upgrade_parser.add_argument(
+        "revision",
+        nargs="?",
+        default="head",
+    )
+
+    revision_parser = subparsers.add_parser(
+        "revision",
+        help="Genera una nueva revisión de Alembic.",
+    )
+    revision_parser.add_argument(
+        "--database",
+    )
+    revision_parser.add_argument(
+        "--autogenerate",
+        action="store_true",
+    )
+    revision_parser.add_argument(
+        "-m",
+        "--message",
+        required=True,
+    )
 
     args = parser.parse_args()
 
@@ -58,6 +80,15 @@ def main() -> None:
         command.current(config)
 
     elif args.command == "upgrade":
-        command.upgrade(config, "head")
-
+        command.upgrade(
+            config,
+            args.revision,
+        )
+    
+    elif args.command == "revision":
+        command.revision(
+            config,
+            message=args.message,
+            autogenerate=args.autogenerate,
+        )
 

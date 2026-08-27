@@ -24,6 +24,7 @@ def inmueble(session) -> Inmueble:
     """Crea un inmueble válido reutilizable por los tests."""
     inmueble = Inmueble(
         referencia="LOCAL-1",
+        tipo="L",
         codigo_facturacion="A1",
         descripcion="Local comercial",
         direccion="Dirección de prueba",
@@ -44,6 +45,7 @@ def contrato(session, inmueble) -> Contrato:
         inmueble=inmueble,
         fecha_inicio=date(2026, 1, 15),
         fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
         fecha_inicio_facturacion=date(2026, 2, 1),
         fianza=100000,
         direccion_facturacion="Dirección",

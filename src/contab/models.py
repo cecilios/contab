@@ -26,9 +26,18 @@ class Inmueble(Base):
             "participacion > 0 AND participacion <= 10000",
             name="ck_inmueble_participacion",
         ),
+        CheckConstraint(
+            "tipo IN ('P', 'L', 'G')",
+            name="ck_inmueble_tipo",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    tipo: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
 
     referencia: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     codigo_facturacion: Mapped[str] = mapped_column(
@@ -139,6 +148,10 @@ class Contrato(Base):
     fecha_inicio: Mapped[date] = mapped_column(Date, nullable=False)
     fecha_vencimiento: Mapped[date] = mapped_column(Date, nullable=False)
     fecha_fin: Mapped[date | None] = mapped_column(Date)
+    genera_factura: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+    )
     fecha_inicio_facturacion: Mapped[date] = mapped_column(Date, nullable=False)
 
     fianza: Mapped[int] = mapped_column(Integer, nullable=False)

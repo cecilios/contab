@@ -15,6 +15,7 @@ def test_crear_contrato_asociado_a_inmueble(session, inmueble) -> None:
         inmueble=inmueble,
         fecha_inicio=date(2026, 1, 15),
         fecha_vencimiento=date(2031, 1, 14),
+        genera_factura=True,
         fecha_inicio_facturacion=date(2026, 2, 1),
         fianza=200000,
         iva_porcentaje=2100,
@@ -42,6 +43,7 @@ def test_contrato_requiere_inmueble_existente(session) -> None:
         inmueble_id=9999,
         fecha_inicio=date(2026, 1, 1),
         fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
         fecha_inicio_facturacion=date(2026, 1, 1),
         fianza=100000,
         direccion_facturacion="Dirección",
@@ -63,6 +65,7 @@ def test_vencimiento_no_puede_ser_anterior_al_inicio(session, inmueble) -> None:
         inmueble=inmueble,
         fecha_inicio=date(2026, 6, 1),
         fecha_vencimiento=date(2026, 5, 31),
+        genera_factura=True,
         fecha_inicio_facturacion=date(2026, 6, 1),
         fianza=100000,
         direccion_facturacion="Dirección",
@@ -84,6 +87,7 @@ def test_inicio_facturacion_no_puede_ser_anterior_al_contrato(session, inmueble)
         inmueble=inmueble,
         fecha_inicio=date(2026, 6, 15),
         fecha_vencimiento=date(2030, 6, 14),
+        genera_factura=True,
         fecha_inicio_facturacion=date(2026, 6, 1),
         fianza=100000,
         direccion_facturacion="Dirección",
@@ -96,3 +100,22 @@ def test_inicio_facturacion_no_puede_ser_anterior_al_contrato(session, inmueble)
 
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+@pytest.mark.parametrize(
+    "genera_factura",
+    [True, False],
+)
+def test_contrato_acepta_genera_factura(
+    session,
+    contrato,
+    genera_factura,
+) -> None:
+    contrato.genera_factura = genera_factura
+
+    session.add(contrato)
+    session.commit()
+
+    assert contrato.genera_factura is genera_factura
+
+

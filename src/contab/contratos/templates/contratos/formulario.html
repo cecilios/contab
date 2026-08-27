@@ -104,6 +104,19 @@
             </p>
         {% endif %}
 
+        <p class="form-field checkbox-field">
+            <label>
+                <input
+                    type="checkbox"
+                    name="genera_factura"
+                    {% if datos.get("genera_factura") %}
+                        checked
+                    {% endif %}
+                >
+                Genera factura
+            </label>
+        </p>
+
         <p class="form-field">
             <label for="fecha_inicio_facturacion">
                 Inicio de facturación (*)

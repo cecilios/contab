@@ -27,10 +27,14 @@ from contab.contratos.services import (
 
 
 
-def _crear_contrato_para_test(session) -> Contrato:
+def _crear_contrato_para_test(
+    session,
+    genera_factura: bool = True,
+) -> Contrato:
     """Crea y persiste un contrato completo para pruebas de rutas."""
     inmueble = Inmueble(
         referencia="LOCAL-ANEXO",
+        tipo="L",
         codigo_facturacion="AX",
         descripcion="Local para anexos",
         direccion="Dirección",
@@ -50,6 +54,7 @@ def _crear_contrato_para_test(session) -> Contrato:
         titulares=[inquilino],
         fecha_inicio=date(2026, 9, 15),
         fecha_vencimiento=date(2031, 9, 14),
+        genera_factura=genera_factura,
         fecha_inicio_facturacion=date(2026, 10, 1),
         fianza=150000,
         iva_porcentaje=2100,
@@ -138,6 +143,7 @@ def test_formulario_nuevo_contrato_muestra_inmuebles_e_inquilinos() -> None:
         session.add(
             Inmueble(
                 referencia="LOCAL-1",
+                tipo="L",
                 codigo_facturacion="A1",
                 descripcion="Local comercial",
                 direccion="Dirección",
@@ -176,6 +182,7 @@ def test_formulario_nuevo_contrato_no_muestra_inmuebles_inactivos() -> None:
         session.add(
             Inmueble(
                 referencia="INACTIVO-1",
+                tipo="L",
                 codigo_facturacion="I1",
                 descripcion="Local inactivo",
                 direccion="Dirección",
@@ -203,6 +210,7 @@ def test_crear_contrato_desde_formulario() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -239,6 +247,7 @@ def test_crear_contrato_desde_formulario() -> None:
             "titular_4_nif": "",
             "fecha_inicio": "15/09/2026",
             "fecha_vencimiento": "14/09/2031",
+            "genera_factura": "on",
             "fecha_inicio_facturacion": "01/10/2026",
             "fianza": "1500,00",
             "iva_porcentaje": "21,00",
@@ -292,7 +301,8 @@ def test_crear_contrato_desde_formulario() -> None:
 
         assert titulares[1].inquilino_id == primero_id
         assert titulares[1].orden == 2
-
+        assert contrato.genera_factura is True
+        
 
 def test_crear_contrato_rechaza_fecha_inexistente() -> None:
     """Comprueba que una fecha inexistente no crea parcialmente el contrato."""
@@ -305,6 +315,7 @@ def test_crear_contrato_rechaza_fecha_inexistente() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -374,6 +385,7 @@ def test_formulario_editar_contrato_muestra_datos_actuales() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -393,6 +405,7 @@ def test_formulario_editar_contrato_muestra_datos_actuales() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -435,6 +448,7 @@ def test_editar_contrato_guarda_cambios() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -454,6 +468,7 @@ def test_editar_contrato_guarda_cambios() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -523,6 +538,7 @@ def test_editar_contrato_permite_reordenar_titulares() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -540,6 +556,7 @@ def test_editar_contrato_permite_reordenar_titulares() -> None:
             titulares=[primero, segundo],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -627,6 +644,7 @@ def test_formulario_finalizar_contrato_responde() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -646,6 +664,7 @@ def test_formulario_finalizar_contrato_responde() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -686,6 +705,7 @@ def test_finalizar_contrato_guarda_fecha_fin() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -705,6 +725,7 @@ def test_finalizar_contrato_guarda_fecha_fin() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -753,6 +774,7 @@ def test_finalizar_contrato_rechaza_fecha_anterior_al_inicio() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -772,6 +794,7 @@ def test_finalizar_contrato_rechaza_fecha_anterior_al_inicio() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -821,6 +844,7 @@ def test_finalizar_contrato_rechaza_fecha_invalida() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -840,6 +864,7 @@ def test_finalizar_contrato_rechaza_fecha_invalida() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -894,6 +919,7 @@ def test_formulario_editar_contrato_muestra_fecha_fin() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -913,6 +939,7 @@ def test_formulario_editar_contrato_muestra_fecha_fin() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -949,6 +976,7 @@ def test_editar_contrato_permite_eliminar_fecha_fin() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -968,6 +996,7 @@ def test_editar_contrato_permite_eliminar_fecha_fin() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -1034,6 +1063,7 @@ def test_seleccionar_tipo_anexo_responde() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -1053,6 +1083,7 @@ def test_seleccionar_tipo_anexo_responde() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2026, 9, 15),
             fecha_vencimiento=date(2031, 9, 14),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2026, 10, 1),
             fianza=150000,
             iva_porcentaje=2100,
@@ -1556,6 +1587,7 @@ def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
 
         inmueble = Inmueble(
             referencia="LOCAL-FINALIZADO",
+            tipo="L",
             codigo_facturacion="AF",
             descripcion="Local finalizado",
             direccion="Dirección",
@@ -1575,6 +1607,7 @@ def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
             titulares=[inquilino],
             fecha_inicio=date(2024, 1, 1),
             fecha_vencimiento=date(2029, 12, 31),
+            genera_factura = True,
             fecha_inicio_facturacion=date(2024, 1, 1),
             fianza=100000,
             iva_porcentaje=2100,
@@ -1946,6 +1979,7 @@ def test_nuevo_contrato_crea_inquilino_desde_formulario() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-NUEVO",
+            tipo="L",
             codigo_facturacion="N1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -2018,6 +2052,7 @@ def test_nuevo_contrato_reutiliza_inquilino_por_nif() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-EXISTENTE",
+            tipo="L",
             codigo_facturacion="E1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -2049,6 +2084,7 @@ def test_nuevo_contrato_reutiliza_inquilino_por_nif() -> None:
             "titular_4_nif": "",
             "fecha_inicio": "15/09/2026",
             "fecha_vencimiento": "14/09/2031",
+            "genera_factura": "on",
             "fecha_inicio_facturacion": "01/10/2026",
             "fianza": "1500,00",
             "iva_porcentaje": "21,00",
@@ -2093,6 +2129,7 @@ def test_formulario_contrato_muestra_metodos_revision() -> None:
         session.add(
             Inmueble(
                 referencia="LOCAL-1",
+                tipo="L",
                 codigo_facturacion="A1",
                 descripcion="Local comercial",
                 direccion="Dirección",
@@ -2110,5 +2147,367 @@ def test_formulario_contrato_muestra_metodos_revision() -> None:
     assert "IRAV" in response.text
     assert "Fijo" in response.text
     assert 'value="IPC_NACIONAL"' in response.text
+
+
+def test_formulario_nuevo_contrato_marca_genera_factura_por_defecto() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    response = client.get("/contratos/nuevo")
+
+    assert response.status_code == 200
+    assert 'name="genera_factura"' in response.text
+    assert "checked" in response.text
+
+
+def test_editar_contrato_que_genera_factura_lo_muestra_en_on() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/editar"
+    )
+
+    assert response.status_code == 200
+    assert 'name="genera_factura"' in response.text
+    assert "checked" in response.text
+
+
+def test_editar_contrato_que_no_genera_factura_lo_muestra_en_off() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(
+            session,
+            genera_factura=False,
+        )
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/editar"
+    )
+
+    assert response.status_code == 200
+    assert 'name="genera_factura"' in response.text
+    assert "checked" not in response.text
+
+
+def test_editar_contrato_permite_desactivar_genera_factura() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(
+            session,
+            genera_factura=True,
+        )
+
+        contrato_id = contrato.id
+        inmueble_id = contrato.inmueble_id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data={
+            "inmueble_id": str(inmueble_id),
+
+            **_datos_titulares(
+                ("Ana Pérez", "99999999R"),
+            ),
+
+            # NO incluimos "genera_factura":
+            # checkbox desmarcado = clave ausente
+
+            "fecha_inicio": "15/09/2026",
+            "fecha_vencimiento": "14/09/2031",
+            "fecha_inicio_facturacion": "01/10/2026",
+            "fianza": "1500,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2027",
+            "metodo_revision": "IPC_NACIONAL",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        assert contrato is not None
+        assert contrato.genera_factura is False
+
+
+
+
+def test_editar_contrato_permite_activar_genera_factura() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(
+            session,
+            genera_factura=False,
+        )
+
+        contrato_id = contrato.id
+        inmueble_id = contrato.inmueble_id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data={
+            "inmueble_id": str(inmueble_id),
+
+            **_datos_titulares(
+                ("Ana Pérez", "99999999R"),
+            ),
+
+            "fecha_inicio": "15/09/2026",
+            "fecha_vencimiento": "14/09/2031",
+            "genera_factura": "on",
+            "fecha_inicio_facturacion": "01/10/2026",
+            "fianza": "1500,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2027",
+            "metodo_revision": "IPC_NACIONAL",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        assert contrato is not None
+        assert contrato.genera_factura is True
+
+
+def test_crear_contrato_sin_factura_no_exige_datos_facturacion() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            tipo="P",
+            referencia="PISO-1",
+            codigo_facturacion="P1",
+            descripcion="Piso",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+
+        inmueble_id = inmueble.id
+
+    response = client.post(
+        "/contratos/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            **_datos_titulares(
+                ("Ana Pérez", "11111111A"),
+            ),
+            "fecha_inicio": "15/09/2026",
+            "fecha_vencimiento": "14/09/2031",
+            # genera_factura ausente → False
+            "fecha_inicio_facturacion": "01/10/2026",
+            "fianza": "1500,00",
+            "iva_porcentaje": "",
+            "retencion_porcentaje": "",
+            "direccion_facturacion": "",
+            "codigo_postal_facturacion": "",
+            "poblacion_facturacion": "",
+            "provincia_facturacion": "",
+            "concepto_factura": "",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2027",
+            "metodo_revision": "IPC_NACIONAL",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        assert contrato is not None
+        assert contrato.genera_factura is False
+        assert contrato.iva_porcentaje == 0
+        assert contrato.retencion_porcentaje == 0
+        assert contrato.direccion_facturacion == ""
+        assert contrato.codigo_postal_facturacion == ""
+        assert contrato.poblacion_facturacion == ""
+        assert contrato.provincia_facturacion == ""
+        assert contrato.concepto_factura == ""
+
+
+def test_editar_contrato_sin_factura_permite_datos_facturacion_vacios() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(
+            session,
+            genera_factura=True,
+        )
+
+        contrato_id = contrato.id
+        inmueble_id = contrato.inmueble_id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data={
+            "inmueble_id": str(inmueble_id),
+            **_datos_titulares(
+                ("Ana Pérez", "11111111A"),
+            ),
+
+            # genera_factura no se envía:
+            # checkbox desmarcado -> False
+
+            "fecha_inicio": "15/09/2026",
+            "fecha_vencimiento": "14/09/2031",
+            "fecha_inicio_facturacion": "01/10/2026",
+            "fianza": "1500,00",
+
+            "iva_porcentaje": "",
+            "retencion_porcentaje": "",
+            "direccion_facturacion": "",
+            "codigo_postal_facturacion": "",
+            "poblacion_facturacion": "",
+            "provincia_facturacion": "",
+            "concepto_factura": "",
+
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2027",
+            "metodo_revision": "IPC_NACIONAL",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        assert contrato is not None
+        assert contrato.genera_factura is False
+        assert contrato.iva_porcentaje == 0
+        assert contrato.retencion_porcentaje == 0
+        assert contrato.direccion_facturacion == ""
+        assert contrato.codigo_postal_facturacion == ""
+        assert contrato.poblacion_facturacion == ""
+        assert contrato.provincia_facturacion == ""
+        assert contrato.concepto_factura == ""
+
+
+def test_editar_contrato_sin_factura_permite_guardar_datos_facturacion() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(
+            session,
+            genera_factura=False,
+        )
+
+        contrato_id = contrato.id
+        inmueble_id = contrato.inmueble_id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data={
+            "inmueble_id": str(inmueble_id),
+            **_datos_titulares(
+                ("Ana Pérez", "11111111A"),
+            ),
+
+            # genera_factura sigue sin enviarse -> False
+
+            "fecha_inicio": "15/09/2026",
+            "fecha_vencimiento": "14/09/2031",
+            "fecha_inicio_facturacion": "01/10/2026",
+            "fianza": "1500,00",
+
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección futura",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler vivienda",
+
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2027",
+            "metodo_revision": "IPC_NACIONAL",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        assert contrato is not None
+        assert contrato.genera_factura is False
+
+        assert contrato.iva_porcentaje == 2100
+        assert contrato.retencion_porcentaje == 1900
+        assert contrato.direccion_facturacion == "Dirección futura"
+        assert contrato.codigo_postal_facturacion == "36001"
+        assert contrato.poblacion_facturacion == "Pontevedra"
+        assert contrato.provincia_facturacion == "Pontevedra"
+        assert contrato.concepto_factura == "Alquiler vivienda"
 
 

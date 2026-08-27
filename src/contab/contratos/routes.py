@@ -150,6 +150,7 @@ def _datos_contrato_formulario(contrato: Contrato) -> dict[str, str]:
         "fecha_vencimiento": _fecha_a_texto(
             contrato.fecha_vencimiento
         ),
+        "genera_factura": contrato.genera_factura,
         "fecha_inicio_facturacion": _fecha_a_texto(
             contrato.fecha_inicio_facturacion
         ),
@@ -425,7 +426,9 @@ def nuevo_contrato():
         return render_template(
             "contratos/formulario.html",
             titulo="Nuevo contrato",
-            datos={},
+            datos={
+                "genera_factura": True,
+            },
             inmuebles=inmuebles,
             metodos_revision=METODOS_REVISION,
             error=None,
@@ -445,18 +448,69 @@ def nuevo_contrato():
         fecha_vencimiento = _fecha(
             request.form["fecha_vencimiento"]
         )
+
+        genera_factura = "genera_factura" in request.form
+        
+        if genera_factura:
+            iva_porcentaje = _porcentaje_a_entero(
+                request.form["iva_porcentaje"]
+            )
+            retencion_porcentaje = _porcentaje_a_entero(
+                request.form["retencion_porcentaje"]
+            )
+
+            direccion_facturacion = (
+                request.form["direccion_facturacion"].strip()
+            )
+            codigo_postal_facturacion = (
+                request.form["codigo_postal_facturacion"].strip()
+            )
+            poblacion_facturacion = (
+                request.form["poblacion_facturacion"].strip()
+            )
+            provincia_facturacion = (
+                request.form["provincia_facturacion"].strip()
+            )
+            concepto_factura = (
+                request.form["concepto_factura"].strip()
+            )
+
+            if not direccion_facturacion:
+                raise ValueError(
+                    "La dirección de facturación es obligatoria."
+                )
+
+            if not poblacion_facturacion:
+                raise ValueError(
+                    "La población de facturación es obligatoria."
+                )
+
+            if not provincia_facturacion:
+                raise ValueError(
+                    "La provincia de facturación es obligatoria."
+                )
+
+            if not concepto_factura:
+                raise ValueError(
+                    "El concepto de factura es obligatorio."
+                )
+
+        else:
+            iva_porcentaje = 0
+            retencion_porcentaje = 0
+            direccion_facturacion = ""
+            codigo_postal_facturacion = ""
+            poblacion_facturacion = ""
+            provincia_facturacion = ""
+            concepto_factura = ""
+           
+        
         fecha_inicio_facturacion = _fecha(
             request.form["fecha_inicio_facturacion"]
         )
 
         fianza = _importe_a_centimos(
             request.form["fianza"]
-        )
-        iva_porcentaje = _porcentaje_a_entero(
-            request.form["iva_porcentaje"]
-        )
-        retencion_porcentaje = _porcentaje_a_entero(
-            request.form["retencion_porcentaje"]
         )
         renta_inicial = _importe_a_centimos(
             request.form["renta_inicial"]
@@ -511,6 +565,7 @@ def nuevo_contrato():
                     titulares=titulares,
                     fecha_inicio=fecha_inicio,
                     fecha_vencimiento=fecha_vencimiento,
+                    genera_factura=genera_factura,
                     fecha_inicio_facturacion=(
                         fecha_inicio_facturacion
                     ),
@@ -524,11 +579,8 @@ def nuevo_contrato():
                             "direccion_facturacion"
                         ].strip()
                     ),
-                    codigo_postal_facturacion=(
-                        request.form[
-                            "codigo_postal_facturacion"
-                        ].strip()
-                        or None
+                    codigo_postal_facturacion = (
+                        request.form["codigo_postal_facturacion"].strip()
                     ),
                     poblacion_facturacion=(
                         request.form[
@@ -617,37 +669,59 @@ def editar_contrato(contrato_id: int):
 
     try:
         inmueble_id = int(request.form["inmueble_id"])
-
-        titulares_formulario = _titulares_formulario(
-            request.form
-        )
-
-        fecha_inicio = _fecha(
-            request.form["fecha_inicio"]
-        )
-        fecha_vencimiento = _fecha(
-            request.form["fecha_vencimiento"]
-        )
-        fecha_inicio_facturacion = _fecha(
-            request.form["fecha_inicio_facturacion"]
-        )
-        fecha_primera_revision = _fecha(
-            request.form["fecha_primera_revision"]
-        )
-
-        fianza = _importe_a_centimos(
-            request.form["fianza"]
-        )
-        iva_porcentaje = _porcentaje_a_entero(
-            request.form["iva_porcentaje"]
-        )
-        retencion_porcentaje = _porcentaje_a_entero(
-            request.form["retencion_porcentaje"]
-        )
-        renta_inicial = _importe_a_centimos(
-            request.form["renta_inicial"]
-        )
+        titulares_formulario = _titulares_formulario(request.form)
+        fecha_inicio = _fecha(request.form["fecha_inicio"])
+        fecha_vencimiento = _fecha(request.form["fecha_vencimiento"])
+        genera_factura = "genera_factura" in request.form
+        fecha_inicio_facturacion = _fecha(request.form["fecha_inicio_facturacion"])
+        fecha_primera_revision = _fecha(request.form["fecha_primera_revision"])
+        fianza = _importe_a_centimos(request.form["fianza"])
+        renta_inicial = _importe_a_centimos(request.form["renta_inicial"])
         fecha_fin_texto = request.form.get("fecha_fin", "").strip()
+        iva_texto = request.form["iva_porcentaje"].strip()
+        retencion_texto = request.form["retencion_porcentaje"].strip()
+        direccion_facturacion = request.form["direccion_facturacion"].strip()
+        codigo_postal_facturacion = request.form["codigo_postal_facturacion"].strip()
+        poblacion_facturacion = request.form["poblacion_facturacion"].strip()
+        provincia_facturacion = request.form["provincia_facturacion"].strip()
+        concepto_factura = request.form["concepto_factura"].strip()
+
+        if genera_factura:
+            iva_porcentaje = _porcentaje_a_entero(iva_texto)
+            retencion_porcentaje = _porcentaje_a_entero(retencion_texto)
+
+            if not direccion_facturacion:
+                raise ValueError(
+                    "La dirección de facturación es obligatoria."
+                )
+
+            if not poblacion_facturacion:
+                raise ValueError(
+                    "La población de facturación es obligatoria."
+                )
+
+            if not provincia_facturacion:
+                raise ValueError(
+                    "La provincia de facturación es obligatoria."
+                )
+
+            if not concepto_factura:
+                raise ValueError(
+                    "El concepto de factura es obligatorio."
+                )
+
+        else:
+            iva_porcentaje = (
+                _porcentaje_a_entero(iva_texto)
+                if iva_texto
+                else 0
+            )
+
+            retencion_porcentaje = (
+                _porcentaje_a_entero(retencion_texto)
+                if retencion_texto
+                else 0
+            )
 
         fecha_fin = (
             _fecha(fecha_fin_texto)
@@ -772,41 +846,19 @@ def editar_contrato(contrato_id: int):
                 contrato.inmueble = inmueble
                 contrato.fecha_inicio = fecha_inicio
                 contrato.fecha_vencimiento = fecha_vencimiento
+                contrato.genera_factura = genera_factura
                 contrato.fecha_inicio_facturacion = (
                     fecha_inicio_facturacion
                 )
                 contrato.fecha_fin = fecha_fin
                 contrato.fianza = fianza
                 contrato.iva_porcentaje = iva_porcentaje
-                contrato.retencion_porcentaje = (
-                    retencion_porcentaje
-                )
-                contrato.direccion_facturacion = (
-                    request.form[
-                        "direccion_facturacion"
-                    ].strip()
-                )
-                contrato.codigo_postal_facturacion = (
-                    request.form[
-                        "codigo_postal_facturacion"
-                    ].strip()
-                    or None
-                )
-                contrato.poblacion_facturacion = (
-                    request.form[
-                        "poblacion_facturacion"
-                    ].strip()
-                )
-                contrato.provincia_facturacion = (
-                    request.form[
-                        "provincia_facturacion"
-                    ].strip()
-                )
-                contrato.concepto_factura = (
-                    request.form[
-                        "concepto_factura"
-                    ].strip()
-                )
+                contrato.retencion_porcentaje = retencion_porcentaje
+                contrato.direccion_facturacion = direccion_facturacion
+                contrato.codigo_postal_facturacion = codigo_postal_facturacion
+                contrato.poblacion_facturacion = poblacion_facturacion
+                contrato.provincia_facturacion = provincia_facturacion
+                contrato.concepto_factura = concepto_factura
 
                 renta.fecha_desde = fecha_inicio
                 renta.importe = renta_inicial

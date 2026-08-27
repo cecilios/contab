@@ -27,6 +27,7 @@ def test_crear_inmueble_rechaza_campos_obligatorios_vacios(
 
     datos = {
         "referencia": "LOCAL-1",
+        "tipo": "L",
         "codigo_facturacion": "A1",
         "descripcion": "Local comercial",
         "direccion": "Dirección",
@@ -93,6 +94,7 @@ def test_listado_muestra_inmuebles_registrados() -> None:
         session.add(
             Inmueble(
                 referencia="LOCAL-1",
+                tipo="L",
                 codigo_facturacion="A1",
                 descripcion="Local comercial",
                 direccion="Rúa Michelena, 18",
@@ -149,6 +151,7 @@ def test_crear_inmueble_desde_formulario() -> None:
         "/inmuebles/nuevo",
         data={
             "referencia": "LOCAL-2",
+            "tipo": "L",
             "codigo_facturacion": "A2",
             "descripcion": "Segundo local",
             "direccion": "Rúa da Oliva, 20",
@@ -213,6 +216,7 @@ def test_crear_inmueble_convierte_participacion_a_centesimas() -> None:
         "/inmuebles/nuevo",
         data={
             "referencia": "PARTE-A",
+            "tipo": "L",
             "codigo_facturacion": "A3",
             "descripcion": "Parte A",
             "direccion": "Dirección",
@@ -266,6 +270,7 @@ def test_crear_inmueble_rechaza_participacion_cero() -> None:
         "/inmuebles/nuevo",
         data={
             "referencia": "LOCAL-1",
+            "tipo": "L",
             "codigo_facturacion": "A1",
             "descripcion": "Local comercial",
             "direccion": "Dirección",
@@ -294,6 +299,7 @@ def test_crear_inmueble_rechaza_participacion_superior_a_cien() -> None:
         "/inmuebles/nuevo",
         data={
             "referencia": "LOCAL-1",
+            "tipo": "L",
             "codigo_facturacion": "A1",
             "descripcion": "Local comercial",
             "direccion": "Dirección",
@@ -322,6 +328,7 @@ def test_crear_inmueble_rechaza_participacion_no_numerica() -> None:
         "/inmuebles/nuevo",
         data={
             "referencia": "LOCAL-1",
+            "tipo": "L",
             "codigo_facturacion": "A1",
             "descripcion": "Local comercial",
             "direccion": "Dirección",
@@ -348,6 +355,7 @@ def test_crear_inmueble_rechaza_referencia_duplicada() -> None:
 
     datos = {
         "referencia": "LOCAL-1",
+        "tipo": "L",
         "codigo_facturacion": "A1",
         "descripcion": "Local comercial",
         "direccion": "Dirección",
@@ -380,6 +388,7 @@ def test_crear_inmueble_rechaza_codigo_facturacion_duplicado() -> None:
 
     datos = {
         "referencia": "LOCAL-1",
+        "tipo": "L",
         "codigo_facturacion": "A1",
         "descripcion": "Local comercial",
         "direccion": "Dirección",
@@ -415,6 +424,7 @@ def test_formulario_editar_inmueble_muestra_datos_actuales() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección inicial",
@@ -447,6 +457,7 @@ def test_editar_inmueble_guarda_cambios() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección inicial",
@@ -462,6 +473,7 @@ def test_editar_inmueble_guarda_cambios() -> None:
         f"/inmuebles/{inmueble_id}/editar",
         data={
             "referencia": "LOCAL-1",
+            "tipo": "L",
             "codigo_facturacion": "A1",
             "descripcion": "Local reformado",
             "direccion": "Nueva dirección",
@@ -512,6 +524,7 @@ def test_editar_inmueble_rechaza_referencia_de_otro_inmueble() -> None:
     with session_factory() as session:
         primero = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Primero",
             direccion="Dirección 1",
@@ -520,6 +533,7 @@ def test_editar_inmueble_rechaza_referencia_de_otro_inmueble() -> None:
         )
         segundo = Inmueble(
             referencia="LOCAL-2",
+            tipo="L",
             codigo_facturacion="A2",
             descripcion="Segundo",
             direccion="Dirección 2",
@@ -536,6 +550,7 @@ def test_editar_inmueble_rechaza_referencia_de_otro_inmueble() -> None:
         f"/inmuebles/{segundo_id}/editar",
         data={
             "referencia": "LOCAL-1",
+            "tipo": "L",
             "codigo_facturacion": "A2",
             "descripcion": "Segundo",
             "direccion": "Dirección 2",
@@ -565,6 +580,7 @@ def test_confirmar_desactivacion_inmueble() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -597,6 +613,7 @@ def test_desactivar_inmueble() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -634,6 +651,7 @@ def test_confirmar_activacion_inmueble() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -665,6 +683,7 @@ def test_activar_inmueble() -> None:
     with session_factory() as session:
         inmueble = Inmueble(
             referencia="LOCAL-1",
+            tipo="L",
             codigo_facturacion="A1",
             descripcion="Local comercial",
             direccion="Dirección",
@@ -700,4 +719,20 @@ def test_cambiar_estado_inmueble_inexistente_devuelve_404() -> None:
 
     assert response.status_code == 404
 
+
+def test_formulario_inmueble_muestra_tipos() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get("/inmuebles/nuevo")
+
+    assert response.status_code == 200
+    assert "Piso" in response.text
+    assert "Local" in response.text
+    assert "Garaje" in response.text
 

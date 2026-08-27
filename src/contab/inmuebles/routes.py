@@ -12,6 +12,9 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from contab.models import Inmueble
 from contab.context import get_database_name, get_session_factory
 
+
+"""Variables globales de este archivo -------------------------------------------------"""
+
 bp = Blueprint(
     "inmuebles",
     __name__,
@@ -19,6 +22,15 @@ bp = Blueprint(
     template_folder="templates",
 )
 
+TIPOS_INMUEBLE = {
+    "P": "Piso",
+    "L": "Local",
+    "G": "Garaje",
+}
+
+
+
+""" Helpers ---------------------------------------------------------------------------"""
 
 def _participacion_a_entero(valor: str) -> int:
     """Convierte un porcentaje escrito por el usuario a centésimas."""
@@ -53,6 +65,8 @@ def _validar_datos_inmueble(datos) -> tuple[dict, str | None]:
     """Valida los datos del formulario y devuelve valores normalizados."""
     campos_obligatorios = (
         ("referencia", "La referencia es obligatoria."),
+        ("tipo", "El tipo de inmueble es obligatorio."),
+        ("referencia", "La referencia es obligatoria."),
         ("codigo_facturacion", "El código de facturación es obligatorio."),
         ("descripcion", "La descripción es obligatoria."),
         ("direccion", "La dirección es obligatoria."),
@@ -68,9 +82,15 @@ def _validar_datos_inmueble(datos) -> tuple[dict, str | None]:
         participacion = _participacion_a_entero(datos["participacion"])
     except ValueError as exc:
         return {}, str(exc)
+        
+    tipo = datos["tipo"].strip()
+
+    if tipo not in TIPOS_INMUEBLE:
+        return {}, "El tipo de inmueble indicado no es válido."
 
     valores = {
         "referencia": datos["referencia"].strip(),
+        "tipo": tipo,
         "codigo_facturacion": datos["codigo_facturacion"].strip(),
         "descripcion": datos["descripcion"].strip(),
         "direccion": datos["direccion"].strip(),
@@ -120,6 +140,8 @@ def _buscar_duplicado(
     return None
 
 
+""" Funciones para atender a las rutas del servidor web -------------------------------"""
+
 @bp.get("/")
 def listar_inmuebles():
     """Muestra el listado de inmuebles registrados en la base de datos."""
@@ -145,7 +167,7 @@ def nuevo_inmueble():
         return render_template(
             "inmuebles/nuevo.html",
             datos={},
-            error=None,
+            tipos_inmueble=TIPOS_INMUEBLE,
             titulo="Nuevo inmueble",
             database_name=get_database_name(),
         )
@@ -157,6 +179,7 @@ def nuevo_inmueble():
             render_template(
                 "inmuebles/nuevo.html",
                 datos=request.form,
+                tipos_inmueble=TIPOS_INMUEBLE,
                 error=error,
                 titulo="Nuevo inmueble",
                 database_name=get_database_name(),
@@ -179,6 +202,7 @@ def nuevo_inmueble():
                     render_template(
                         "inmuebles/nuevo.html",
                         datos=request.form,
+                        tipos_inmueble=TIPOS_INMUEBLE,
                         error=error,
                         titulo="Nuevo inmueble",
                         database_name=get_database_name(),
@@ -206,6 +230,7 @@ def editar_inmueble(inmueble_id: int):
 
             datos = {
                 "referencia": inmueble.referencia,
+                "tipo": inmueble.tipo,
                 "codigo_facturacion": inmueble.codigo_facturacion,
                 "descripcion": inmueble.descripcion,
                 "direccion": inmueble.direccion,
@@ -224,6 +249,7 @@ def editar_inmueble(inmueble_id: int):
             return render_template(
                 "inmuebles/nuevo.html",
                 datos=datos,
+                tipos_inmueble=TIPOS_INMUEBLE,
                 error=None,
                 titulo="Editar inmueble",
                 database_name=get_database_name(),
@@ -236,6 +262,7 @@ def editar_inmueble(inmueble_id: int):
             render_template(
                 "inmuebles/nuevo.html",
                 datos=request.form,
+                tipos_inmueble=TIPOS_INMUEBLE,
                 error=error,
                 titulo="Editar inmueble",
                 database_name=get_database_name(),
@@ -261,6 +288,7 @@ def editar_inmueble(inmueble_id: int):
                 render_template(
                     "inmuebles/nuevo.html",
                     datos=request.form,
+                    tipos_inmueble=TIPOS_INMUEBLE,
                     error=error,
                     titulo="Editar inmueble",
                     database_name=get_database_name(),
