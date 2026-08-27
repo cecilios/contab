@@ -1,6 +1,6 @@
 [project]
 name = "contab"
-version = "0.1.0"
+version = "0.2.0"
 description = "Gestión y conciliación contable de inmuebles"
 requires-python = ">=3.13"
 
