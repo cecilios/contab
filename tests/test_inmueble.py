@@ -6,26 +6,6 @@ from sqlalchemy.exc import IntegrityError
 from contab.models import Inmueble
 
 
-def test_crear_inmueble(session) -> None:
-    """Comprueba que puede almacenarse y recuperarse un inmueble válido."""
-    inmueble = Inmueble(
-        referencia="A6",
-        tipo="L",
-        codigo_facturacion="A6",
-        descripcion="Local comercial",
-        direccion="Rúa Michelena, 18",
-        poblacion="Pontevedra",
-        provincia="Pontevedra",
-    )
-
-    session.add(inmueble)
-    session.commit()
-
-    assert inmueble.id is not None
-    assert inmueble.participacion == 10000
-    assert inmueble.activo is True
-
-
 def test_referencia_no_puede_repetirse(session) -> None:
     """Comprueba que dos inmuebles no pueden compartir la misma referencia."""
     session.add(
@@ -130,3 +110,6 @@ def test_crear_inmueble(session) -> None:
     assert inmueble.participacion == 10000
     assert inmueble.activo is True
     assert inmueble.tipo == "L"
+    assert inmueble.ruta_documentos == ""
+
+

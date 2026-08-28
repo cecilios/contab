@@ -111,7 +111,7 @@ def crear_factura(
     contrato: Contrato,
     periodo: date,
     fecha_emision: date,
-    ruta_pdf: str,
+    ruta_pdf: str = "",
     revision_renta: RevisionRenta | None = None,
     diferencia_revision: int = 0,
     aviso_revision: str | None = None,

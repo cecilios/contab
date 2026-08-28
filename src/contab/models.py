@@ -55,6 +55,12 @@ class Inmueble(Base):
     ref_catastral: Mapped[str | None] = mapped_column(Text)
     seguro: Mapped[str | None] = mapped_column(Text)
 
+    ruta_documentos: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
     participacion: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -73,6 +79,21 @@ class Inmueble(Base):
         back_populates="inmueble",
         passive_deletes="all",
     )
+    
+    apuntes_contables: Mapped[
+        list["ApunteContable"]
+    ] = relationship(
+        back_populates="inmueble",
+        passive_deletes="all",
+    )
+
+    movimientos_previstos: Mapped[
+        list["MovimientoPrevisto"]
+    ] = relationship(
+        back_populates="inmueble",
+        passive_deletes="all",
+    )
+
 
 
 class Inquilino(Base):
@@ -205,6 +226,13 @@ class Contrato(Base):
     )
 
     facturas: Mapped[list["Factura"]] = relationship(
+        back_populates="contrato",
+        passive_deletes="all",
+    )
+
+    movimientos_previstos: Mapped[
+        list["MovimientoPrevisto"]
+    ] = relationship(
         back_populates="contrato",
         passive_deletes="all",
     )
@@ -511,7 +539,12 @@ class Factura(Base):
         default="EMITIDA",
     )
 
-    ruta_pdf: Mapped[str] = mapped_column(Text, nullable=False)
+    ruta_pdf: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
     notas: Mapped[str | None] = mapped_column(Text)
 
     contrato: Mapped["Contrato"] = relationship(
@@ -535,7 +568,12 @@ class FacturaLinea(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "tipo IN ('RENTA', 'DIFERENCIA_REVISION', 'REPERCUSION_GASTO')",
+            "tipo IN ("
+            "'RENTA', "
+            "'DIFERENCIA_REVISION', "
+            "'REPERCUSION_GASTO', "
+            "'OTRO'"
+            ")",
             name="ck_factura_linea_tipo",
         ),
         UniqueConstraint(
@@ -560,3 +598,213 @@ class FacturaLinea(Base):
     factura: Mapped["Factura"] = relationship(
         back_populates="lineas",
     )
+
+
+class ApunteContable(Base):
+    """Representa un ingreso o gasto atribuido a un inmueble."""
+
+    __tablename__ = "apunte_contable"
+
+    __table_args__ = (
+        CheckConstraint(
+            "naturaleza IN ('INGRESO', 'GASTO')",
+            name="ck_apunte_contable_naturaleza",
+        ),
+        CheckConstraint(
+            "base >= 0",
+            name="ck_apunte_contable_base",
+        ),
+        CheckConstraint(
+            "iva_importe >= 0",
+            name="ck_apunte_contable_iva",
+        ),
+        CheckConstraint(
+            "retencion_importe >= 0",
+            name="ck_apunte_contable_retencion",
+        ),
+        CheckConstraint(
+            "total >= 0",
+            name="ck_apunte_contable_total",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    inmueble_id: Mapped[int] = mapped_column(
+        ForeignKey("inmueble.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    fecha: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    naturaleza: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    categoria: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    subcategoria: Mapped[str | None] = mapped_column(Text)
+
+    concepto: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    base: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    iva_importe: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    retencion_importe: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    total: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    tercero_nombre: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
+    tercero_nif: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
+    referencia_documento: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
+    ruta_documento: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
+    notas: Mapped[str | None] = mapped_column(Text)
+
+    inmueble: Mapped["Inmueble"] = relationship(
+        back_populates="apuntes_contables",
+    )
+
+    movimientos_previstos: Mapped[
+        list["MovimientoPrevisto"]
+    ] = relationship(
+        back_populates="apunte",
+        passive_deletes="all",
+    )
+
+
+class MovimientoPrevisto(Base):
+    """Representa un cobro o pago esperado para conciliación."""
+
+    __tablename__ = "movimiento_previsto"
+
+    __table_args__ = (
+        CheckConstraint(
+            "naturaleza IN ('INGRESO', 'GASTO')",
+            name="ck_movimiento_previsto_naturaleza",
+        ),
+        CheckConstraint(
+            "importe_esperado >= 0",
+            name="ck_movimiento_previsto_importe",
+        ),
+        CheckConstraint(
+            "estado IN ('PENDIENTE', 'CONCILIADO')",
+            name="ck_movimiento_previsto_estado",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    inmueble_id: Mapped[int] = mapped_column(
+        ForeignKey("inmueble.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    contrato_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contrato.id", ondelete="RESTRICT"),
+    )
+
+    apunte_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "apunte_contable.id",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    fecha_prevista: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    naturaleza: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    concepto: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    importe_esperado: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    contraparte: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
+    estado: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="PENDIENTE",
+    )
+
+    notas: Mapped[str | None] = mapped_column(Text)
+
+    inmueble: Mapped["Inmueble"] = relationship(
+        back_populates="movimientos_previstos",
+    )
+
+    contrato: Mapped["Contrato | None"] = relationship(
+        back_populates="movimientos_previstos",
+    )
+
+    apunte: Mapped["ApunteContable | None"] = relationship(
+        back_populates="movimientos_previstos",
+    )
+
+

@@ -475,6 +475,40 @@ def test_crear_factura_ordinaria(session, contrato) -> None:
     assert factura.iva_importe == 0
     assert factura.retencion_importe == 0
     assert factura.total == 100000
+    assert factura.ruta_pdf == "facturas/01-2026A1.pdf"
+    
+    
+def test_factura_admite_ruta_pdf_vacia_por_defecto(session, contrato) -> None:
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+    )
+
+    assert factura.id is None
+    assert factura.numero_secuencia == 1
+    assert factura.numero_factura == "01/2026A1"
+    assert factura.anio == 2026
+    assert factura.periodo == date(2026, 9, 1)
+    assert factura.fecha_emision == date(2026, 9, 1)
+
+    assert len(factura.lineas) == 1
+    assert factura.lineas[0].tipo == "RENTA"
+    assert factura.lineas[0].importe == 100000
+
+    assert factura.base == 100000
+    assert factura.iva_importe == 0
+    assert factura.retencion_importe == 0
+    assert factura.total == 100000
+    assert factura.ruta_pdf == ""
 
 
 def test_crear_factura_aplica_iva_y_retencion(session, contrato) -> None:

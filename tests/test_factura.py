@@ -190,3 +190,64 @@ def test_factura_no_admite_estado_desconocido(session, contrato) -> None:
 
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_factura_admite_ruta_pdf_vacia_por_defecto(
+    session,
+    contrato,
+) -> None:
+    factura = Factura(
+        contrato=contrato,
+        numero_secuencia=1,
+        anio=2026,
+        numero_factura="01/2026A1",
+        fecha_emision=date(2026, 9, 1),
+        periodo=date(2026, 9, 1),
+        base=100000,
+        iva_porcentaje=2100,
+        iva_importe=21000,
+        retencion_porcentaje=1900,
+        retencion_importe=19000,
+        total=102000,
+    )
+
+    session.add(factura)
+    session.commit()
+
+    assert factura.ruta_pdf == ""
+
+
+def test_factura_linea_admite_tipo_otro(
+    session,
+    contrato,
+) -> None:
+    factura = Factura(
+        contrato=contrato,
+        numero_secuencia=1,
+        anio=2026,
+        numero_factura="01/2026A1",
+        fecha_emision=date(2026, 9, 1),
+        periodo=date(2026, 9, 1),
+        base=5000,
+        iva_porcentaje=2100,
+        iva_importe=1050,
+        retencion_porcentaje=1900,
+        retencion_importe=950,
+        total=5100,
+    )
+
+    factura.lineas.append(
+        FacturaLinea(
+            orden=1,
+            tipo="OTRO",
+            concepto="Concepto adicional",
+            importe=5000,
+        )
+    )
+
+    session.add(factura)
+    session.commit()
+
+    assert factura.lineas[0].tipo == "OTRO"
+
+
