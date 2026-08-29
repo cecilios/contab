@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Contabilidad - Contab{% endblock %}
+
+{% block content %}
+    <h1>Apuntes contables</h1>
+
+    <p>
+        <a href="{{ url_for('contabilidad.nuevo_apunte') }}">
+            Nuevo apunte
+        </a>
+    </p>
+
+    {% if apuntes %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Inmueble</th>
+                    <th>Naturaleza</th>
+                    <th>Clasificación</th>
+                    <th>Concepto</th>
+                    <th>Importe</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for apunte in apuntes %}
+                    <tr>
+                        <td>
+                            {{ apunte.fecha.strftime("%d/%m/%Y") }}
+                        </td>
+                        <td>{{ apunte.inmueble.referencia }}</td>
+                        <td>{{ apunte.naturaleza }}</td>
+                        <td>
+                            {{ apunte.categoria }}
+
+                            {% if apunte.subcategoria %}
+                                / {{ apunte.subcategoria }}
+                            {% endif %}
+                        </td>
+                        <td>{{ apunte.concepto }}</td>
+                        <td>{{ importe_a_texto(apunte.total) }}</td>
+                        <td>
+                            <a
+                                href="{{ url_for(
+                                    'contabilidad.editar_apunte',
+                                    apunte_id=apunte.id
+                                ) }}"
+                            >
+                                Editar
+                            </a>
+                            |
+                            <a
+                                href="{{ url_for(
+                                    'contabilidad.eliminar_apunte',
+                                    apunte_id=apunte.id
+                                ) }}"
+                            >
+                                Eliminar
+                            </a>
+
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No hay apuntes contables registrados.</p>
+    {% endif %}
+{% endblock %}

@@ -31,14 +31,17 @@ contab = [
     "migrations/*.mako",
     "migrations/versions/*.py",
 ]
+"contab.contabilidad" = [
+    "templates/contabilidad/*.html",
+]
+"contab.contratos" = [
+    "templates/contratos/*.html",
+]
 "contab.inmuebles" = [
     "templates/inmuebles/*.html",
 ]
 "contab.inquilinos" = [
     "templates/inquilinos/*.html",
-]
-"contab.contratos" = [
-    "templates/contratos/*.html",
 ]
 
 

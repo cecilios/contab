@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}{{ titulo }} - Contab{% endblock %}
+
+{% block content %}
+    <h1>{{ titulo }}</h1>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <p>
+            <label for="inmueble_id">Inmueble</label>
+            <select id="inmueble_id" name="inmueble_id" required>
+                <option value="">Seleccione un inmueble</option>
+
+                {% for inmueble in inmuebles %}
+                    <option
+                        value="{{ inmueble.id }}"
+                        {% if datos.get("inmueble_id")|string == inmueble.id|string %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ inmueble.referencia }} -
+                        {{ inmueble.descripcion }}
+                    </option>
+                {% endfor %}
+            </select>
+        </p>
+
+        <p>
+            <label for="fecha">Fecha</label>
+            <input
+                id="fecha"
+                name="fecha"
+                value="{{ datos.get('fecha', '') }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label for="clasificacion">Clasificación</label>
+            <select
+                id="clasificacion"
+                name="clasificacion"
+                required
+            >
+                <option value="">Seleccione una clasificación</option>
+
+                {% for categoria in categorias %}
+                    {% if categoria.subcategorias %}
+                        <optgroup label="{{ categoria.nombre }}">
+                            {% for subcategoria in categoria.subcategorias %}
+                                {% set valor = categoria.codigo ~ "." ~ subcategoria.codigo %}
+
+                                <option
+                                    value="{{ valor }}"
+                                    {% if datos.get("clasificacion") == valor %}
+                                        selected
+                                    {% endif %}
+                                >
+                                    {{ subcategoria.nombre }}
+                                </option>
+                            {% endfor %}
+                        </optgroup>
+                    {% else %}
+                        <option
+                            value="{{ categoria.codigo }}"
+                            {% if datos.get("clasificacion") == categoria.codigo %}
+                                selected
+                            {% endif %}
+                        >
+                            {{ categoria.nombre }}
+                        </option>
+                    {% endif %}
+                {% endfor %}
+            </select>
+        </p>
+
+        <p>
+            <label for="concepto">Concepto</label>
+            <input
+                id="concepto"
+                name="concepto"
+                value="{{ datos.get('concepto', '') }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label for="base">Base</label>
+            <input
+                id="base"
+                name="base"
+                value="{{ datos.get('base', '') }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label for="iva_importe">IVA</label>
+            <input
+                id="iva_importe"
+                name="iva_importe"
+                value="{{ datos.get('iva_importe', '0,00') }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label for="retencion_importe">Retención</label>
+            <input
+                id="retencion_importe"
+                name="retencion_importe"
+                value="{{ datos.get('retencion_importe', '0,00') }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label for="tercero_nombre">Tercero</label>
+            <input
+                id="tercero_nombre"
+                name="tercero_nombre"
+                value="{{ datos.get('tercero_nombre', '') }}"
+            >
+        </p>
+
+        <p>
+            <label for="tercero_nif">NIF del tercero</label>
+            <input
+                id="tercero_nif"
+                name="tercero_nif"
+                value="{{ datos.get('tercero_nif', '') }}"
+            >
+        </p>
+
+        <p>
+            <label for="referencia_documento">
+                Referencia del documento
+            </label>
+            <input
+                id="referencia_documento"
+                name="referencia_documento"
+                value="{{ datos.get('referencia_documento', '') }}"
+            >
+        </p>
+
+        <p>
+            <label for="ruta_documento">
+                Ruta del documento
+            </label>
+            <input
+                id="ruta_documento"
+                name="ruta_documento"
+                value="{{ datos.get('ruta_documento', '') }}"
+            >
+        </p>
+
+        <p>
+            <label for="notas">Notas</label>
+            <textarea
+                id="notas"
+                name="notas"
+            >{{ datos.get("notas", "") }}</textarea>
+        </p>
+
+        <p>
+            <button type="submit">Guardar</button>
+
+            <a href="{{ url_for('contabilidad.listar_apuntes') }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}

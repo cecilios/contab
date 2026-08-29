@@ -7,3 +7,28 @@ secret_key = CAMBIAR_POR_UNA_CLAVE_ALEATORIA
 [databases]
 demo = sqlite:///demo.db
 principal = sqlite:///contab.db
+
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+ING_OTRAS_RENTAS = INGRESO | Otras rentas del inmueble
+GAS_COMUNIDAD = GASTO | Comunidad
+GAS_FORMALIZACION_CONTRATO = GASTO | Formalización de contratos
+GAS_DEFENSA_JURIDICA = GASTO | Defensa jurídica
+GAS_SERVICIOS_SUMINISTROS = GASTO | Servicios y suministros
+GAS_SEGUROS = GASTO | Primas de seguros
+GAS_TRIBUTOS = GASTO | Tributos, tasas y recargos
+GAS_DUDOSO_COBRO = GASTO | Saldos de dudoso cobro
+GAS_OTROS_DEDUCIBLES = GASTO | Otros gastos fiscalmente deducibles
+
+[subcategorias_contables]
+ING_OTRAS_RENTAS.ANTENA_TELEFONIA = Alquiler de espacio para antena de telefonía
+ING_OTRAS_RENTAS.VIVIENDA_COMUNITARIA = Alquiler de vivienda comunitaria
+ING_OTRAS_RENTAS.ESPACIO_COMUNITARIO = Alquiler de espacio comunitario
+ING_OTRAS_RENTAS.OTROS = Otros ingresos del inmueble
+GAS_SERVICIOS_SUMINISTROS.AGUA = Agua
+GAS_SERVICIOS_SUMINISTROS.GAS = Gas
+GAS_SERVICIOS_SUMINISTROS.ELECTRICIDAD = Electricidad
+GAS_SERVICIOS_SUMINISTROS.REPARACIONES_MANTENIMIENTO = Reparaciones y mantenimiento
+GAS_TRIBUTOS.IBI = Impuesto sobre Bienes Inmuebles
+GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
+GAS_TRIBUTOS.OTROS = Otros tributos, tasas y recargos
