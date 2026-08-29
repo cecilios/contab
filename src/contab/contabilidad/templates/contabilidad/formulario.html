@@ -165,6 +165,36 @@
                 name="notas"
             >{{ datos.get("notas", "") }}</textarea>
         </p>
+        
+        {% if permitir_movimiento %}
+            <fieldset>
+                <legend>Conciliación bancaria</legend>
+
+                <p class="checkbox-field">
+                    <label>
+                        <input
+                            type="checkbox"
+                            name="crear_movimiento"
+                            {% if datos.get("crear_movimiento") %}
+                                checked
+                            {% endif %}
+                        >
+                        Crear movimiento previsto
+                    </label>
+                </p>
+
+                <p>
+                    <label for="fecha_prevista">
+                        Fecha prevista
+                    </label>
+                    <input
+                        id="fecha_prevista"
+                        name="fecha_prevista"
+                        value="{{ datos.get('fecha_prevista', '') }}"
+                    >
+                </p>
+            </fieldset>
+        {% endif %}
 
         <p>
             <button type="submit">Guardar</button>

@@ -14,6 +14,7 @@ from contab.contabilidad.services import (
     modificar_apunte_contable,
 )
 from contab.conciliacion.services import (
+    ConciliacionError,
     crear_movimiento_desde_apunte,
 )
 from contab.models import (
@@ -179,6 +180,94 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     assert "Alquileres" in response.text
     assert "Impuesto sobre Bienes Inmuebles" in response.text
     assert "Tasa de Residuos Urbanos" in response.text
+
+
+def test_crear_apunte_con_movimiento_previsto(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "fecha": "15/09/2026",
+            "clasificacion": "GAS_COMUNIDAD",
+            "concepto": "Cuota de comunidad",
+            "base": "100,00",
+            "iva_importe": "0,00",
+            "retencion_importe": "0,00",
+            "tercero_nombre": "Comunidad",
+            "tercero_nif": "",
+            "referencia_documento": "",
+            "ruta_documento": "",
+            "notas": "",
+            "crear_movimiento": "on",
+            "fecha_prevista": "20/09/2026",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert apunte is not None
+        assert movimiento is not None
+        assert movimiento.apunte_id == apunte.id
+        assert movimiento.inmueble_id == inmueble_id
+        assert movimiento.fecha_prevista == date(
+            2026,
+            9,
+            20,
+        )
+        assert movimiento.naturaleza == "GASTO"
+        assert movimiento.concepto == "Cuota de comunidad"
+        assert movimiento.importe_esperado == 10000
+        assert movimiento.contraparte == "Comunidad"
+        assert movimiento.estado == "PENDIENTE"
 
 
 def test_crear_apunte_desde_formulario(
@@ -399,6 +488,86 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     assert 'value="21,00"' in response.text
     assert 'value="GAS_TRIBUTOS.TRU"' in response.text
     assert "selected" in response.text
+
+
+def test_crear_apunte_sin_movimiento_previsto(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_OTRAS_RENTAS = INGRESO | Otras rentas
+
+[subcategorias_contables]
+ING_OTRAS_RENTAS.ANTENA_TELEFONIA = Antena de telefonía
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="P1",
+            descripcion="Piso",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "fecha": "15/09/2026",
+            "clasificacion": (
+                "ING_OTRAS_RENTAS.ANTENA_TELEFONIA"
+            ),
+            "concepto": "Ingreso compensado por antena",
+            "base": "100,00",
+            "iva_importe": "21,00",
+            "retencion_importe": "19,00",
+            "tercero_nombre": "Comunidad",
+            "tercero_nif": "",
+            "referencia_documento": "",
+            "ruta_documento": "",
+            "notas": "",
+            # crear_movimiento ausente → checkbox desmarcado
+            "fecha_prevista": "",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert apunte is not None
+        assert apunte.total == 10200
+        assert movimiento is None
 
 
 def test_editar_apunte_guarda_cambios(

@@ -29,7 +29,10 @@ from contab.contabilidad.services import (
     eliminar_apunte_contable,
     modificar_apunte_contable,
 )
-
+from contab.conciliacion.services import (
+    ConciliacionError,
+    crear_movimiento_desde_apunte,
+)
 
 
 bp = Blueprint(
@@ -118,6 +121,7 @@ def _mostrar_formulario_apunte(
     datos,
     error: str | None,
     status_code: int = 200,
+    permitir_movimiento: bool = False,
 ):
     """Muestra el formulario con sus opciones."""
 
@@ -142,6 +146,7 @@ def _mostrar_formulario_apunte(
             inmuebles=inmuebles,
             error=error,
             database_name=get_database_name(),
+            permitir_movimiento=permitir_movimiento,
         )
 
     return contenido, status_code
@@ -239,6 +244,7 @@ def nuevo_apunte():
                 "fecha": date.today().strftime("%d/%m/%Y"),
             },
             error=None,
+            permitir_movimiento=True,
         )
 
         return contenido
@@ -249,6 +255,16 @@ def nuevo_apunte():
         inmueble_id, valores = _datos_apunte_formulario(
             request.form,
             categorias,
+        )
+
+        crear_movimiento = (
+            "crear_movimiento" in request.form
+        )
+
+        fecha_prevista = (
+            _fecha(request.form["fecha_prevista"])
+            if crear_movimiento
+            else None
         )
 
         session_factory = get_session_factory()
@@ -272,12 +288,28 @@ def nuevo_apunte():
 
                 session.add(apunte)
 
-    except (KeyError, ValueError, ContabilidadError) as exc:
+                if fecha_prevista is not None:
+                    movimiento = (
+                        crear_movimiento_desde_apunte(
+                            apunte=apunte,
+                            fecha_prevista=fecha_prevista,
+                        )
+                    )
+
+                    session.add(movimiento)
+
+    except (
+        KeyError,
+        ValueError,
+        ContabilidadError,
+        ConciliacionError,
+    ) as exc:
         return _mostrar_formulario_apunte(
             titulo="Nuevo apunte contable",
             datos=request.form,
             error=str(exc),
             status_code=400,
+            permitir_movimiento=True,
         )
 
     return redirect(
@@ -311,7 +343,12 @@ def editar_apunte(apunte_id: int):
                     f".{apunte.subcategoria}"
                 )
 
-            datos = {
+            hoy = date.today().strftime("%d/%m/%Y")
+
+            datos={
+                "fecha": hoy,
+                "crear_movimiento": True,
+                "fecha_prevista": hoy,
                 "inmueble_id": str(apunte.inmueble_id),
                 "fecha": apunte.fecha.strftime("%d/%m/%Y"),
                 "clasificacion": clasificacion,
