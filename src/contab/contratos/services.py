@@ -400,6 +400,11 @@ def crear_contrato(
             "El porcentaje de retención no puede ser negativo."
         )
 
+    if inmueble.tipo == "T":
+        raise ContratoError(
+            "No puede crearse un contrato para un inmueble subdividido."
+        )
+
     if not inmueble.activo:
         raise ContratoError(
             "No puede crearse un contrato para un inmueble inactivo."

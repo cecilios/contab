@@ -2511,3 +2511,47 @@ def test_editar_contrato_sin_factura_permite_guardar_datos_facturacion() -> None
         assert contrato.concepto_factura == "Alquiler vivienda"
 
 
+def test_formulario_contrato_excluye_inmuebles_subdivididos() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble_subdividido = Inmueble(
+            referencia="ALOPEZ-COMUN",
+            tipo="T",
+            codigo_facturacion="ALC",
+            descripcion="Inmueble completo",
+            direccion="Avenida López, 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        local = Inmueble(
+            referencia="ALOPEZ-LOCAL1",
+            tipo="L",
+            codigo_facturacion="AL1",
+            descripcion="Local arrendable",
+            direccion="Avenida López, 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=10000,
+            inmueble_padre=inmueble_subdividido,
+        )
+
+        session.add_all([
+            inmueble_subdividido,
+            local,
+        ])
+        session.commit()
+
+    response = client.get("/contratos/nuevo")
+
+    assert response.status_code == 200
+    assert "ALOPEZ-LOCAL1" in response.text
+    assert "ALOPEZ-COMUN" not in response.text
+

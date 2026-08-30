@@ -121,6 +121,54 @@
             >
         </p>
 
+        <fieldset>
+            <legend>Relación con inmueble subdividido</legend>
+
+            <p class="form-field checkbox-field">
+                <label>
+                    <input
+                        id="es_parte_inmueble"
+                        type="checkbox"
+                        name="es_parte_inmueble"
+                        {% if datos.get("es_parte_inmueble") %}
+                            checked
+                        {% endif %}
+                    >
+                    Es parte de un inmueble
+                </label>
+            </p>
+
+            <p
+                id="campo_inmueble_padre"
+                class="form-field"
+            >
+                <label for="inmueble_padre_id">
+                    Inmueble total
+                </label>
+
+                <select
+                    id="inmueble_padre_id"
+                    name="inmueble_padre_id"
+                >
+                    <option value="">
+                        Seleccione un inmueble subdividido
+                    </option>
+
+                    {% for inmueble_total in inmuebles_subdivididos %}
+                        <option
+                            value="{{ inmueble_total.id }}"
+                            {% if datos.get("inmueble_padre_id")|string == inmueble_total.id|string %}
+                                selected
+                            {% endif %}
+                        >
+                            {{ inmueble_total.referencia }} -
+                            {{ inmueble_total.descripcion }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </p>
+        </fieldset>
+
         <p class="form-field">
             <label for="notas">Notas</label>
             <textarea
@@ -137,3 +185,33 @@
         </p>
     </form>
 {% endblock %}
+
+<script>
+    const esParte = document.getElementById(
+        "es_parte_inmueble"
+    );
+    const campoPadre = document.getElementById(
+        "campo_inmueble_padre"
+    );
+    const selectorPadre = document.getElementById(
+        "inmueble_padre_id"
+    );
+
+    function actualizarInmueblePadre() {
+        const visible = esParte.checked;
+
+        campoPadre.hidden = !visible;
+        selectorPadre.disabled = !visible;
+
+        if (!visible) {
+            selectorPadre.value = "";
+        }
+    }
+
+    esParte.addEventListener(
+        "change",
+        actualizarInmueblePadre
+    );
+
+    actualizarInmueblePadre();
+</script>

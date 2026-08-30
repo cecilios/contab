@@ -2,6 +2,37 @@
 
 {% block title %}Inmuebles - Contab{% endblock %}
 
+{% macro mostrar_inmueble(inmueble) %}
+    {{ inmueble.referencia }} -
+    {{ inmueble.descripcion }} -
+    {{ tipos_inmueble[inmueble.tipo] }}
+
+    {% if inmueble.tipo != "T" %}
+        -
+        {{ "%.2f"|format(inmueble.participacion / 100) }} %
+    {% endif %}
+
+    {% if not inmueble.activo %}
+        - <strong>INACTIVO</strong>
+    {% endif %}
+
+    -
+    <a href="{{ url_for(
+        'inmuebles.editar_inmueble',
+        inmueble_id=inmueble.id
+    ) }}">
+        Editar
+    </a>
+
+    -
+    <a href="{{ url_for(
+        'inmuebles.cambiar_estado_inmueble',
+        inmueble_id=inmueble.id
+    ) }}">
+        {{ "Desactivar" if inmueble.activo else "Activar" }}
+    </a>
+{% endmacro %}
+
 {% block content %}
     <h1>Inmuebles</h1>
 
@@ -11,30 +42,47 @@
         </a>
     </p>
 
-    {% if inmuebles %}
-        <ul>
-        {% for inmueble in inmuebles %}
-			<li>
-				{{ inmueble.referencia }} -
-				{{ inmueble.descripcion }}
+    <h2>Inmuebles subdivididos</h2>
 
-				{% if not inmueble.activo %}
-					- <strong>INACTIVO</strong>
-				{% endif %}
+    {% if grupos %}
+        {% for inmueble_total, locales in grupos %}
+            <ul>
+                <li>
+                    {{ mostrar_inmueble(inmueble_total) }}
 
-				-
-				<a href="{{ url_for('inmuebles.editar_inmueble', inmueble_id=inmueble.id) }}">
-					Editar
-				</a>
-
-				-
-				<a href="{{ url_for('inmuebles.cambiar_estado_inmueble', inmueble_id=inmueble.id) }}">
-					{{ "Desactivar" if inmueble.activo else "Activar" }}
-				</a>
-			</li>
+                    {% if locales %}
+                        <ul>
+                            {% for local in locales %}
+                                <li>
+                                    {{ mostrar_inmueble(local) }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <ul>
+                            <li>
+                                <em>Sin locales asociados</em>
+                            </li>
+                        </ul>
+                    {% endif %}
+                </li>
+            </ul>
         {% endfor %}
+    {% else %}
+        <p>No hay inmuebles subdivididos.</p>
+    {% endif %}
+
+    <h2>Inmuebles independientes</h2>
+
+    {% if independientes %}
+        <ul>
+            {% for inmueble in independientes %}
+                <li>
+                    {{ mostrar_inmueble(inmueble) }}
+                </li>
+            {% endfor %}
         </ul>
     {% else %}
-        <p>No hay inmuebles registrados.</p>
+        <p>No hay inmuebles independientes.</p>
     {% endif %}
 {% endblock %}

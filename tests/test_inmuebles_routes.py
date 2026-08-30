@@ -1,9 +1,14 @@
 """Pruebas de las rutas web del módulo de inmuebles."""
 
 import pytest
+import re
+
+from sqlalchemy import select
+
 from contab.app import create_app
 from contab.database import Base
 from contab.models import Inmueble
+
 
 @pytest.mark.parametrize(
     ("campo", "mensaje"),
@@ -82,7 +87,16 @@ def test_listado_inmuebles_vacio() -> None:
 
     assert response.status_code == 200
     assert "Inmuebles" in response.text
-    assert "No hay inmuebles registrados." in response.text
+    assert (
+        "No hay inmuebles subdivididos."
+        in response.text
+    )
+    assert (
+        "No hay inmuebles independientes."
+        in response.text
+    )
+    assert "Inmuebles subdivididos" in response.text
+    assert "Inmuebles independientes" in response.text
 
 
 def test_listado_muestra_inmuebles_registrados() -> None:
@@ -735,4 +749,230 @@ def test_formulario_inmueble_muestra_tipos() -> None:
     assert "Piso" in response.text
     assert "Local" in response.text
     assert "Garaje" in response.text
+
+
+def test_crear_local_perteneciente_a_inmueble_subdividido() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble_subdividido = Inmueble(
+            referencia="ALOPEZ-COMUN",
+            tipo="T",
+            codigo_facturacion="ALC",
+            descripcion="Inmueble completo",
+            direccion="Avenida López, 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=10000,
+        )
+        session.add(inmueble_subdividido)
+        session.commit()
+        inmueble_subdividido_id = inmueble_subdividido.id
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data={
+            "tipo": "L",
+            "referencia": "ALOPEZ-LOCAL1",
+            "codigo_facturacion": "AL1",
+            "descripcion": "Local 1",
+            "direccion": "Avenida López, 1",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "32,50",
+            "es_parte_inmueble": "on",
+            "inmueble_padre_id": str(
+                inmueble_subdividido_id
+            ),
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        local = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia
+                == "ALOPEZ-LOCAL1"
+            )
+        )
+
+        assert local is not None
+        assert (
+            local.inmueble_padre_id
+            == inmueble_subdividido_id
+        )
+        assert local.participacion == 3250
+
+
+def test_formulario_inmueble_muestra_totales() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble_subdividido = Inmueble(
+            referencia="ALOPEZ-COMUN",
+            tipo="T",
+            codigo_facturacion="ALC",
+            descripcion="Inmueble completo",
+            direccion="Avenida López, 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble_subdividido)
+        session.commit()
+
+    response = client.get("/inmuebles/nuevo")
+
+    assert response.status_code == 200
+    assert "Es parte de un inmueble" in response.text
+    assert "ALOPEZ-COMUN" in response.text
+    assert "Inmueble completo" in response.text
+
+
+def test_error_conserva_inmueble_padre_seleccionado() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble_subdividido = Inmueble(
+            referencia="ALOPEZ-COMUN",
+            tipo="T",
+            codigo_facturacion="ALC",
+            descripcion="Inmueble completo",
+            direccion="Avenida López, 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble_subdividido)
+        session.commit()
+        inmueble_subdividido_id = inmueble_subdividido.id
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data={
+            "tipo": "L",
+            "referencia": "",  # Fuerza el error
+            "codigo_facturacion": "AL1",
+            "descripcion": "Local 1",
+            "direccion": "Avenida López, 1",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "32,50",
+            "es_parte_inmueble": "on",
+            "inmueble_padre_id": str(inmueble_subdividido_id),
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "La referencia es obligatoria." in response.text
+    assert "ALOPEZ-COMUN" in response.text
+
+    assert re.search(
+        rf'<option[^>]*value="{inmueble_subdividido_id}"'
+        r'[^>]*selected',
+        response.text,
+    )
+
+    assert re.search(
+        r'<input[^>]*name="es_parte_inmueble"'
+        r'[^>]*checked',
+        response.text,
+    )
+
+
+def test_listado_muestra_jerarquia_inmuebles() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble_subdividido = Inmueble(
+            referencia="ALOPEZ-COMUN",
+            tipo="T",
+            codigo_facturacion="ALC",
+            descripcion="Inmueble completo",
+            direccion="Avenida López, 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        local = Inmueble(
+            referencia="ALOPEZ-LOCAL1",
+            tipo="L",
+            codigo_facturacion="AL1",
+            descripcion="Local 1",
+            direccion="Avenida López, 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=3250,
+            inmueble_padre=inmueble_subdividido,
+        )
+
+        independiente = Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="P1",
+            descripcion="Piso independiente",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        session.add_all([
+            inmueble_subdividido,
+            local,
+            independiente,
+        ])
+        session.commit()
+
+    response = client.get("/inmuebles/")
+
+    assert response.status_code == 200
+    assert "ALOPEZ-COMUN" in response.text
+    assert "ALOPEZ-LOCAL1" in response.text
+    assert "PISO-1" in response.text
+    assert "Inmuebles independientes" in response.text
+
+    assert (
+        response.text.index("ALOPEZ-COMUN")
+        < response.text.index("ALOPEZ-LOCAL1")
+    )
+
+    assert response.text.count(
+        "ALOPEZ-LOCAL1"
+    ) == 1
+
 

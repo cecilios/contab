@@ -23,11 +23,11 @@ bp = Blueprint(
 )
 
 TIPOS_INMUEBLE = {
+    "T": "Inmueble subdividido",
     "P": "Piso",
     "L": "Local",
     "G": "Garaje",
 }
-
 
 
 """ Helpers ---------------------------------------------------------------------------"""
@@ -88,7 +88,53 @@ def _validar_datos_inmueble(datos) -> tuple[dict, str | None]:
     if tipo not in TIPOS_INMUEBLE:
         return {}, "El tipo de inmueble indicado no es válido."
 
+    es_parte_inmueble = (
+        "es_parte_inmueble" in datos
+    )
+
+    if tipo == "T":
+        if es_parte_inmueble:
+            return (
+                {},
+                "Un inmueble subdividido no puede formar "
+                "parte de otro inmueble.",
+            )
+
+        if participacion != 10000:
+            return (
+                {},
+                "Un inmueble subdividido debe tener una "
+                "participación del 100 %.",
+            )
+
+    inmueble_padre_id = None
+
+    if es_parte_inmueble:
+        inmueble_padre_texto = datos.get(
+            "inmueble_padre_id",
+            "",
+        ).strip()
+
+        if not inmueble_padre_texto:
+            return (
+                {},
+                "Debe seleccionar el inmueble subdividido "
+                "al que pertenece.",
+            )
+
+        try:
+            inmueble_padre_id = int(
+                inmueble_padre_texto
+            )
+        except ValueError:
+            return (
+                {},
+                "El inmueble subdividido seleccionado "
+                "no es válido.",
+            )
+
     valores = {
+        "inmueble_padre_id": inmueble_padre_id,
         "referencia": datos["referencia"].strip(),
         "tipo": tipo,
         "codigo_facturacion": datos["codigo_facturacion"].strip(),
@@ -140,21 +186,142 @@ def _buscar_duplicado(
     return None
 
 
+def _validar_inmueble_padre(
+    session,
+    *,
+    tipo: str,
+    inmueble_padre_id: int | None,
+    inmueble_id: int | None = None,
+) -> str | None:
+    """Valida la relación con un inmueble subdividido."""
+
+    if inmueble_padre_id is None:
+        return None
+
+    if tipo == "T":
+        return (
+            "Un inmueble subdividido no puede formar "
+            "parte de otro inmueble."
+        )
+
+    if inmueble_padre_id == inmueble_id:
+        return (
+            "Un inmueble no puede formar parte "
+            "de sí mismo."
+        )
+
+    inmueble_padre = session.get(
+        Inmueble,
+        inmueble_padre_id,
+    )
+
+    if inmueble_padre is None:
+        return (
+            "El inmueble subdividido seleccionado "
+            "no existe."
+        )
+
+    if inmueble_padre.tipo != "T":
+        return (
+            "El inmueble seleccionado como padre "
+            "no es un inmueble subdividido."
+        )
+
+    return None
+
+
+def _inmuebles_subdivididos_formulario(session):
+    """Obtiene los inmuebles totales disponibles."""
+
+    return session.scalars(
+        select(Inmueble)
+        .where(Inmueble.tipo == "T")
+        .order_by(Inmueble.referencia)
+    ).all()
+
+
+def _render_formulario_inmueble(
+    session,
+    *,
+    datos,
+    titulo: str,
+    error: str | None,
+):
+    """Renderiza el formulario con sus opciones."""
+
+    return render_template(
+        "inmuebles/nuevo.html",
+        datos=datos,
+        tipos_inmueble=TIPOS_INMUEBLE,
+        inmuebles_subdivididos=(
+            _inmuebles_subdivididos_formulario(session)
+        ),
+        error=error,
+        titulo=titulo,
+        database_name=get_database_name(),
+    )
+
+
+
+
 """ Funciones para atender a las rutas del servidor web -------------------------------"""
 
 @bp.get("/")
 def listar_inmuebles():
-    """Muestra el listado de inmuebles registrados en la base de datos."""
+    """Muestra los inmuebles registrados."""
+
     session_factory = get_session_factory()
 
     with session_factory() as session:
         inmuebles = session.scalars(
-            select(Inmueble).order_by(Inmueble.referencia)
+            select(Inmueble).order_by(
+                Inmueble.referencia
+            )
         ).all()
+
+        locales_por_padre: dict[
+            int,
+            list[Inmueble],
+        ] = {}
+
+        for inmueble in inmuebles:
+            if inmueble.inmueble_padre_id is not None:
+                locales_por_padre.setdefault(
+                    inmueble.inmueble_padre_id,
+                    [],
+                ).append(inmueble)
+
+        inmuebles_subdivididos = [
+            inmueble
+            for inmueble in inmuebles
+            if inmueble.tipo == "T"
+        ]
+
+        grupos = [
+            (
+                inmueble_subdividido,
+                locales_por_padre.get(
+                    inmueble_subdividido.id,
+                    [],
+                ),
+            )
+            for inmueble_subdividido in inmuebles_subdivididos
+        ]
+
+        independientes = [
+            inmueble
+            for inmueble in inmuebles
+            if (
+                inmueble.tipo != "T"
+                and inmueble.inmueble_padre_id is None
+            )
+        ]
 
         return render_template(
             "inmuebles/lista.html",
-            inmuebles=inmuebles,
+            grupos=grupos,
+            independientes=independientes,
+            tipos_inmueble=TIPOS_INMUEBLE,
             database_name=get_database_name(),
         )
 
@@ -163,49 +330,67 @@ def listar_inmuebles():
 def nuevo_inmueble():
     """Permite introducir y guardar un nuevo inmueble."""
 
-    if request.method == "GET":
-        return render_template(
-            "inmuebles/nuevo.html",
-            datos={},
-            tipos_inmueble=TIPOS_INMUEBLE,
-            titulo="Nuevo inmueble",
-            database_name=get_database_name(),
-        )
+    session_factory = get_session_factory()
 
-    valores, error = _validar_datos_inmueble(request.form)
+    if request.method == "GET":
+        with session_factory() as session:
+            return _render_formulario_inmueble(
+                session,
+                datos={},
+                titulo="Nuevo inmueble",
+                error=None,
+            )
+
+    valores, error = _validar_datos_inmueble(
+        request.form
+    )
 
     if error:
-        return (
-            render_template(
-                "inmuebles/nuevo.html",
-                datos=request.form,
-                tipos_inmueble=TIPOS_INMUEBLE,
-                error=error,
-                titulo="Nuevo inmueble",
-                database_name=get_database_name(),
-            ),
-            400,
-        )
-
-    session_factory = get_session_factory()
+        with session_factory() as session:
+            return (
+                _render_formulario_inmueble(
+                    session,
+                    datos=request.form,
+                    titulo="Nuevo inmueble",
+                    error=error,
+                ),
+                400,
+            )
 
     with session_factory() as session:
         with session.begin():
-            error = _buscar_duplicado(
+            error_padre = _validar_inmueble_padre(
+                session,
+                tipo=valores["tipo"],
+                inmueble_padre_id=valores[
+                    "inmueble_padre_id"
+                ],
+            )
+
+            if error_padre:
+                return (
+                    _render_formulario_inmueble(
+                        session,
+                        datos=request.form,
+                        titulo="Nuevo inmueble",
+                        error=error_padre,
+                    ),
+                    400,
+                )
+
+            error_duplicado = _buscar_duplicado(
                 session,
                 valores["referencia"],
                 valores["codigo_facturacion"],
             )
 
-            if error:
+            if error_duplicado:
                 return (
-                    render_template(
-                        "inmuebles/nuevo.html",
+                    _render_formulario_inmueble(
+                        session,
                         datos=request.form,
-                        tipos_inmueble=TIPOS_INMUEBLE,
-                        error=error,
                         titulo="Nuevo inmueble",
-                        database_name=get_database_name(),
+                        error=error_duplicado,
                     ),
                     400,
                 )
@@ -213,7 +398,9 @@ def nuevo_inmueble():
             inmueble = Inmueble(**valores)
             session.add(inmueble)
 
-    return redirect(url_for("inmuebles.listar_inmuebles"))
+    return redirect(
+        url_for("inmuebles.listar_inmuebles")
+    )
 
 
 @bp.route("/<int:inmueble_id>/editar", methods=["GET", "POST"])
@@ -244,69 +431,95 @@ def editar_inmueble(inmueble_id: int):
                     .replace(".", ",")
                 ),
                 "notas": inmueble.notas or "",
+                "es_parte_inmueble": (
+                    inmueble.inmueble_padre_id is not None
+                ),
+                "inmueble_padre_id": (
+                    str(inmueble.inmueble_padre_id)
+                    if inmueble.inmueble_padre_id is not None
+                    else ""
+                ),
             }
+            
+            inmuebles_subdivididos = (
+                _inmuebles_subdivididos_formulario(session)
+            )
 
-            return render_template(
-                "inmuebles/nuevo.html",
+            return _render_formulario_inmueble(
+                session,
                 datos=datos,
-                tipos_inmueble=TIPOS_INMUEBLE,
                 error=None,
                 titulo="Editar inmueble",
-                database_name=get_database_name(),
             )
 
     valores, error = _validar_datos_inmueble(request.form)
 
     if error:
-        return (
-            render_template(
-                "inmuebles/nuevo.html",
-                datos=request.form,
-                tipos_inmueble=TIPOS_INMUEBLE,
-                error=error,
-                titulo="Editar inmueble",
-                database_name=get_database_name(),
-            ),
-            400,
-        )
-
-    with session_factory() as session:
-        inmueble = session.get(Inmueble, inmueble_id)
-
-        if inmueble is None:
-            return "Inmueble no encontrado.", 404
-
-        error = _buscar_duplicado(
-            session,
-            valores["referencia"],
-            valores["codigo_facturacion"],
-            excluir_id=inmueble.id,
-        )
-
-        if error:
+        with session_factory() as session:
             return (
-                render_template(
-                    "inmuebles/nuevo.html",
+                _render_formulario_inmueble(
+                    session,
                     datos=request.form,
-                    tipos_inmueble=TIPOS_INMUEBLE,
                     error=error,
                     titulo="Editar inmueble",
-                    database_name=get_database_name(),
                 ),
                 400,
             )
 
     with session_factory() as session:
         with session.begin():
-            inmueble = session.get(Inmueble, inmueble_id)
+            inmueble = session.get(
+                Inmueble,
+                inmueble_id,
+            )
 
             if inmueble is None:
                 return "Inmueble no encontrado.", 404
 
+            error_padre = _validar_inmueble_padre(
+                session,
+                tipo=valores["tipo"],
+                inmueble_padre_id=valores[
+                    "inmueble_padre_id"
+                ],
+                inmueble_id=inmueble.id,
+            )
+
+            if error_padre:
+                return (
+                    _render_formulario_inmueble(
+                        session,
+                        datos=request.form,
+                        error=error_padre,
+                        titulo="Editar inmueble",
+                    ),
+                    400,
+                )
+
+            error_duplicado = _buscar_duplicado(
+                session,
+                valores["referencia"],
+                valores["codigo_facturacion"],
+                excluir_id=inmueble.id,
+            )
+
+            if error_duplicado:
+                return (
+                    _render_formulario_inmueble(
+                       session,
+                        datos=request.form,
+                        error=error_duplicado,
+                        titulo="Editar inmueble",
+                    ),
+                    400,
+                )
+
             for campo, valor in valores.items():
                 setattr(inmueble, campo, valor)
 
-    return redirect(url_for("inmuebles.listar_inmuebles"))
+    return redirect(
+        url_for("inmuebles.listar_inmuebles")
+    )
 
 
 @bp.route("/<int:inmueble_id>/estado", methods=["GET", "POST"])
@@ -341,4 +554,63 @@ def cambiar_estado_inmueble(inmueble_id: int):
 
     return redirect(url_for("inmuebles.listar_inmuebles"))
 
+
+def test_crear_local_rechaza_padre_que_no_es_total() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        padre_incorrecto = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local independiente",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(padre_incorrecto)
+        session.commit()
+        padre_id = padre_incorrecto.id
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data={
+            "tipo": "L",
+            "referencia": "LOCAL-2",
+            "codigo_facturacion": "A2",
+            "descripcion": "Local subordinado",
+            "direccion": "Dirección",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "50,00",
+            "es_parte_inmueble": "on",
+            "inmueble_padre_id": str(padre_id),
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "no es un inmueble subdividido"
+        in response.text
+    )
+
+    with session_factory() as session:
+        local = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia == "LOCAL-2"
+            )
+        )
+
+        assert local is None
 

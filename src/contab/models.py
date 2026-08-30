@@ -27,12 +27,33 @@ class Inmueble(Base):
             name="ck_inmueble_participacion",
         ),
         CheckConstraint(
-            "tipo IN ('P', 'L', 'G')",
+            "tipo IN ('T', 'P', 'L', 'G')",
             name="ck_inmueble_tipo",
+        ),
+        CheckConstraint(
+            "tipo != 'T' "
+            "OR ("
+            "inmueble_padre_id IS NULL "
+            "AND participacion = 10000"
+            ")",
+            name="ck_inmueble_total",
+        ),
+        CheckConstraint(
+            "inmueble_padre_id IS NULL "
+            "OR inmueble_padre_id != id",
+            name="ck_inmueble_no_es_su_padre",
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    inmueble_padre_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "inmueble.id",
+            name="fk_inmueble_padre",
+            ondelete="RESTRICT",
+        ),
+    )
 
     tipo: Mapped[str] = mapped_column(
         Text,
@@ -74,6 +95,18 @@ class Inmueble(Base):
     )
 
     notas: Mapped[str | None] = mapped_column(Text)
+
+    inmueble_padre: Mapped["Inmueble | None"] = relationship(
+        back_populates="locales",
+        remote_side=[id],
+        foreign_keys=[inmueble_padre_id],
+    )
+
+    locales: Mapped[list["Inmueble"]] = relationship(
+        back_populates="inmueble_padre",
+        foreign_keys=[inmueble_padre_id],
+        passive_deletes="all",
+    )
 
     contratos: Mapped[list["Contrato"]] = relationship(
         back_populates="inmueble",

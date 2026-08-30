@@ -82,10 +82,13 @@ def _fecha(valor: str) -> date:
 
 
 def _inmuebles_formulario(session):
-    """Obtiene los inmuebles activos para el formulario."""
+    """Obtiene las unidades arrendables activas."""
     return session.scalars(
         select(Inmueble)
-        .where(Inmueble.activo.is_(True))
+        .where(
+            Inmueble.activo.is_(True),
+            Inmueble.tipo != "T",
+        )
         .order_by(Inmueble.referencia)
     ).all()
 
@@ -829,6 +832,12 @@ def editar_contrato(contrato_id: int):
                 if inmueble is None:
                     raise ContratoError(
                         "El inmueble seleccionado no existe."
+                    )
+
+                if inmueble.tipo == "T":
+                    raise ContratoError(
+                        "Un contrato no puede asociarse "
+                        "a un inmueble subdividido."
                     )
 
                 renta = _renta_inicial(contrato)
