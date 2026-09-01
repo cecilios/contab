@@ -8,8 +8,27 @@
     {% if error %}
         <p class="error">{{ error }}</p>
     {% endif %}
+    {% if aviso %}
+        <p class="warning">{{ aviso }}</p>
+    {% endif %}
 
     <form method="post">
+        <input
+            type="hidden"
+            id="concepto_automatico"
+            name="concepto_automatico"
+            value="{{ datos.get('concepto_automatico', '') }}"
+        >
+
+        <input
+            type="hidden"
+            name="nombre_documento_automatico"
+            value="{{ datos.get(
+                'nombre_documento_automatico',
+                ''
+            ) }}"
+        >
+
         <p>
             <label for="inmueble_id">Inmueble</label>
             <select id="inmueble_id" name="inmueble_id" required>
@@ -54,19 +73,21 @@
                             {% for subcategoria in categoria.subcategorias %}
                                 {% set valor = categoria.codigo ~ "." ~ subcategoria.codigo %}
 
-                                <option
-                                    value="{{ valor }}"
-                                    {% if datos.get("clasificacion") == valor %}
-                                        selected
-                                    {% endif %}
-                                >
-                                    {{ subcategoria.nombre }}
-                                </option>
+                            <option
+                                value="{{ valor }}"
+                                data-concepto="{{ subcategoria.nombre }}"
+                                {% if datos.get("clasificacion") == valor %}
+                                    selected
+                                {% endif %}
+                            >
+                                {{ subcategoria.nombre }}
+                            </option>
                             {% endfor %}
                         </optgroup>
                     {% else %}
                         <option
                             value="{{ categoria.codigo }}"
+                            data-concepto="{{ categoria.nombre }}"
                             {% if datos.get("clasificacion") == categoria.codigo %}
                                 selected
                             {% endif %}
@@ -84,12 +105,91 @@
                 id="concepto"
                 name="concepto"
                 value="{{ datos.get('concepto', '') }}"
-                required
             >
         </p>
 
+        <fieldset>
+            <legend>Período</legend>
+
+            <p>
+                <label for="periodo_desde">Desde</label>
+                <input
+                    id="periodo_desde"
+                    name="periodo_desde"
+                    value="{{ datos.get('periodo_desde', '') }}"
+                    placeholder="mm/aaaa o dd/mm/aaaa"
+                >
+            </p>
+
+            <p>
+                <label for="periodo_hasta">Hasta</label>
+                <input
+                    id="periodo_hasta"
+                    name="periodo_hasta"
+                    value="{{ datos.get('periodo_hasta', '') }}"
+                    placeholder="dd/mm/aaaa"
+                >
+            </p>
+
+            <p>
+                Para un mes completo, indique solamente
+                <em>Desde</em> con el formato mm/aaaa.
+            </p>
+        </fieldset>
+
+        {% set tratamiento = datos.get(
+            "tratamiento",
+            "CONTABILIZAR"
+        ) %}
+
+        <fieldset class="radio-group">
+            <legend>Tratamiento</legend>
+
+            <p>
+                <label>
+                    <input
+                        type="radio"
+                        name="tratamiento"
+                        value="CONTABILIZAR"
+                        {% if tratamiento == "CONTABILIZAR" %}
+                            checked
+                        {% endif %}
+                    >
+                    Contabilizar
+                </label>
+            </p>
+
+            <p>
+                <label>
+                    <input
+                        type="radio"
+                        name="tratamiento"
+                        value="REPERCUTIR"
+                        {% if tratamiento == "REPERCUTIR" %}
+                            checked
+                        {% endif %}
+                    >
+                    Trasladar el gasto
+                </label>
+            </p>
+
+            <p>
+                <label>
+                    <input
+                        type="radio"
+                        name="tratamiento"
+                        value="FACTURAR"
+                        {% if tratamiento == "FACTURAR" %}
+                            checked
+                        {% endif %}
+                    >
+                    Facturar
+                </label>
+            </p>
+        </fieldset>
+
         <p>
-            <label for="base">Base</label>
+            <label for="base">Base imponible</label>
             <input
                 id="base"
                 name="base"
@@ -119,52 +219,66 @@
         </p>
 
         <p>
-            <label for="tercero_nombre">Tercero</label>
-            <input
-                id="tercero_nombre"
-                name="tercero_nombre"
-                value="{{ datos.get('tercero_nombre', '') }}"
-            >
-        </p>
-
-        <p>
-            <label for="tercero_nif">NIF del tercero</label>
-            <input
-                id="tercero_nif"
-                name="tercero_nif"
-                value="{{ datos.get('tercero_nif', '') }}"
-            >
-        </p>
-
-        <p>
-            <label for="referencia_documento">
-                Referencia del documento
+            <label for="importe_a_pagar">
+                Importe a pagar
             </label>
             <input
-                id="referencia_documento"
-                name="referencia_documento"
-                value="{{ datos.get('referencia_documento', '') }}"
+                id="importe_a_pagar"
+                value="{{ datos.get('importe_a_pagar', '') }}"
+                readonly
             >
         </p>
 
         <p>
-            <label for="ruta_documento">
-                Ruta del documento
+            <label for="nombre_documento">
+                Nombre del documento
             </label>
             <input
-                id="ruta_documento"
-                name="ruta_documento"
-                value="{{ datos.get('ruta_documento', '') }}"
+                id="nombre_documento"
+                name="nombre_documento"
+                value="{{ datos.get('nombre_documento', '') }}"
             >
         </p>
 
-        <p>
-            <label for="notas">Notas</label>
-            <textarea
-                id="notas"
-                name="notas"
-            >{{ datos.get("notas", "") }}</textarea>
-        </p>
+        <fieldset>
+            <legend>Datos del emisor</legend>
+
+            <p>
+                <label for="tercero_nombre">
+                    Nombre del emisor
+                </label>
+                <input
+                    id="tercero_nombre"
+                    name="tercero_nombre"
+                    value="{{ datos.get('tercero_nombre', '') }}"
+                >
+            </p>
+
+            <p>
+                <label for="tercero_nif">
+                    NIF del emisor
+                </label>
+                <input
+                    id="tercero_nif"
+                    name="tercero_nif"
+                    value="{{ datos.get('tercero_nif', '') }}"
+                >
+            </p>
+
+            <p>
+                <label for="referencia_documento">
+                    Referencia del documento
+                </label>
+                <input
+                    id="referencia_documento"
+                    name="referencia_documento"
+                    value="{{ datos.get(
+                        'referencia_documento',
+                        ''
+                    ) }}"
+                >
+            </p>
+        </fieldset>
         
         {% if permitir_movimiento %}
             <fieldset>
@@ -197,11 +311,81 @@
         {% endif %}
 
         <p>
-            <button type="submit">Guardar</button>
+            <button
+                type="submit"
+                name="accion"
+                value="validar"
+            >
+                Validar
+            </button>
+
+            {% if datos.get("firma_validacion") %}
+                <input
+                    type="hidden"
+                    name="firma_validacion"
+                    value="{{ datos.get('firma_validacion') }}"
+                >
+
+                <button
+                    type="submit"
+                    name="accion"
+                    value="guardar"
+                >
+                    Guardar
+                </button>
+            {% endif %}
 
             <a href="{{ url_for('contabilidad.listar_apuntes') }}">
                 Cancelar
             </a>
         </p>
     </form>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const clasificacion = document.getElementById(
+                "clasificacion"
+            );
+            const concepto = document.getElementById(
+                "concepto"
+            );
+            const conceptoAutomatico = document.getElementById(
+                "concepto_automatico"
+            );
+
+            function actualizarConcepto() {
+                const opcion = clasificacion.selectedOptions[0];
+                const propuesta = opcion?.dataset.concepto || "";
+                const valorActual = concepto.value.trim();
+                const valorAnterior = conceptoAutomatico.value;
+
+                if (
+                    !valorActual
+                    || valorActual === valorAnterior
+                ) {
+                    concepto.value = propuesta;
+                    conceptoAutomatico.value = propuesta;
+                }
+            }
+
+            clasificacion.addEventListener(
+                "change",
+                actualizarConcepto
+            );
+
+            concepto.addEventListener("input", () => {
+                if (
+                    concepto.value.trim()
+                    !== conceptoAutomatico.value
+                ) {
+                    conceptoAutomatico.value = "";
+                }
+            });
+
+            if (!concepto.value.trim()) {
+                actualizarConcepto();
+            }
+        });
+    </script>
+
 {% endblock %}

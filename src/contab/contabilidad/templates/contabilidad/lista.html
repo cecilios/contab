@@ -17,9 +17,10 @@
                 <tr>
                     <th>Fecha</th>
                     <th>Inmueble</th>
-                    <th>Naturaleza</th>
+                    <th>Tipo</th>
                     <th>Clasificación</th>
                     <th>Concepto</th>
+                    <th>Tratamiento</th>
                     <th>Importe</th>
                     <th>Acciones</th>
                 </tr>
@@ -32,35 +33,40 @@
                             {{ apunte.fecha.strftime("%d/%m/%Y") }}
                         </td>
                         <td>{{ apunte.inmueble.referencia }}</td>
-                        <td>{{ apunte.naturaleza }}</td>
                         <td>
-                            {{ apunte.categoria }}
-
-                            {% if apunte.subcategoria %}
-                                / {{ apunte.subcategoria }}
-                            {% endif %}
+                            {{ naturalezas.get(
+                                apunte.naturaleza,
+                                apunte.naturaleza
+                            ) }}
+                        </td>
+                        <td>
+                            {{ clasificacion_a_texto(
+                                apunte,
+                                categorias
+                            ) }}
                         </td>
                         <td>{{ apunte.concepto }}</td>
+                        <td>
+                            {{ tratamientos.get(
+                                apunte.tratamiento,
+                                apunte.tratamiento
+                            ) }}
+                        </td>
                         <td>{{ importe_a_texto(apunte.total) }}</td>
                         <td>
-                            <a
-                                href="{{ url_for(
-                                    'contabilidad.editar_apunte',
-                                    apunte_id=apunte.id
-                                ) }}"
-                            >
+                            <a href="{{ url_for(
+                                'contabilidad.editar_apunte',
+                                apunte_id=apunte.id
+                            ) }}">
                                 Editar
                             </a>
                             |
-                            <a
-                                href="{{ url_for(
-                                    'contabilidad.eliminar_apunte',
-                                    apunte_id=apunte.id
-                                ) }}"
-                            >
+                            <a href="{{ url_for(
+                                'contabilidad.eliminar_apunte',
+                                apunte_id=apunte.id
+                            ) }}">
                                 Eliminar
                             </a>
-
                         </td>
                     </tr>
                 {% endfor %}
@@ -69,4 +75,31 @@
     {% else %}
         <p>No hay apuntes contables registrados.</p>
     {% endif %}
+
+    {% if total_paginas > 1 %}
+        <nav>
+            {% if pagina > 1 %}
+                <a href="{{ url_for(
+                    'contabilidad.listar_apuntes',
+                    pagina=pagina - 1
+                ) }}">
+                    Página anterior
+                </a>
+            {% endif %}
+
+            <span>
+                Página {{ pagina }} de {{ total_paginas }}
+            </span>
+
+            {% if pagina < total_paginas %}
+                <a href="{{ url_for(
+                    'contabilidad.listar_apuntes',
+                    pagina=pagina + 1
+                ) }}">
+                    Página siguiente
+                </a>
+            {% endif %}
+        </nav>
+    {% endif %}
+
 {% endblock %}

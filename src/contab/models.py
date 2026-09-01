@@ -659,6 +659,37 @@ class ApunteContable(Base):
             "total >= 0",
             name="ck_apunte_contable_total",
         ),
+        CheckConstraint(
+            """
+            (
+                periodo_desde IS NULL
+                AND periodo_hasta IS NULL
+            )
+            OR
+            (
+                periodo_desde IS NOT NULL
+                AND periodo_hasta IS NOT NULL
+            )
+            """,
+            name="ck_apunte_contable_periodo_completo",
+        ),
+        CheckConstraint(
+            """
+            periodo_desde IS NULL
+            OR periodo_hasta >= periodo_desde
+            """,
+            name="ck_apunte_contable_periodo_orden",
+        ),
+        CheckConstraint(
+            """
+            tratamiento IN (
+                'CONTABILIZAR',
+                'REPERCUTIR',
+                'FACTURAR'
+            )
+            """,
+            name="ck_apunte_contable_tratamiento",
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -691,6 +722,28 @@ class ApunteContable(Base):
     concepto: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+    )
+
+    periodo_desde: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    periodo_hasta: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    tratamiento: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="CONTABILIZAR",
+    )
+
+    nombre_documento: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
     )
 
     base: Mapped[int] = mapped_column(

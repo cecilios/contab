@@ -1,7 +1,9 @@
 """Pruebas de las rutas web del módulo contable."""
 
 import pytest
+import re
 
+from html import unescape
 from datetime import date
 from sqlalchemy import select
 
@@ -12,6 +14,9 @@ from contab.contabilidad.services import (
     crear_apunte_contable,
     eliminar_apunte_contable,
     modificar_apunte_contable,
+)
+from contab.contabilidad.routes import (
+    _comprobar_documento_duplicado,
 )
 from contab.conciliacion.services import (
     ConciliacionError,
@@ -26,6 +31,20 @@ from contab.config import (
     CategoriaContable,
 )
 
+
+def _valor_input(response, nombre: str) -> str:
+    """Extrae el valor de un input de la respuesta HTML."""
+
+    coincidencia = re.search(
+        rf'name="{re.escape(nombre)}"'
+        rf'[^>]*value="([^"]*)"',
+        response.text,
+        re.DOTALL,
+    )
+
+    assert coincidencia is not None
+
+    return unescape(coincidencia.group(1))
 
 
 def crear_app_test():
@@ -127,8 +146,6 @@ def test_listado_muestra_apuntes_ordenados() -> None:
 
     assert response.status_code == 200
     assert "LOCAL-1" in response.text
-    assert "GAS_TRIBUTOS" in response.text
-    assert "TRU" in response.text
     assert "Tasa de residuos" in response.text
     assert "125,00 €" in response.text
 
@@ -182,94 +199,6 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     assert "Tasa de Residuos Urbanos" in response.text
 
 
-def test_crear_apunte_con_movimiento_previsto(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    ruta = tmp_path / "contab.ini"
-    ruta.write_text(
-        """
-[categorias_contables]
-GAS_COMUNIDAD = GASTO | Comunidad
-
-[subcategorias_contables]
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv(
-        "CONTAB_CONFIG",
-        str(ruta),
-    )
-
-    app = crear_app_test()
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-        session.add(inmueble)
-        session.commit()
-        inmueble_id = inmueble.id
-
-    client = app.test_client()
-    client.post("/", data={"database": "test"})
-
-    response = client.post(
-        "/contabilidad/nuevo",
-        data={
-            "inmueble_id": str(inmueble_id),
-            "fecha": "15/09/2026",
-            "clasificacion": "GAS_COMUNIDAD",
-            "concepto": "Cuota de comunidad",
-            "base": "100,00",
-            "iva_importe": "0,00",
-            "retencion_importe": "0,00",
-            "tercero_nombre": "Comunidad",
-            "tercero_nif": "",
-            "referencia_documento": "",
-            "ruta_documento": "",
-            "notas": "",
-            "crear_movimiento": "on",
-            "fecha_prevista": "20/09/2026",
-        },
-    )
-
-    assert response.status_code == 302
-
-    with session_factory() as session:
-        apunte = session.scalar(
-            select(ApunteContable)
-        )
-        movimiento = session.scalar(
-            select(MovimientoPrevisto)
-        )
-
-        assert apunte is not None
-        assert movimiento is not None
-        assert movimiento.apunte_id == apunte.id
-        assert movimiento.inmueble_id == inmueble_id
-        assert movimiento.fecha_prevista == date(
-            2026,
-            9,
-            20,
-        )
-        assert movimiento.naturaleza == "GASTO"
-        assert movimiento.concepto == "Cuota de comunidad"
-        assert movimiento.importe_esperado == 10000
-        assert movimiento.contraparte == "Comunidad"
-        assert movimiento.estado == "PENDIENTE"
-
-
 def test_crear_apunte_desde_formulario(
     tmp_path,
     monkeypatch,
@@ -313,22 +242,137 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     client = app.test_client()
     client.post("/", data={"database": "test"})
 
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_TRIBUTOS.TRU",
+        "concepto": "",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "100,00",
+        "iva_importe": "21,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Ayuntamiento",
+        "tercero_nif": "",
+        "referencia_documento": "TRU-2026",
+        "accion": "validar",
+    }
+
     response = client.post(
         "/contabilidad/nuevo",
-        data={
-            "inmueble_id": str(inmueble_id),
-            "fecha": "15/09/2026",
-            "clasificacion": "GAS_TRIBUTOS.TRU",
-            "concepto": "Tasa de residuos",
-            "base": "100,00",
-            "iva_importe": "21,00",
-            "retencion_importe": "0,00",
-            "tercero_nombre": "Ayuntamiento",
-            "tercero_nif": "",
-            "referencia_documento": "TRU-2026",
-            "ruta_documento": "",
-            "notas": "",
-        },
+        data=datos,
+    )
+
+    assert response.status_code == 200
+    assert "121,00" in response.text
+
+    concepto = _valor_input(
+        response,
+        "concepto",
+    )
+    concepto_automatico = _valor_input(
+        response,
+        "concepto_automatico",
+    )
+    nombre_documento = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    nombre_automatico = _valor_input(
+        response,
+        "nombre_documento_automatico",
+    )
+
+    assert concepto == "Tasa de Residuos Urbanos"
+    assert concepto_automatico == concepto
+    assert nombre_documento == ("LOCAL-1-Tasa de Residuos Urbanos.pdf")
+    assert nombre_automatico == nombre_documento
+
+    firma_validacion = _valor_input(
+        response,
+        "firma_validacion",
+    )
+
+    assert firma_validacion
+    assert "121,00" in response.text
+
+    # simulamos que el usuario añade un período y vuelve a validar
+    datos["concepto"] = concepto
+    datos["concepto_automatico"] = concepto_automatico
+    datos["nombre_documento"] = nombre_documento
+    datos["nombre_documento_automatico"] = (
+        nombre_automatico
+    )
+    datos["periodo_desde"] = "09/2026"
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    concepto = _valor_input(
+        response,
+        "concepto",
+    )
+    concepto_automatico = _valor_input(
+        response,
+        "concepto_automatico",
+    )
+
+    assert concepto == (
+        "Tasa de Residuos Urbanos 09/2026"
+    )
+    assert concepto_automatico == concepto
+
+    nombre_documento = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    nombre_automatico = _valor_input(
+        response,
+        "nombre_documento_automatico",
+    )
+    firma_validacion = _valor_input(
+        response,
+        "firma_validacion",
+    )
+
+    assert nombre_documento == (
+        "LOCAL-1-Tasa de Residuos Urbanos 2026-09.pdf"
+    )
+    assert nombre_automatico == nombre_documento
+    assert firma_validacion
+
+    # preparar el guardado
+    datos["concepto"] = concepto
+    datos["concepto_automatico"] = (concepto_automatico)
+    datos["nombre_documento"] = nombre_documento
+    datos["nombre_documento_automatico"] = (nombre_automatico)
+    datos["firma_validacion"] = firma_validacion
+    datos["accion"] = "guardar"
+    datos_modificados = datos.copy()
+    datos_modificados["base"] = "125,00"
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos_modificados,
+    )
+
+    assert response.status_code == 400
+    assert "han cambiado" in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(ApunteContable)
+        ) is None
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
     )
 
     assert response.status_code == 302
@@ -344,6 +388,11 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
         assert apunte.naturaleza == "GASTO"
         assert apunte.categoria == "GAS_TRIBUTOS"
         assert apunte.subcategoria == "TRU"
+        assert apunte.concepto == "Tasa de Residuos Urbanos 09/2026"
+        assert apunte.periodo_desde == date(2026, 9, 1)
+        assert apunte.periodo_hasta == date(2026, 9, 30)
+        assert apunte.tratamiento == "CONTABILIZAR"
+        assert apunte.nombre_documento == ("LOCAL-1-Tasa de Residuos Urbanos 2026-09.pdf")
         assert apunte.base == 10000
         assert apunte.iva_importe == 2100
         assert apunte.total == 12100
@@ -490,86 +539,6 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     assert "selected" in response.text
 
 
-def test_crear_apunte_sin_movimiento_previsto(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    ruta = tmp_path / "contab.ini"
-    ruta.write_text(
-        """
-[categorias_contables]
-ING_OTRAS_RENTAS = INGRESO | Otras rentas
-
-[subcategorias_contables]
-ING_OTRAS_RENTAS.ANTENA_TELEFONIA = Antena de telefonía
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv(
-        "CONTAB_CONFIG",
-        str(ruta),
-    )
-
-    app = crear_app_test()
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="PISO-1",
-            tipo="P",
-            codigo_facturacion="P1",
-            descripcion="Piso",
-            direccion="Dirección",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-        session.add(inmueble)
-        session.commit()
-        inmueble_id = inmueble.id
-
-    client = app.test_client()
-    client.post("/", data={"database": "test"})
-
-    response = client.post(
-        "/contabilidad/nuevo",
-        data={
-            "inmueble_id": str(inmueble_id),
-            "fecha": "15/09/2026",
-            "clasificacion": (
-                "ING_OTRAS_RENTAS.ANTENA_TELEFONIA"
-            ),
-            "concepto": "Ingreso compensado por antena",
-            "base": "100,00",
-            "iva_importe": "21,00",
-            "retencion_importe": "19,00",
-            "tercero_nombre": "Comunidad",
-            "tercero_nif": "",
-            "referencia_documento": "",
-            "ruta_documento": "",
-            "notas": "",
-            # crear_movimiento ausente → checkbox desmarcado
-            "fecha_prevista": "",
-        },
-    )
-
-    assert response.status_code == 302
-
-    with session_factory() as session:
-        apunte = session.scalar(
-            select(ApunteContable)
-        )
-        movimiento = session.scalar(
-            select(MovimientoPrevisto)
-        )
-
-        assert apunte is not None
-        assert apunte.total == 10200
-        assert movimiento is None
-
-
 def test_editar_apunte_guarda_cambios(
     tmp_path,
     monkeypatch,
@@ -630,22 +599,52 @@ GAS_TRIBUTOS.IBI = Impuesto sobre Bienes Inmuebles
     client = app.test_client()
     client.post("/", data={"database": "test"})
 
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "30/09/2026",
+        "clasificacion": "GAS_TRIBUTOS.IBI",
+        "concepto": "IBI 2026",
+        "periodo_desde": "09/2026",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "200,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Ayuntamiento",
+        "tercero_nif": "",
+        "referencia_documento": "IBI-2026",
+        "accion": "validar",
+    }
+
     response = client.post(
         f"/contabilidad/{apunte_id}/editar",
-        data={
-            "inmueble_id": str(inmueble_id),
-            "fecha": "30/09/2026",
-            "clasificacion": "GAS_TRIBUTOS.IBI",
-            "concepto": "IBI 2026",
-            "base": "200,00",
-            "iva_importe": "0,00",
-            "retencion_importe": "0,00",
-            "tercero_nombre": "Ayuntamiento",
-            "tercero_nif": "",
-            "referencia_documento": "IBI-2026",
-            "ruta_documento": "",
-            "notas": "Datos corregidos",
-        },
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    nombre_documento = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    firma_validacion = _valor_input(
+        response,
+        "firma_validacion",
+    )
+
+    assert nombre_documento == (
+        "LOCAL-1-IBI 2026 2026-09.pdf"
+    )
+    assert firma_validacion
+
+    datos["nombre_documento"] = nombre_documento
+    datos["firma_validacion"] = firma_validacion
+    datos["accion"] = "guardar"
+
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
     )
 
     assert response.status_code == 302
@@ -656,14 +655,21 @@ GAS_TRIBUTOS.IBI = Impuesto sobre Bienes Inmuebles
             apunte_id,
         )
 
+        assert apunte is not None
         assert apunte.fecha == date(2026, 9, 30)
         assert apunte.categoria == "GAS_TRIBUTOS"
         assert apunte.subcategoria == "IBI"
         assert apunte.concepto == "IBI 2026"
+        assert apunte.periodo_desde == date(2026, 9, 1)
+        assert apunte.periodo_hasta == date(2026, 9, 30)
+        assert apunte.tratamiento == "CONTABILIZAR"
+        assert apunte.nombre_documento == (
+            "LOCAL-1-IBI 2026 2026-09.pdf"
+        )
         assert apunte.base == 20000
+        assert apunte.iva_importe == 0
         assert apunte.total == 20000
         assert apunte.tercero_nombre == "Ayuntamiento"
-        assert apunte.notas == "Datos corregidos"
 
 
 def test_eliminar_apunte_con_movimiento_conciliado_falla(
@@ -873,5 +879,92 @@ def test_eliminar_apunte_elimina_movimiento_pendiente(
         MovimientoPrevisto,
         movimiento_id,
     ) is None
+
+
+def test_documento_duplicado_en_mismo_inmueble_bloquea(
+    session,
+    inmueble,
+) -> None:
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tercero_nombre="Comunidad López",
+        tercero_nif="H12345678",
+        referencia_documento="F-125",
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    with pytest.raises(
+        ContabilidadError,
+        match="Ya existe",
+    ):
+        _comprobar_documento_duplicado(
+            session,
+            inmueble=inmueble,
+            valores={
+                "tercero_nombre": "Comunidad López",
+                "tercero_nif": "H12345678",
+                "referencia_documento": "F-125",
+            },
+        )
+
+
+def test_documento_duplicado_en_otro_inmueble_avisa(
+    session,
+    inmueble,
+) -> None:
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tercero_nombre="Comunidad López",
+        tercero_nif="H12345678",
+        referencia_documento="F-125",
+    )
+
+    otro_inmueble = Inmueble(
+        referencia="LOCAL-2",
+        tipo="L",
+        codigo_facturacion="A2",
+        descripcion="Segundo local",
+        direccion="Dirección 2",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    session.add_all([
+        apunte,
+        otro_inmueble,
+    ])
+    session.commit()
+
+    aviso = _comprobar_documento_duplicado(
+        session,
+        inmueble=otro_inmueble,
+        valores={
+            "tercero_nombre": "Comunidad López",
+            "tercero_nif": "H12345678",
+            "referencia_documento": "F-125",
+        },
+    )
+
+    assert aviso is not None
+    assert inmueble.referencia in aviso
+    assert "Puede guardarlo" in aviso
 
 

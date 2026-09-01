@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 #
-#script para backups de las bases de datos que haya en data/.
-# Asegura:
-# - copias coherentes aunque SQLite esté abierto;
-# - nombres fechados automáticamente;
-# - copia de todas las bases;
-# - comprobación de integridad;
-# - menos riesgo de sobrescribir una copia anterior.
+# Script para backups de las bases de datos que haya en data/.
+# - copias coherentes aunque SQLite esté abierto
+# - nombres fechados automáticamente
+# - copia de todas las bases en data/
+# - comprobación de integridad mediante sqlite3 .backup y PRAGMA quick_check.
+# - Evita sobrescribir una copia con el mismo nombre.
+# - Exige exactamente un argumento MSG.
+# - En MSG rechaza espacios, incluso si se pasan entre comillas y admite letras, 
+#   números, puntos, guiones y guiones bajos.
+# - Almacena los backups en backups/.
 #
-# Uso habitual:  .scripts/backup-databases.sh
+# Uso habitual:  ./scripts/backup-databases.sh MSG
+#   ej.: ./scripts/backup_databases.sh antes-de-ampliar-apuntes-contables
+#
 
 set -Eeuo pipefail
 
@@ -17,8 +22,27 @@ script_dir="$(
 )"
 project_dir="$(dirname -- "$script_dir")"
 
-data_dir="${1:-$project_dir/data}"
-backup_dir="${2:-$project_dir/backups}"
+if (( $# != 1 )); then
+    echo "Uso: $0 msg" >&2
+    echo "Ejemplo: $0 antes-de-ampliar-apuntes-contables" >&2
+    echo "Error: debe indicarse un único mensaje sin espacios." >&2
+    exit 2
+fi
+
+message="$1"
+
+if [[ -z "$message" || "$message" =~ [[:space:]] ]]; then
+    echo "Error: el mensaje no puede estar vacío ni contener espacios." >&2
+    exit 2
+fi
+
+if [[ ! "$message" =~ ^[[:alnum:]_.-]+$ ]]; then
+    echo "Error: el mensaje sólo puede contener letras, números, puntos, guiones y guiones bajos." >&2
+    exit 2
+fi
+
+data_dir="$project_dir/data"
+backup_dir="$project_dir/backups"
 
 if ! command -v sqlite3 >/dev/null 2>&1; then
     echo "Error: no se encuentra el programa sqlite3." >&2
@@ -40,15 +64,21 @@ if (( ${#databases[@]} == 0 )); then
     exit 1
 fi
 
-timestamp="$(date '+%Y%m%d-%H%M%S')"
+backup_date="$(date '+%Y-%m-%d')"
 created=0
 
 for database in "${databases[@]}"; do
     filename="$(basename -- "$database")"
     name="${filename%.db}"
-    destination="$backup_dir/${name}-${timestamp}.db"
+    destination="$backup_dir/${name}-${backup_date}-${message}.db"
+
+    if [[ -e "$destination" ]]; then
+        echo "Error: la copia ya existe: $destination" >&2
+        exit 1
+    fi
+
     temporary="$(
-        mktemp "$backup_dir/.${name}-${timestamp}.XXXXXX.db"
+        mktemp "$backup_dir/.${name}-${backup_date}-${message}.XXXXXX.db"
     )"
 
     cleanup_temporary() {
