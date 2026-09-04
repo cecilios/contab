@@ -130,15 +130,8 @@ def test_generar_csv_iva_clasifica_y_totaliza_apuntes(
     ]
 
     # Debe existir una fila vacía antes de los totales.
+    # Los trimestres con apuntes no separan los totales.
     assert filas[posicion + 3] == [
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-    ]
-    assert filas[posicion + 4] == [
         "",
         "Totales 1T",
         "1.000,00",
@@ -146,7 +139,7 @@ def test_generar_csv_iva_clasifica_y_totaliza_apuntes(
         "210,00",
         "190,00",
     ]
-    assert filas[posicion + 5] == [
+    assert filas[posicion + 4] == [
         "",
         "Ingresos netos",
         "800,00",

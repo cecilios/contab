@@ -142,7 +142,8 @@ def generar_csv_iva(
         total_anual_iva += iva
         total_anual_retencion += retencion
 
-        filas.append(_fila_vacia())
+        if not apuntes_trimestre:
+            filas.append(_fila_vacia())
 
         filas.append(
             [
