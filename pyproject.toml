@@ -34,6 +34,9 @@ contab = [
 "contab.contabilidad" = [
     "templates/contabilidad/*.html",
 ]
+"contab.informes" = [
+    "templates/informes/*.html",
+]
 "contab.contratos" = [
     "templates/contratos/*.html",
 ]

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Exportar para IVA - Contab{% endblock %}
+
+{% block content %}
+    <h1>Exportar apuntes para declaración de IVA</h1>
+
+    <form method="post">
+        <p>
+            <label for="inmueble_id">Inmueble</label>
+            <select
+                id="inmueble_id"
+                name="inmueble_id"
+                required
+            >
+                <option value="">Seleccione...</option>
+
+                {% for inmueble in inmuebles %}
+                    <option value="{{ inmueble.id }}">
+                        {{ inmueble.referencia }}
+                        - {{ inmueble.descripcion }}
+                        {% if not inmueble.activo %}
+                            (inactivo)
+                        {% endif %}
+                    </option>
+                {% endfor %}
+            </select>
+        </p>
+
+        <p>
+            <label for="anio">Año</label>
+            <input
+                id="anio"
+                name="anio"
+                type="number"
+                min="1"
+                max="9999"
+                value="{{ anio }}"
+                required
+            >
+        </p>
+
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+
+        <p>
+            <button type="submit">
+                Exportar CSV
+            </button>
+
+            <a href="{{ url_for('informes.indice') }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}
+
+

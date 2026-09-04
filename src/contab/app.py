@@ -8,6 +8,7 @@ from contab.inmuebles.routes import bp as inmuebles_bp
 from contab.inquilinos.routes import bp as inquilinos_bp
 from contab.contratos.routes import bp as contratos_bp
 from contab.contabilidad.routes import bp as contabilidad_bp
+from contab.informes.routes import bp as informes_bp
 
 
 def create_app(
@@ -36,6 +37,7 @@ def create_app(
     app.register_blueprint(inquilinos_bp)
     app.register_blueprint(contratos_bp)
     app.register_blueprint(contabilidad_bp)
+    app.register_blueprint(informes_bp)
 
     @app.route("/", methods=["GET", "POST"])
     def index():

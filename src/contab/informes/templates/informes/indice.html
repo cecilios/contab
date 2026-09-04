@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Informes - Contab{% endblock %}
+
+{% block content %}
+    <h1>Informes</h1>
+
+    <dl>
+        <dt>
+            <a href="{{ url_for('informes.exportar_iva') }}">
+                Exportar apuntes para declaración de IVA
+            </a>
+        </dt>
+        <dd>
+            Exporta los apuntes de un inmueble a un archivo CSV
+            para cargarlos en una hoja de cálculo y preparar las
+            declaraciones de IVA.
+        </dd>
+    </dl>
+{% endblock %}
