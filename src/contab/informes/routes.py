@@ -14,7 +14,10 @@ from contab.context import (
     get_database_name,
     get_session_factory,
 )
-from contab.informes.services import generar_csv_iva
+from contab.informes.services import (
+    generar_csv_iva,
+    generar_zip_iva,
+)
 from contab.models import ApunteContable, Inmueble
 
 
@@ -58,15 +61,19 @@ def exportar_iva():
             )
 
         try:
-            inmueble_id = int(
-                request.form["inmueble_id"]
-            )
+            seleccion = request.form[
+                "inmueble_id"
+            ]
             anio = int(request.form["anio"])
 
             if not 1 <= anio <= 9999:
-                raise ValueError(
-                    "El año indicado no es válido."
-                )
+                raise ValueError
+
+            inmueble_id = (
+                None
+                if seleccion == "todos"
+                else int(seleccion)
+            )
 
         except (KeyError, ValueError):
             return (
@@ -86,31 +93,32 @@ def exportar_iva():
                 400,
             )
 
-        inmueble = session.get(
-            Inmueble,
-            inmueble_id,
-        )
+        inmueble = None
 
-        if inmueble is None:
-            return (
-                render_template(
-                    "informes/iva.html",
-                    inmuebles=inmuebles,
-                    anio=anio,
-                    error=(
-                        "El inmueble seleccionado "
-                        "no existe."
-                    ),
-                    database_name=get_database_name(),
-                ),
-                400,
+        if inmueble_id is not None:
+            inmueble = session.get(
+                Inmueble,
+                inmueble_id,
             )
 
-        apuntes = session.scalars(
+            if inmueble is None:
+                return (
+                    render_template(
+                        "informes/iva.html",
+                        inmuebles=inmuebles,
+                        anio=anio,
+                        error=(
+                            "El inmueble seleccionado "
+                            "no existe."
+                        ),
+                        database_name=get_database_name(),
+                    ),
+                    400,
+                )
+
+        consulta = (
             select(ApunteContable)
             .where(
-                ApunteContable.inmueble_id
-                == inmueble.id,
                 ApunteContable.fecha
                 >= date(anio, 1, 1),
                 ApunteContable.fecha
@@ -120,7 +128,37 @@ def exportar_iva():
                 ApunteContable.fecha,
                 ApunteContable.id,
             )
+        )
+
+        if inmueble_id is not None:
+            consulta = consulta.where(
+                ApunteContable.inmueble_id
+                == inmueble_id
+            )
+
+        apuntes = session.scalars(
+            consulta
         ).all()
+
+        if inmueble_id is None:
+            contenido = generar_zip_iva(
+                inmuebles=inmuebles,
+                apuntes=apuntes,
+                anio=anio,
+            )
+
+            response = Response(
+                contenido,
+                content_type="application/zip",
+            )
+            response.headers[
+                "Content-Disposition"
+            ] = (
+                f'attachment; filename="'
+                f'iva-{anio}.zip"'
+            )
+
+            return response
 
         contenido = generar_csv_iva(
             inmueble=inmueble,

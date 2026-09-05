@@ -1,6 +1,8 @@
 """Pruebas de las rutas web del módulo de informes."""
 
 from datetime import date
+from io import BytesIO
+from zipfile import ZipFile
 
 from contab.app import create_app
 from contab.database import Base
@@ -102,6 +104,8 @@ def test_formulario_exportacion_iva_muestra_inmuebles() -> None:
     assert "Piso inactivo" in response.text
     assert "Exportar CSV" in response.text
     assert 'href="/informes/"' in response.text
+    assert 'value="todos"' in response.text
+    assert "Todos los inmuebles" in response.text
 
 
 def test_exportar_iva_descarga_csv() -> None:
@@ -175,5 +179,107 @@ def test_exportar_iva_descarga_csv() -> None:
         ";Totales del año;1.000,00;0,00;210,00;190,00"
         in response.text
     )
+
+
+def test_exportar_iva_todos_descarga_zip() -> None:
+    """Descarga los CSV aplicables dentro de un único ZIP."""
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    # Preparamos un activo, un inactivo con apuntes
+    # y otro inactivo sin apuntes.
+    with session_factory() as session:
+        activo = Inmueble(
+            referencia="ACTIVO",
+            tipo="L",
+            codigo_facturacion="ACT",
+            descripcion="Inmueble activo",
+            direccion="Dirección 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        inactivo_con_apuntes = Inmueble(
+            referencia="INACTIVO-CON-APUNTES",
+            tipo="L",
+            codigo_facturacion="ICA",
+            descripcion="Inactivo con apuntes",
+            direccion="Dirección 2",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            activo=False,
+        )
+        inactivo_sin_apuntes = Inmueble(
+            referencia="INACTIVO-SIN-APUNTES",
+            tipo="L",
+            codigo_facturacion="ISA",
+            descripcion="Inactivo sin apuntes",
+            direccion="Dirección 3",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            activo=False,
+        )
+
+        apunte = ApunteContable(
+            inmueble=inactivo_con_apuntes,
+            fecha=date(2026, 3, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Comunidad.pdf",
+        )
+
+        session.add_all(
+            [
+                activo,
+                inactivo_con_apuntes,
+                inactivo_sin_apuntes,
+                apunte,
+            ]
+        )
+        session.commit()
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # Solicitamos la exportación conjunta.
+    response = client.post(
+        "/informes/iva",
+        data={
+            "inmueble_id": "todos",
+            "anio": "2026",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/zip"
+    assert response.headers[
+        "Content-Disposition"
+    ] == (
+        'attachment; filename="iva-2026.zip"'
+    )
+
+    # Comprobamos qué inmuebles contiene el ZIP.
+    with ZipFile(BytesIO(response.data)) as archivo:
+        assert archivo.namelist() == [
+            "iva-ACTIVO-2026.csv",
+            "iva-INACTIVO-CON-APUNTES-2026.csv",
+        ]
+
+        contenido = archivo.read(
+            "iva-INACTIVO-CON-APUNTES-2026.csv"
+        ).decode("utf-8")
+
+    assert "Comunidad" in contenido
 
 

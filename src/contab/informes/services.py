@@ -2,8 +2,10 @@
 
 import csv
 from collections.abc import Sequence
-from io import StringIO
+from io import BytesIO, StringIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
+from werkzeug.utils import secure_filename
 from contab.models import ApunteContable, Inmueble
 
 
@@ -24,6 +26,40 @@ def _formatear_importe(centimos: int) -> str:
 def _fila_vacia() -> list[str]:
     """Devuelve una fila vacía con las seis columnas del informe."""
     return ["", "", "", "", "", ""]
+
+
+def seleccionar_inmuebles_exportacion_iva(
+    *,
+    inmuebles: Sequence[Inmueble],
+    apuntes: Sequence[ApunteContable],
+    anio: int,
+) -> list[Inmueble]:
+    """Selecciona los inmuebles que deben incluirse en la exportación conjunta.
+
+    - Incluye todos los inmuebles activos.
+    - Incluye los inmuebles inactivos que tengan algún apunte
+      CONTABILIZAR durante el año solicitado.
+    - Excluye los inmuebles inactivos sin apuntes aplicables.
+    - Devuelve los inmuebles ordenados por referencia.
+    """
+    inmuebles_con_apuntes = {
+        apunte.inmueble_id
+        for apunte in apuntes
+        if apunte.fecha.year == anio
+        and apunte.tratamiento == "CONTABILIZAR"
+    }
+
+    return sorted(
+        (
+            inmueble
+            for inmueble in inmuebles
+            if inmueble.activo
+            or inmueble.id in inmuebles_con_apuntes
+        ),
+        key=lambda inmueble: (
+            inmueble.referencia.casefold()
+        ),
+    )
 
 
 def generar_csv_iva(
@@ -238,3 +274,56 @@ def generar_csv_iva(
     escritor.writerows(filas)
 
     return salida.getvalue()
+
+
+def generar_zip_iva(
+    *,
+    inmuebles: Sequence[Inmueble],
+    apuntes: Sequence[ApunteContable],
+    anio: int,
+) -> bytes:
+    """Genera un ZIP con un CSV anual por cada inmueble aplicable.
+        - Incluye todos los inmuebles activos.
+        - Incluye los inactivos con apuntes CONTABILIZAR en el año.
+        - Genera cada CSV mediante generar_csv_iva.
+        - Utiliza la referencia del inmueble en el nombre del archivo.
+        - Devuelve el contenido completo del ZIP en memoria.
+    """
+    seleccionados = (
+        seleccionar_inmuebles_exportacion_iva(
+            inmuebles=inmuebles,
+            apuntes=apuntes,
+            anio=anio,
+        )
+    )
+
+    salida = BytesIO()
+
+    with ZipFile(
+        salida,
+        mode="w",
+        compression=ZIP_DEFLATED,
+    ) as archivo:
+        for inmueble in seleccionados:
+            referencia = (
+                secure_filename(inmueble.referencia)
+                or f"inmueble-{inmueble.id}"
+            )
+            nombre = (
+                f"iva-{referencia}-{anio}.csv"
+            )
+
+            contenido = generar_csv_iva(
+                inmueble=inmueble,
+                apuntes=apuntes,
+                anio=anio,
+            )
+
+            archivo.writestr(
+                nombre,
+                contenido.encode("utf-8"),
+            )
+
+    return salida.getvalue()
+
+

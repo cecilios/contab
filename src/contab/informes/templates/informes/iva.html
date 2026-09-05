@@ -14,7 +14,9 @@
                 required
             >
                 <option value="">Seleccione...</option>
-
+                <option value="todos">
+                    Todos los inmuebles
+                </option>
                 {% for inmueble in inmuebles %}
                     <option value="{{ inmueble.id }}">
                         {{ inmueble.referencia }}

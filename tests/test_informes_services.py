@@ -2,9 +2,14 @@
 
 import csv
 from datetime import date
-from io import StringIO
+from io import BytesIO, StringIO
+from zipfile import ZipFile
 
-from contab.informes.services import generar_csv_iva
+from contab.informes.services import (
+    generar_csv_iva,
+    generar_zip_iva,
+    seleccionar_inmuebles_exportacion_iva,
+)
 from contab.models import ApunteContable, Inmueble
 
 
@@ -261,5 +266,199 @@ def test_generar_csv_iva_no_mezcla_inmuebles(
             "0,00",
             "0,00",
         ]
+
+
+def test_seleccionar_inmuebles_exportacion_iva(
+    session,
+    inmueble,
+) -> None:
+    """Selecciona activos e inactivos con apuntes en el año."""
+
+    # Preparamos inmuebles con diferentes situaciones.
+    activo_sin_apuntes = Inmueble(
+        referencia="ACTIVO-SIN-APUNTES",
+        tipo="L",
+        codigo_facturacion="ASA",
+        descripcion="Activo sin apuntes",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    inactivo_con_apuntes = Inmueble(
+        referencia="INACTIVO-CON-APUNTES",
+        tipo="L",
+        codigo_facturacion="ICA",
+        descripcion="Inactivo con apuntes",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        activo=False,
+    )
+
+    inactivo_otro_anio = Inmueble(
+        referencia="INACTIVO-OTRO-ANIO",
+        tipo="L",
+        codigo_facturacion="IOA",
+        descripcion="Inactivo con apuntes antiguos",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        activo=False,
+    )
+
+    apunte_actual = ApunteContable(
+        inmueble=inactivo_con_apuntes,
+        fecha=date(2026, 3, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Comunidad.pdf",
+    )
+
+    apunte_antiguo = ApunteContable(
+        inmueble=inactivo_otro_anio,
+        fecha=date(2025, 3, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad antigua",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Comunidad antigua.pdf",
+    )
+
+    session.add_all(
+        [
+            activo_sin_apuntes,
+            inactivo_con_apuntes,
+            inactivo_otro_anio,
+            apunte_actual,
+            apunte_antiguo,
+        ]
+    )
+    session.commit()
+
+    # Solicitamos los inmuebles aplicables a 2026.
+    seleccionados = (
+        seleccionar_inmuebles_exportacion_iva(
+            inmuebles=[
+                inactivo_otro_anio,
+                inactivo_con_apuntes,
+                activo_sin_apuntes,
+                inmueble,
+            ],
+            apuntes=[
+                apunte_antiguo,
+                apunte_actual,
+            ],
+            anio=2026,
+        )
+    )
+
+    assert [
+        elemento.referencia
+        for elemento in seleccionados
+    ] == [
+        "ACTIVO-SIN-APUNTES",
+        "INACTIVO-CON-APUNTES",
+        "LOCAL-1",
+    ]
+
+
+def test_generar_zip_iva_contiene_un_csv_por_inmueble(
+    session,
+    inmueble,
+) -> None:
+    """Genera un ZIP con los CSV de los inmuebles aplicables."""
+
+    # Preparamos otro inmueble con un gasto.
+    segundo = Inmueble(
+        referencia="PISO-2",
+        tipo="P",
+        codigo_facturacion="P2",
+        descripcion="Segundo inmueble",
+        direccion="Dirección 2",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    ingreso = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 1, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler enero",
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Alquiler enero.pdf",
+    )
+
+    gasto = ApunteContable(
+        inmueble=segundo,
+        fecha=date(2026, 2, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad febrero",
+        base=20000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=20000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Comunidad febrero.pdf",
+    )
+
+    session.add_all(
+        [
+            segundo,
+            ingreso,
+            gasto,
+        ]
+    )
+    session.commit()
+
+    # Generamos el archivo comprimido.
+    contenido_zip = generar_zip_iva(
+        inmuebles=[
+            segundo,
+            inmueble,
+        ],
+        apuntes=[
+            gasto,
+            ingreso,
+        ],
+        anio=2026,
+    )
+
+    # Abrimos el ZIP y comprobamos sus archivos.
+    with ZipFile(BytesIO(contenido_zip)) as archivo:
+        assert archivo.namelist() == [
+            "iva-LOCAL-1-2026.csv",
+            "iva-PISO-2-2026.csv",
+        ]
+
+        csv_local = archivo.read(
+            "iva-LOCAL-1-2026.csv"
+        ).decode("utf-8")
+
+        csv_piso = archivo.read(
+            "iva-PISO-2-2026.csv"
+        ).decode("utf-8")
+
+    assert "Alquiler enero" in csv_local
+    assert "Comunidad febrero" not in csv_local
+
+    assert "Comunidad febrero" in csv_piso
+    assert "Alquiler enero" not in csv_piso
 
 
