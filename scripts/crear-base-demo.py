@@ -11,7 +11,15 @@ from contab.database import (
     create_session_factory,
     create_sqlite_engine,
 )
-from contab.models import ApunteContable, Inmueble
+from contab.models import (
+    ApunteContable,
+    Contrato,
+    ContratoInquilino,
+    Inmueble,
+    Inquilino,
+    RentaContrato,
+    RevisionRenta,
+)
 
 
 def _ingreso(
@@ -65,60 +73,264 @@ def _gasto(
     )
 
 
-def _crear_inmuebles() -> tuple[
-    Inmueble,
-    Inmueble,
-    Inmueble,
-    Inmueble,
-]:
-    """Crea inmuebles suficientes para probar los informes."""
-    local = Inmueble(
-        referencia="ALOGRO",
-        tipo="L",
-        codigo_facturacion="AL",
-        descripcion="Local comercial",
-        direccion="Avenida Logroño, 36",
+def _crear_inmuebles() -> dict[str, Inmueble]:
+    """Crea los inmuebles necesarios para probar los informes."""
+    ebotin_comun = Inmueble(
+        referencia="EBOTIN-COMUN",
+        tipo="T",
+        codigo_facturacion="EBC",
+        descripcion="Inmueble subdividido",
+        direccion="Calle Ebotín, 1",
         poblacion="Madrid",
         provincia="Madrid",
     )
 
-    piso = Inmueble(
-        referencia="PISO-1",
-        tipo="P",
-        codigo_facturacion="P1",
-        descripcion="Piso alquilado",
-        direccion="Calle Mayor, 10",
-        poblacion="Madrid",
-        provincia="Madrid",
+    inmuebles = {
+        "alogro": Inmueble(
+            referencia="ALOGRO",
+            tipo="L",
+            codigo_facturacion="AL",
+            descripcion="Local comercial",
+            direccion="Avenida Logroño, 36",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+        "ebotin_comun": ebotin_comun,
+        "ebotin_a": Inmueble(
+            referencia="EbotinA",
+            tipo="L",
+            codigo_facturacion="EBA",
+            descripcion="Óptica",
+            direccion="Calle Ebotín, 1",
+            poblacion="Madrid",
+            provincia="Madrid",
+            inmueble_padre=ebotin_comun,
+            participacion=5000,
+        ),
+        "ebotin_b": Inmueble(
+            referencia="EbotinB",
+            tipo="L",
+            codigo_facturacion="EBB",
+            descripcion="Peluquería",
+            direccion="Calle Ebotín, 1",
+            poblacion="Madrid",
+            provincia="Madrid",
+            inmueble_padre=ebotin_comun,
+            participacion=5000,
+        ),
+        "piso": Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="P1",
+            descripcion="Piso alquilado",
+            direccion="Calle Mayor, 10",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+        "apartamento": Inmueble(
+            referencia="Apart-1",
+            tipo="P",
+            codigo_facturacion="AP1",
+            descripcion="Apartamento alquilado",
+            direccion="Calle Mayor, 20",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+        "garaje": Inmueble(
+            referencia="Garaje-1",
+            tipo="G",
+            codigo_facturacion="G1",
+            descripcion="Plaza de garaje",
+            direccion="Calle Mayor, 20",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+        "inactivo": Inmueble(
+            referencia="LOCAL-INACTIVO",
+            tipo="L",
+            codigo_facturacion="LI",
+            descripcion="Local con actividad histórica",
+            direccion="Calle Antigua, 5",
+            poblacion="Madrid",
+            provincia="Madrid",
+            activo=False,
+        ),
+        "sin_apuntes": Inmueble(
+            referencia="LOCAL-SIN-APUNTES",
+            tipo="L",
+            codigo_facturacion="LS",
+            descripcion="Local sin apuntes en 2026",
+            direccion="Calle Nueva, 7",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+    }
+
+    return inmuebles
+
+
+def _crear_contrato_demo(
+    *,
+    inmueble: Inmueble,
+    nombre_inquilino: str,
+    nif: str,
+    renta: int,
+    genera_factura: bool,
+    fecha_fin: date | None = None,
+) -> tuple[Inquilino, Contrato]:
+    """Crea un contrato completo para las pruebas visuales."""
+    inquilino = Inquilino(
+        nombre=nombre_inquilino,
+        nif=nif,
     )
 
-    inactivo = Inmueble(
-        referencia="LOCAL-INACTIVO",
-        tipo="L",
-        codigo_facturacion="LI",
-        descripcion="Local con actividad histórica",
-        direccion="Calle Antigua, 5",
-        poblacion="Madrid",
-        provincia="Madrid",
-        activo=False,
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2025, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        fecha_fin=fecha_fin,
+        genera_factura=genera_factura,
+        fecha_inicio_facturacion=date(2025, 1, 1),
+        fianza=renta,
+        iva_porcentaje=2100 if genera_factura else 0,
+        retencion_porcentaje=(
+            1900 if genera_factura else 0
+        ),
+        direccion_facturacion=(
+            inmueble.direccion
+            if genera_factura
+            else ""
+        ),
+        poblacion_facturacion=(
+            inmueble.poblacion
+            if genera_factura
+            else ""
+        ),
+        provincia_facturacion=(
+            inmueble.provincia
+            if genera_factura
+            else ""
+        ),
+        concepto_factura=(
+            f"Alquiler de {inmueble.referencia}"
+        ),
     )
 
-    sin_apuntes = Inmueble(
-        referencia="LOCAL-SIN-APUNTES",
-        tipo="L",
-        codigo_facturacion="LS",
-        descripcion="Local sin apuntes en 2026",
-        direccion="Calle Nueva, 7",
-        poblacion="Madrid",
-        provincia="Madrid",
+    contrato.titulares.append(
+        ContratoInquilino(
+            inquilino=inquilino,
+            orden=1,
+        )
+    )
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=date(2025, 1, 1),
+            importe=renta,
+        )
+    )
+    contrato.revisiones_renta.append(
+        RevisionRenta(
+            fecha_prevista=date(2027, 1, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
     )
 
-    return (
-        local,
-        piso,
-        inactivo,
-        sin_apuntes,
-    )
+    return inquilino, contrato
+
+
+def _crear_contratos_demo(
+    inmuebles: dict[str, Inmueble],
+) -> list[object]:
+    """Crea contratos para todas las unidades arrendables."""
+    datos = [
+        (
+            "alogro",
+            "Ferretería Demo, S.L.",
+            "B00000001",
+            109917,
+            True,
+            None,
+        ),
+        (
+            "ebotin_a",
+            "Óptica Demo, S.L.",
+            "B00000002",
+            172386,
+            True,
+            None,
+        ),
+        (
+            "ebotin_b",
+            "Peluquería Demo, S.L.",
+            "B00000003",
+            124658,
+            True,
+            None,
+        ),
+        (
+            "piso",
+            "Inquilino Piso",
+            "00000004D",
+            21667,
+            False,
+            None,
+        ),
+        (
+            "apartamento",
+            "Inquilino Apartamento",
+            "00000005M",
+            80000,
+            False,
+            None,
+        ),
+        (
+            "garaje",
+            "Inquilino Garaje",
+            "00000006Y",
+            24000,
+            False,
+            None,
+        ),
+        (
+            "inactivo",
+            "Antiguo Inquilino, S.L.",
+            "B00000007",
+            100000,
+            True,
+            date(2026, 3, 31),
+        ),
+        (
+            "sin_apuntes",
+            "Nuevo Inquilino, S.L.",
+            "B00000008",
+            100000,
+            True,
+            None,
+        ),
+    ]
+
+    registros: list[object] = []
+
+    for (
+        clave,
+        nombre,
+        nif,
+        renta,
+        genera_factura,
+        fecha_fin,
+    ) in datos:
+        inquilino, contrato = _crear_contrato_demo(
+            inmueble=inmuebles[clave],
+            nombre_inquilino=nombre,
+            nif=nif,
+            renta=renta,
+            genera_factura=genera_factura,
+            fecha_fin=fecha_fin,
+        )
+        registros.extend([inquilino, contrato])
+
+    return registros
 
 
 def _apuntes_local(
@@ -215,26 +427,165 @@ def _apuntes_local(
     return apuntes
 
 
-def _apuntes_adicionales(
-    piso: Inmueble,
-    inactivo: Inmueble,
+def _repartir_en_tres(
+    importe: int,
+) -> tuple[int, int, int]:
+    """Reparte un total entre tres meses sin perder céntimos."""
+    cociente, resto = divmod(importe, 3)
+
+    importes = [cociente, cociente, cociente]
+
+    for posicion in range(resto):
+        importes[posicion] += 1
+
+    return tuple(importes)
+
+
+def _apuntes_trimestrales(
+    *,
+    inmueble: Inmueble,
+    concepto: str,
+    totales: tuple[
+        tuple[int, int, int, int],
+        ...,
+    ],
 ) -> list[ApunteContable]:
-    """Crea casos adicionales para las pruebas visuales."""
-    apuntes = [
-        _ingreso(
-            piso,
-            mes=mes,
-            concepto=f"Alquiler piso {mes:02d}/2026",
-            base=80000,
-            iva=0,
-            retencion=0,
+    """Crea apuntes mensuales conservando los totales trimestrales.
+
+    Cada elemento de totales contiene, por este orden:
+
+    - ingresos;
+    - gastos;
+    - IVA;
+    - retención.
+    """
+    apuntes: list[ApunteContable] = []
+
+    for trimestre, (
+        ingresos,
+        gastos,
+        iva,
+        retencion,
+    ) in enumerate(totales, start=1):
+        primer_mes = (trimestre - 1) * 3 + 1
+
+        ingresos_mensuales = _repartir_en_tres(
+            ingresos
         )
-        for mes in range(1, 13)
-    ]
+        iva_mensual = _repartir_en_tres(iva)
+        retencion_mensual = _repartir_en_tres(
+            retencion
+        )
+
+        for posicion in range(3):
+            mes = primer_mes + posicion
+
+            apuntes.append(
+                _ingreso(
+                    inmueble,
+                    mes=mes,
+                    concepto=(
+                        f"{concepto} {mes:02d}/2026"
+                    ),
+                    base=ingresos_mensuales[posicion],
+                    iva=iva_mensual[posicion],
+                    retencion=(
+                        retencion_mensual[posicion]
+                    ),
+                )
+            )
+
+        if gastos:
+            apuntes.append(
+                _gasto(
+                    inmueble,
+                    mes=primer_mes + 1,
+                    concepto=(
+                        f"Gastos {concepto} "
+                        f"{trimestre}T"
+                    ),
+                    base=gastos,
+                    categoria="GAS_COMUNIDAD",
+                )
+            )
+
+    return apuntes
+
+
+def _apuntes_resumen_anual(
+    inmuebles: dict[str, Inmueble],
+) -> list[ApunteContable]:
+    """Crea los datos del modelo usado para el resumen anual."""
+    apuntes: list[ApunteContable] = []
+
+    apuntes.extend(
+        _apuntes_trimestrales(
+            inmueble=inmuebles["ebotin_a"],
+            concepto="Alquiler EbotinA",
+            totales=(
+                (517158, 64010, 108603, 124119),
+                (517158, 64010, 108603, 124119),
+                (517158, 64010, 108603, 124119),
+                (517158, 64010, 108603, 124119),
+            ),
+        )
+    )
+
+    apuntes.extend(
+        _apuntes_trimestrales(
+            inmueble=inmuebles["ebotin_b"],
+            concepto="Alquiler EbotinB",
+            totales=(
+                (373975, 10338, 78535, 89754),
+                (373975, 15667, 78535, 89754),
+                (373975, 10338, 78535, 89754),
+                (373975, 10338, 78535, 89754),
+            ),
+        )
+    )
+
+    apuntes.extend(
+        _apuntes_trimestrales(
+            inmueble=inmuebles["piso"],
+            concepto="Alquiler Piso-1",
+            totales=(
+                (65000, 30721, 0, 0),
+                (65000, 30721, 0, 0),
+                (65000, 30721, 0, 0),
+                (65000, 30721, 0, 0),
+            ),
+        )
+    )
+
+    apuntes.extend(
+        _apuntes_trimestrales(
+            inmueble=inmuebles["apartamento"],
+            concepto="Alquiler Apart-1",
+            totales=(
+                (240000, 65106, 0, 0),
+                (240000, 54027, 0, 0),
+                (240000, 65106, 0, 0),
+                (260000, 65106, 0, 0),
+            ),
+        )
+    )
+
+    apuntes.extend(
+        _apuntes_trimestrales(
+            inmueble=inmuebles["garaje"],
+            concepto="Alquiler Garaje-1",
+            totales=(
+                (72000, 15000, 0, 0),
+                (72000, 15000, 0, 0),
+                (72000, 15000, 0, 0),
+                (72000, 15000, 0, 0),
+            ),
+        )
+    )
 
     apuntes.append(
         _gasto(
-            inactivo,
+            inmuebles["inactivo"],
             mes=2,
             concepto="Seguro local inactivo",
             base=12500,
@@ -290,27 +641,23 @@ def main() -> None:
                 "No se ha modificado ningún dato."
             )
 
-        (
-            local,
-            piso,
-            inactivo,
-            sin_apuntes,
-        ) = _crear_inmuebles()
+        inmuebles = _crear_inmuebles()
 
-        apuntes = _apuntes_local(local)
+        contratos = _crear_contratos_demo(
+            inmuebles
+        )
+
+        apuntes = _apuntes_local(
+            inmuebles["alogro"]
+        )
         apuntes.extend(
-            _apuntes_adicionales(
-                piso,
-                inactivo,
-            )
+            _apuntes_resumen_anual(inmuebles)
         )
 
         session.add_all(
             [
-                local,
-                piso,
-                inactivo,
-                sin_apuntes,
+                *inmuebles.values(),
+                *contratos,
                 *apuntes,
             ]
         )

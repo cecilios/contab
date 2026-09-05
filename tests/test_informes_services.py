@@ -7,10 +7,16 @@ from zipfile import ZipFile
 
 from contab.informes.services import (
     generar_csv_iva,
+    generar_csv_resumen_iva,
     generar_zip_iva,
     seleccionar_inmuebles_exportacion_iva,
 )
-from contab.models import ApunteContable, Inmueble
+from contab.models import (
+    ApunteContable,
+    Contrato,
+    Inmueble,
+)
+
 
 
 def test_generar_csv_iva_clasifica_y_totaliza_apuntes(
@@ -460,5 +466,223 @@ def test_generar_zip_iva_contiene_un_csv_por_inmueble(
 
     assert "Comunidad febrero" in csv_piso
     assert "Alquiler enero" not in csv_piso
+
+
+def test_generar_csv_resumen_iva_clasifica_y_totaliza(
+    session,
+) -> None:
+    """Genera el resumen separando inmuebles facturables del resto."""
+
+    # Creamos un local facturable y un piso sin factura.
+    local = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local comercial",
+        direccion="Dirección local",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+    piso = Inmueble(
+        referencia="PISO-1",
+        tipo="P",
+        codigo_facturacion="P1",
+        descripcion="Piso",
+        direccion="Dirección piso",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+    subdividido_sin_apuntes = Inmueble(
+        referencia="SUBDIVIDIDO-SIN-APUNTES",
+        tipo="T",
+        codigo_facturacion="SSA",
+        descripcion="Subdividido vacío",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+    subdividido_con_apuntes = Inmueble(
+        referencia="SUBDIVIDIDO-CON-APUNTES",
+        tipo="T",
+        codigo_facturacion="SCA",
+        descripcion="Subdividido con gastos",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato_local = Contrato(
+        inmueble=local,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="Dirección local",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler local",
+    )
+    contrato_piso = Contrato(
+        inmueble=piso,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="",
+        poblacion_facturacion="",
+        provincia_facturacion="",
+        concepto_factura="",
+    )
+
+    # Añadimos ingresos y gastos del primer trimestre.
+    apuntes = [
+        ApunteContable(
+            inmueble=local,
+            fecha=date(2026, 1, 5),
+            naturaleza="INGRESO",
+            categoria="ING_ALQUILER",
+            concepto="Alquiler local",
+            base=100000,
+            iva_importe=21000,
+            retencion_importe=19000,
+            total=102000,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Factura local.pdf",
+        ),
+        ApunteContable(
+            inmueble=local,
+            fecha=date(2026, 2, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad local",
+            base=20000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=20000,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Comunidad local.pdf",
+        ),
+        ApunteContable(
+            inmueble=piso,
+            fecha=date(2026, 1, 5),
+            naturaleza="INGRESO",
+            categoria="ING_ALQUILER",
+            concepto="Alquiler piso",
+            base=80000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=80000,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Ingreso piso.pdf",
+        ),
+        ApunteContable(
+            inmueble=piso,
+            fecha=date(2026, 2, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad piso",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Comunidad piso.pdf",
+        ),
+        ApunteContable(
+            inmueble=subdividido_con_apuntes,
+            fecha=date(2026, 2, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad inmueble",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Comunidad inmueble.pdf",
+        ),
+    ]
+
+    session.add_all(
+        [
+            local,
+            piso,
+            subdividido_sin_apuntes,
+            subdividido_con_apuntes,
+            contrato_local,
+            contrato_piso,
+            *apuntes,
+        ]
+    )
+    session.commit()
+
+    # Generamos y leemos el resumen.
+    contenido = generar_csv_resumen_iva(
+        inmuebles=[
+            local,
+            piso,
+            subdividido_sin_apuntes,
+            subdividido_con_apuntes,
+        ],
+        contratos=[
+            contrato_local,
+            contrato_piso,
+        ],
+        apuntes=apuntes,
+        anio=2026,
+        porcentaje_irpf_estimado=2500,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    # El local usa su retención real:
+    # 1.000 - 200 - 210 - 190 = 400.
+    assert [
+        "LOCAL-1",
+        "1.000,00",
+        "200,00",
+        "190,00",
+        "210,00",
+        "400,00",
+    ] in filas
+
+    # El piso aplica la estimación indicada del 25 %:
+    # 800 - 100 - 200 = 500.
+    assert [
+        "PISO-1",
+        "800,00",
+        "100,00",
+        "200,00",
+        "0,00",
+        "500,00",
+    ] in filas
+
+    # El local subdividido con apuntes aparece
+    # sólo tiene un gasto de 100,00; no tiene ingresos, IVA ni retención
+    assert [
+        "SUBDIVIDIDO-CON-APUNTES",
+        "0,00",
+        "100,00",
+        "0,00",
+        "0,00",
+        "-100,00",
+    ] in filas
+    assert (
+        "SUBDIVIDIDO-SIN-APUNTES"
+        not in contenido
+    )
+
+    assert "1T - Locales comerciales" in contenido
+    assert "1T - Pisos y otros" in contenido
+    assert "Totales 1T" in contenido
+    assert "Totales del año 2026" in contenido
+    assert "Hacienda (25,00%)" in contenido
 
 

@@ -6,7 +6,12 @@ from zipfile import ZipFile
 
 from contab.app import create_app
 from contab.database import Base
-from contab.models import ApunteContable, Inmueble
+from contab.models import (
+    ApunteContable,
+    Contrato,
+    Inmueble,
+)
+
 
 
 def crear_app_test():
@@ -45,6 +50,11 @@ def test_indice_de_informes() -> None:
     assert "Informes" in response.text
     assert (
         "Exportar apuntes para declaración de IVA"
+        in response.text
+    )
+    assert "IVA. Resumen anual" in response.text
+    assert (
+        'href="/informes/iva-resumen-anual"'
         in response.text
     )
     assert 'href="/informes/iva"' in response.text
@@ -281,5 +291,169 @@ def test_exportar_iva_todos_descarga_zip() -> None:
         ).decode("utf-8")
 
     assert "Comunidad" in contenido
+
+
+def test_exportar_iva_rechaza_formulario_incompleto() -> None:
+    """Comprueba que inmueble y año son obligatorios."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        "/informes/iva",
+        data={
+            "inmueble_id": "",
+            "anio": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "Debe seleccionar un inmueble "
+        "e indicar un año válido."
+        in response.text
+    )
+    assert 'name="inmueble_id"' in response.text
+    assert 'name="anio"' in response.text
+
+
+def test_exportar_iva_rechaza_inmueble_inexistente() -> None:
+    """Comprueba que el inmueble solicitado debe existir."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        "/informes/iva",
+        data={
+            "inmueble_id": "999999",
+            "anio": "2026",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "El inmueble seleccionado no existe."
+        in response.text
+    )
+    assert 'value="2026"' in response.text
+
+
+def test_formulario_resumen_anual_iva() -> None:
+    """Muestra el formulario con sus valores iniciales."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/informes/iva-resumen-anual"
+    )
+
+    assert response.status_code == 200
+    assert "IVA. Resumen anual" in response.text
+    assert 'name="anio"' in response.text
+    assert (
+        f'value="{date.today().year}"'
+        in response.text
+    )
+    assert (
+        'name="porcentaje_irpf_estimado"'
+        in response.text
+    )
+    assert 'value="24,00"' in response.text
+    assert "Porcentaje IRPF / IRNR:" in response.text
+    assert "Generar CSV" in response.text
+    assert 'href="/informes/"' in response.text
+
+
+def test_descargar_resumen_anual_iva() -> None:
+    """Genera el CSV usando el porcentaje indicado."""
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    # Preparamos un piso sin retención y su contrato.
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="P1",
+            descripcion="Piso",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=False,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=0,
+            direccion_facturacion="",
+            poblacion_facturacion="",
+            provincia_facturacion="",
+            concepto_factura="",
+        )
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 1, 5),
+            naturaleza="INGRESO",
+            categoria="ING_ALQUILER",
+            concepto="Alquiler enero",
+            base=80000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=80000,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Ingreso enero.pdf",
+        )
+
+        session.add_all(
+            [inmueble, contrato, apunte]
+        )
+        session.commit()
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # Solicitamos el informe con una estimación del 25 %.
+    response = client.post(
+        "/informes/iva-resumen-anual",
+        data={
+            "anio": "2026",
+            "porcentaje_irpf_estimado": "25,00",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/csv"
+    assert response.headers[
+        "Content-Disposition"
+    ] == (
+        'attachment; filename="'
+        'iva-resumen-anual-2026.csv"'
+    )
+
+    assert (
+        "PISO-1;800,00;0,00;200,00;0,00;600,00"
+        in response.text
+    )
 
 

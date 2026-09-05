@@ -1,12 +1,124 @@
 """Servicios para generar informes y exportaciones."""
 
 import csv
+from datetime import date
 from collections.abc import Sequence
 from io import BytesIO, StringIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from werkzeug.utils import secure_filename
-from contab.models import ApunteContable, Inmueble
+from contab.models import (
+    ApunteContable,
+    Contrato,
+    Inmueble,
+)
+
+
+def _importe_irpf_estimado(
+    *,
+    ingresos: int,
+    retencion: int,
+    porcentaje_estimado: int,
+) -> int:
+    """Devuelve la retención real o estima el IRPF cuando no existe."""
+    if retencion:
+        return retencion
+
+    return (
+        ingresos * porcentaje_estimado + 5000
+    ) // 10000
+
+
+def _importe_neto_estimado(
+    *,
+    ingresos: int,
+    gastos: int,
+    iva: int,
+    retencion: int,
+    porcentaje_estimado: int,
+) -> int:
+    """Calcula el ingreso neto después de gastos e impuestos."""
+    impuesto = _importe_irpf_estimado(
+        ingresos=ingresos,
+        retencion=retencion,
+        porcentaje_estimado=porcentaje_estimado,
+    )
+
+    return ingresos - gastos - iva - impuesto
+
+
+def _inmueble_genera_factura(
+    *,
+    inmueble: Inmueble,
+    contratos: Sequence[Contrato],
+) -> bool:
+    """Indica si el inmueble tiene algún contrato facturable."""
+    return any(
+        contrato.inmueble_id == inmueble.id
+        and contrato.genera_factura
+        for contrato in contratos
+    )
+
+
+def _totales_inmueble_trimestre(
+    *,
+    inmueble: Inmueble,
+    apuntes: Sequence[ApunteContable],
+    anio: int,
+    trimestre: int,
+    porcentaje_irpf_estimado: int,
+) -> tuple[int, int, int, int, int]:
+    """Calcula ingresos, gastos, impuesto, IVA y neto de un trimestre."""
+    apuntes_aplicables = [
+        apunte
+        for apunte in apuntes
+        if apunte.inmueble_id == inmueble.id
+        and apunte.fecha.year == anio
+        and (apunte.fecha.month - 1) // 3 + 1
+        == trimestre
+        and apunte.tratamiento == "CONTABILIZAR"
+    ]
+
+    ingresos = sum(
+        apunte.base
+        for apunte in apuntes_aplicables
+        if apunte.naturaleza == "INGRESO"
+    )
+    gastos = sum(
+        apunte.base
+        for apunte in apuntes_aplicables
+        if apunte.naturaleza == "GASTO"
+    )
+    iva = sum(
+        apunte.iva_importe
+        for apunte in apuntes_aplicables
+        if apunte.naturaleza == "INGRESO"
+    )
+    retencion = sum(
+        apunte.retencion_importe
+        for apunte in apuntes_aplicables
+        if apunte.naturaleza == "INGRESO"
+    )
+
+    impuesto = _importe_irpf_estimado(
+        ingresos=ingresos,
+        retencion=retencion,
+        porcentaje_estimado=(
+            porcentaje_irpf_estimado
+        ),
+    )
+
+    neto = _importe_neto_estimado(
+        ingresos=ingresos,
+        gastos=gastos,
+        iva=iva,
+        retencion=retencion,
+        porcentaje_estimado=(
+            porcentaje_irpf_estimado
+        ),
+    )
+
+    return ingresos, gastos, impuesto, iva, neto
 
 
 def _formatear_importe(centimos: int) -> str:
@@ -53,8 +165,11 @@ def seleccionar_inmuebles_exportacion_iva(
         (
             inmueble
             for inmueble in inmuebles
-            if inmueble.activo
-            or inmueble.id in inmuebles_con_apuntes
+            if inmueble.id in inmuebles_con_apuntes
+            or (
+                inmueble.activo
+                and inmueble.tipo != "T"
+            )
         ),
         key=lambda inmueble: (
             inmueble.referencia.casefold()
@@ -261,6 +376,170 @@ def generar_csv_iva(
             "",
             "",
             "",
+        ]
+    )
+
+    salida = StringIO(newline="")
+    escritor = csv.writer(
+        salida,
+        delimiter=";",
+        quotechar='"',
+        lineterminator="\n",
+    )
+    escritor.writerows(filas)
+
+    return salida.getvalue()
+
+
+def generar_csv_resumen_iva(
+    *,
+    inmuebles: Sequence[Inmueble],
+    contratos: Sequence[Contrato],
+    apuntes: Sequence[ApunteContable],
+    anio: int,
+    porcentaje_irpf_estimado: int,
+) -> str:
+    """Genera el resumen anual de IVA de todos los inmuebles aplicables.
+        - Incluye todos los inmuebles activos.
+        - Incluye los inactivos con apuntes CONTABILIZAR en el año.
+        - Genera cuatro bloques trimestrales.
+        - Separa los contratos facturables de los pisos y otros.
+        - Calcula ingresos, gastos, retención o IRPF estimado, IVA y neto.
+        - Utiliza la retención registrada cuando existe.
+        - Estima el IRPF al 24 % cuando no existe retención.
+        - Calcula totales trimestrales y anuales.
+        - Utiliza punto y coma como separador y coma decimal.
+        - Genera valores calculados, no fórmulas.
+    """
+    seleccionados = seleccionar_inmuebles_exportacion_iva(
+        inmuebles=inmuebles,
+        apuntes=apuntes,
+        anio=anio,
+    )
+
+    filas: list[list[str]] = [
+        [
+            f"Resumen del año {anio}",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+        _fila_vacia(),
+        [
+            "Notas:",
+            "Neto significa Ingr. Bruto - Gastos "
+            "- Retención/Hacienda - IVA",
+            "",
+            "",
+            "",
+            "",
+        ],
+        _fila_vacia(),
+    ]
+
+    totales_anuales = [0, 0, 0, 0, 0]
+
+    for trimestre in range(1, 5):
+        grupos = [
+            (
+                "Locales comerciales",
+                [
+                    inmueble
+                    for inmueble in seleccionados
+                        if _inmueble_genera_factura(
+                            inmueble=inmueble,
+                            contratos=contratos,
+                        )
+                ],
+                "Retención",
+            ),
+            (
+                "Pisos y otros",
+                [
+                    inmueble
+                    for inmueble in seleccionados
+                        if not _inmueble_genera_factura(
+                            inmueble=inmueble,
+                            contratos=contratos,
+                        )
+                ],
+                f"Hacienda ({_formatear_importe(porcentaje_irpf_estimado)}%)",
+            ),
+        ]
+
+        totales_trimestre = [0, 0, 0, 0, 0]
+
+        for nombre_grupo, inmuebles_grupo, literal_impuesto in grupos:
+            filas.append(
+                [
+                    f"{trimestre}T - {nombre_grupo}",
+                    "Ingr. Bruto",
+                    "Gastos",
+                    literal_impuesto,
+                    "IVA",
+                    "Neto",
+                ]
+            )
+
+            totales_grupo = [0, 0, 0, 0, 0]
+
+            for inmueble in inmuebles_grupo:
+                totales = _totales_inmueble_trimestre(
+                    inmueble=inmueble,
+                    apuntes=apuntes,
+                    anio=anio,
+                    trimestre=trimestre,
+                    porcentaje_irpf_estimado=(
+                        porcentaje_irpf_estimado
+                    ),
+                )
+
+                filas.append(
+                    [
+                        inmueble.referencia,
+                        *[
+                            _formatear_importe(importe)
+                            for importe in totales
+                        ],
+                    ]
+                )
+
+                for posicion, importe in enumerate(totales):
+                    totales_grupo[posicion] += importe
+                    totales_trimestre[posicion] += importe
+                    totales_anuales[posicion] += importe
+
+            filas.append(
+                [
+                    f"Totales {nombre_grupo}",
+                    *[
+                        _formatear_importe(importe)
+                        for importe in totales_grupo
+                    ],
+                ]
+            )
+            filas.append(_fila_vacia())
+
+        filas.append(
+            [
+                f"Totales {trimestre}T",
+                *[
+                    _formatear_importe(importe)
+                    for importe in totales_trimestre
+                ],
+            ]
+        )
+        filas.append(_fila_vacia())
+
+    filas.append(
+        [
+            f"Totales del año {anio}",
+            *[
+                _formatear_importe(importe)
+                for importe in totales_anuales
+            ],
         ]
     )
 

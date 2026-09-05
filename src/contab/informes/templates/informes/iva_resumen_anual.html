@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}IVA. Resumen anual{% endblock %}
+
+{% block content %}
+<h1>IVA. Resumen anual</h1>
+
+{% if error %}
+    <p class="error">{{ error }}</p>
+{% endif %}
+
+<form method="post">
+    <p>
+        <label for="anio">Año:</label>
+        <input
+            id="anio"
+            name="anio"
+            type="number"
+            min="1"
+            max="9999"
+            value="{{ anio }}"
+            required
+        >
+    </p>
+
+    <p>
+        <label for="porcentaje_irpf_estimado">
+            Porcentaje IRPF / IRNR:
+        </label>
+        <input
+            id="porcentaje_irpf_estimado"
+            name="porcentaje_irpf_estimado"
+            type="text"
+            value="{{ porcentaje_irpf_estimado }}"
+            required
+        >
+    </p>
+
+    <p>
+        <button type="submit">
+            Generar CSV
+        </button>
+
+        <a href="{{ url_for('informes.indice') }}">
+            Cancelar
+        </a>
+    </p>
+</form>
+{% endblock %}
