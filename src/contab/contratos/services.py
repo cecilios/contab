@@ -444,17 +444,24 @@ def crear_contrato(
             )
         )
 
-    renta = crear_renta_contrato(
-        contrato=contrato,
-        fecha_desde=fecha_inicio,
-        importe=renta_inicial,
-    )
+    try:
+        crear_renta_contrato(
+            contrato=contrato,
+            fecha_desde=fecha_inicio,
+            importe=renta_inicial,
+        )
 
-    revision = crear_revision_renta(
-        contrato=contrato,
-        fecha_prevista=fecha_primera_revision,
-        metodo=metodo_revision,
-    )
+        crear_revision_renta(
+            contrato=contrato,
+            fecha_prevista=fecha_primera_revision,
+            metodo=metodo_revision,
+        )
+
+    except (
+        RentaContratoError,
+        RevisionRentaError,
+    ) as exc:
+        raise ContratoError(str(exc)) from exc
 
     return contrato
 

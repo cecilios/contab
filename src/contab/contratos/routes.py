@@ -206,6 +206,25 @@ def _reemplazar_titulares(
         )
 
 
+def _render_formulario_contrato(
+    session,
+    *,
+    titulo: str,
+    datos,
+    error: str | None,
+):
+    """Muestra el formulario con todo su contexto común."""
+    return render_template(
+        "contratos/formulario.html",
+        titulo=titulo,
+        datos=datos,
+        inmuebles=_inmuebles_formulario(session),
+        metodos_revision=METODOS_REVISION,
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
 def _validar_coherencia_historica_edicion(
     contrato: Contrato,
     fecha_inicio: date,
@@ -424,19 +443,14 @@ def nuevo_contrato():
 
     if request.method == "GET":
         with session_factory() as session:
-            inmuebles = _inmuebles_formulario(session)
-
-        return render_template(
-            "contratos/formulario.html",
-            titulo="Nuevo contrato",
-            datos={
-                "genera_factura": True,
-            },
-            inmuebles=inmuebles,
-            metodos_revision=METODOS_REVISION,
-            error=None,
-            database_name=get_database_name(),
-        )
+            return _render_formulario_contrato(
+                session,
+                titulo="Nuevo contrato",
+                datos={
+                    "genera_factura": True,
+                },
+                error=None,
+            )
 
     try:
         inmueble_id = int(request.form["inmueble_id"])
@@ -453,7 +467,7 @@ def nuevo_contrato():
         )
 
         genera_factura = "genera_factura" in request.form
-        
+
         if genera_factura:
             iva_porcentaje = _porcentaje_a_entero(
                 request.form["iva_porcentaje"]
@@ -506,40 +520,25 @@ def nuevo_contrato():
             poblacion_facturacion = ""
             provincia_facturacion = ""
             concepto_factura = ""
-           
-        
-        fecha_inicio_facturacion = _fecha(
-            request.form["fecha_inicio_facturacion"]
-        )
 
-        fianza = _importe_a_centimos(
-            request.form["fianza"]
-        )
-        renta_inicial = _importe_a_centimos(
-            request.form["renta_inicial"]
-        )
-
-        fecha_primera_revision = _fecha(
-            request.form["fecha_primera_revision"]
-        )
+        fecha_inicio_facturacion = _fecha(request.form["fecha_inicio_facturacion"])
+        fianza = _importe_a_centimos(request.form["fianza"])
+        renta_inicial = _importe_a_centimos(request.form["renta_inicial"])
+        fecha_primera_revision = _fecha(request.form["fecha_primera_revision"])
+        metodo_revision=(request.form["metodo_revision"].strip())
 
     except (KeyError, ValueError) as exc:
         with session_factory() as session:
-            inmuebles = _inmuebles_formulario(session)
-
             return (
-                render_template(
-                    "contratos/formulario.html",
+                _render_formulario_contrato(
+                    session,
                     titulo="Nuevo contrato",
                     datos=request.form,
-                    inmuebles=inmuebles,
-                    metodos_revision=METODOS_REVISION,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
-        
+
     try:
         with session_factory() as session:
             with session.begin():
@@ -569,66 +568,34 @@ def nuevo_contrato():
                     fecha_inicio=fecha_inicio,
                     fecha_vencimiento=fecha_vencimiento,
                     genera_factura=genera_factura,
-                    fecha_inicio_facturacion=(
-                        fecha_inicio_facturacion
-                    ),
+                    fecha_inicio_facturacion=(fecha_inicio_facturacion),
                     fianza=fianza,
                     iva_porcentaje=iva_porcentaje,
-                    retencion_porcentaje=(
-                        retencion_porcentaje
-                    ),
-                    direccion_facturacion=(
-                        request.form[
-                            "direccion_facturacion"
-                        ].strip()
-                    ),
-                    codigo_postal_facturacion = (
-                        request.form["codigo_postal_facturacion"].strip()
-                    ),
-                    poblacion_facturacion=(
-                        request.form[
-                            "poblacion_facturacion"
-                        ].strip()
-                    ),
-                    provincia_facturacion=(
-                        request.form[
-                            "provincia_facturacion"
-                        ].strip()
-                    ),
-                    concepto_factura=(
-                        request.form[
-                            "concepto_factura"
-                        ].strip()
-                    ),
+                    retencion_porcentaje=(retencion_porcentaje),
+                    direccion_facturacion=direccion_facturacion,
+                    codigo_postal_facturacion=(codigo_postal_facturacion),
+                    poblacion_facturacion=(poblacion_facturacion),
+                    provincia_facturacion=(provincia_facturacion),
+                    concepto_factura=concepto_factura,
+                    metodo_revision=metodo_revision,
                     renta_inicial=renta_inicial,
-                    fecha_primera_revision=(
-                        fecha_primera_revision
-                    ),
-                    metodo_revision=(
-                        request.form[
-                            "metodo_revision"
-                        ].strip()
-                    ),
+                    fecha_primera_revision=(fecha_primera_revision),
                 )
 
                 session.add(contrato)
 
     except ContratoError as exc:
         with session_factory() as session:
-            inmuebles = _inmuebles_formulario(session)
-
             return (
-                render_template(
-                    "contratos/formulario.html",
+                _render_formulario_contrato(
+                    session,
                     titulo="Nuevo contrato",
                     datos=request.form,
-                    inmuebles=inmuebles,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
-        
+
     return redirect(
         url_for("contratos.listar_contratos")
     )
@@ -646,8 +613,6 @@ def editar_contrato(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            inmuebles = _inmuebles_formulario(session)
-
             datos = _datos_contrato_formulario(contrato)
 
             for posicion, titular in enumerate(
@@ -660,14 +625,11 @@ def editar_contrato(contrato_id: int):
                 datos[f"titular_{posicion}_nombre"] = titular.inquilino.nombre
                 datos[f"titular_{posicion}_nif"] = titular.inquilino.nif
 
-            return render_template(
-                "contratos/formulario.html",
+            return _render_formulario_contrato(
+                session,
                 titulo="Editar contrato",
                 datos=datos,
-                inmuebles=inmuebles,
-                metodos_revision=METODOS_REVISION,
                 error=None,
-                database_name=get_database_name(),
             )
 
     try:
@@ -753,7 +715,7 @@ def editar_contrato(contrato_id: int):
                 "La fecha de finalización no puede ser anterior "
                 "al inicio del contrato."
             )
-    
+
         if fianza < 0:
             raise ValueError(
                 "La fianza no puede ser negativa."
@@ -798,17 +760,12 @@ def editar_contrato(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            inmuebles = _inmuebles_formulario(session)
-
             return (
-                render_template(
-                    "contratos/formulario.html",
+                _render_formulario_contrato(
+                    session,
                     titulo="Editar contrato",
                     datos=request.form,
-                    inmuebles=inmuebles,
-                    metodos_revision=METODOS_REVISION,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -897,17 +854,12 @@ def editar_contrato(contrato_id: int):
 
     except ContratoError as exc:
         with session_factory() as session:
-            inmuebles = _inmuebles_formulario(session)
-
             return (
-                render_template(
-                    "contratos/formulario.html",
+                _render_formulario_contrato(
+                    session,
                     titulo="Editar contrato",
                     datos=request.form,
-                    inmuebles=inmuebles,
-                    metodos_revision=METODOS_REVISION,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -1114,7 +1066,7 @@ def formulario_anexo_renta_permanente(contrato_id: int):
 
             if contrato is None:
                 return "Contrato no encontrado.", 404
-                
+
             renta_actual = _renta_actual(contrato)
 
             return render_template(
@@ -1215,7 +1167,7 @@ def formulario_anexo_renta_temporal(contrato_id: int):
 
             if contrato is None:
                 return "Contrato no encontrado.", 404
-                
+
             renta_actual = _renta_actual(contrato)
 
             return render_template(
@@ -1249,7 +1201,7 @@ def formulario_anexo_renta_temporal(contrato_id: int):
 
             if contrato is None:
                 return "Contrato no encontrado.", 404
-            
+
             renta_actual = _renta_actual(contrato)
 
             return (

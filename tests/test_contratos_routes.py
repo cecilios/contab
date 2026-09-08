@@ -27,6 +27,70 @@ from contab.contratos.services import (
 
 
 
+def _datos_nuevo_contrato_valido(
+    inmueble_id: int,
+) -> dict[str, str]:
+    """Devuelve un formulario de alta válido que cada test puede modificar."""
+    return {
+        "inmueble_id": str(inmueble_id),
+        **_datos_titulares(
+            ("Ana Pérez", "11111111A"),
+        ),
+        "fecha_inicio": "15/09/2026",
+        "fecha_vencimiento": "14/09/2031",
+        "genera_factura": "on",
+        "fecha_inicio_facturacion": "01/10/2026",
+        "fianza": "1500,00",
+        "iva_porcentaje": "21,00",
+        "retencion_porcentaje": "19,00",
+        "direccion_facturacion": "Dirección",
+        "codigo_postal_facturacion": "36001",
+        "poblacion_facturacion": "Pontevedra",
+        "provincia_facturacion": "Pontevedra",
+        "concepto_factura": "Alquiler local",
+        "renta_inicial": "1500,00",
+        "fecha_primera_revision": "01/10/2027",
+        "metodo_revision": "IPC_NACIONAL",
+    }
+
+
+def _preparar_alta_contrato():
+    """Prepara aplicación, inmueble e inquilino para probar un alta."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        inquilino = Inquilino(
+            nombre="Ana Pérez",
+            nif="11111111A",
+        )
+
+        session.add_all([inmueble, inquilino])
+        session.commit()
+
+        inmueble_id = inmueble.id
+
+    return (
+        client,
+        session_factory,
+        inmueble_id,
+    )
+
+
 def _crear_contrato_para_test(
     session,
     genera_factura: bool = True,
@@ -302,7 +366,7 @@ def test_crear_contrato_desde_formulario() -> None:
         assert titulares[1].inquilino_id == primero_id
         assert titulares[1].orden == 2
         assert contrato.genera_factura is True
-        
+
 
 def test_crear_contrato_rechaza_fecha_inexistente() -> None:
     """Comprueba que una fecha inexistente no crea parcialmente el contrato."""
@@ -372,6 +436,78 @@ def test_crear_contrato_rechaza_fecha_inexistente() -> None:
         assert session.scalars(select(Contrato)).all() == []
         assert session.scalars(select(RentaContrato)).all() == []
         assert session.scalars(select(RevisionRenta)).all() == []
+
+
+
+
+def test_crear_contrato_rechaza_error_metodo_actualizacion() -> None:
+    """Comprueba que si no se ha seleccionado método de actualización da error"""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        inquilino = Inquilino(
+            nombre="Ana Pérez",
+            nif="11111111A",
+        )
+
+        session.add_all([inmueble, inquilino])
+        session.commit()
+
+        inmueble_id = inmueble.id
+
+    response = client.post(
+        "/contratos/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "titular_1_nombre": "Ana Pérez",
+            "titular_1_nif": "11111111A",
+            "titular_2_nombre": "",
+            "titular_2_nif": "",
+            "titular_3_nombre": "",
+            "titular_3_nif": "",
+            "titular_4_nombre": "",
+            "titular_4_nif": "",
+            "fecha_inicio": "15/02/2026",
+            "fecha_vencimiento": "14/09/2031",
+            "fecha_inicio_facturacion": "01/10/2026",
+            "fianza": "1500,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler",
+            "renta_inicial": "1500,00",
+            "fecha_primera_revision": "01/10/2027",
+            "metodo_revision": "",
+            "genera_factura": "on",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "El método de revisión indicado no es válido."
+        in response.text
+    )
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Contrato)
+        ) is None
 
 
 def test_formulario_editar_contrato_muestra_datos_actuales() -> None:
@@ -1572,7 +1708,7 @@ def test_editar_contrato_vigente_no_muestra_fecha_resolucion() -> None:
 
     assert response.status_code == 200
     assert "Fecha de resolución" not in response.text
-    
+
 
 def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
     """Comprueba que la lista separa contratos vigentes y finalizados."""
@@ -2554,4 +2690,312 @@ def test_formulario_contrato_excluye_inmuebles_subdivididos() -> None:
     assert response.status_code == 200
     assert "ALOPEZ-LOCAL1" in response.text
     assert "ALOPEZ-COMUN" not in response.text
+
+
+def test_nuevo_contrato_muestra_error_si_nif_tiene_otro_nombre() -> None:
+    """Conserva el formulario si el NIF pertenece a otro nombre."""
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    # Preparamos un inmueble y un inquilino ya existente.
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        inquilino = Inquilino(
+            nombre="Gómez y Pérez, S.L.",
+            nif="B88777666",
+        )
+
+        session.add_all([inmueble, inquilino])
+        session.commit()
+
+        inmueble_id = inmueble.id
+
+    # Enviamos el mismo NIF con un nombre diferente.
+    response = client.post(
+        "/contratos/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            **_datos_titulares(
+                (
+                    "GOMEZ Y PEREZ, S.L.",
+                    "B88777666",
+                ),
+            ),
+            "fecha_inicio": "01/09/2026",
+            "fecha_vencimiento": "31/08/2031",
+            "genera_factura": "on",
+            "fecha_inicio_facturacion": "01/09/2026",
+            "fianza": "1000,00",
+            "iva_porcentaje": "21,00",
+            "retencion_porcentaje": "19,00",
+            "direccion_facturacion": "Dirección",
+            "codigo_postal_facturacion": "36001",
+            "poblacion_facturacion": "Pontevedra",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Alquiler local",
+            "renta_inicial": "1000,00",
+            "fecha_primera_revision": "01/09/2027",
+            "metodo_revision": "IPC_NACIONAL",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "El NIF B88777666 ya pertenece a "
+        "&#39;Gómez y Pérez, S.L.&#39;"
+        in response.text
+    )
+    assert 'name="metodo_revision"' in response.text
+    assert 'value="IPC_NACIONAL"' in response.text
+
+    # El intento fallido no debe crear ningún contrato.
+    with session_factory() as session:
+        assert session.scalar(
+            select(Contrato)
+        ) is None
+
+
+def test_nuevo_contrato_rechaza_nombre_distinto_para_nif() -> None:
+    """Muestra el error de titulares sin abandonar el formulario."""
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(
+        inmueble_id
+    )
+    datos["titular_1_nombre"] = "ANA PEREZ"
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert "ya pertenece a" in response.text
+    assert "Ana Pérez" in response.text
+    assert 'name="metodo_revision"' in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Contrato)
+        ) is None
+
+
+def test_nuevo_contrato_rechaza_metodo_revision_vacio() -> None:
+    """Muestra el error producido al crear la revisión inicial."""
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(
+        inmueble_id
+    )
+    datos["metodo_revision"] = ""
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert (
+        "El método de revisión indicado no es válido."
+        in response.text
+    )
+    assert 'name="metodo_revision"' in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Contrato)
+        ) is None
+
+
+def test_nuevo_contrato_rechaza_renta_inicial_negativa() -> None:
+    """Captura el error de la renta creada dentro del contrato."""
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(
+        inmueble_id
+    )
+    datos["renta_inicial"] = "-1,00"
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert (
+        "El importe de la renta no puede ser negativo."
+        in response.text
+    )
+    assert 'name="metodo_revision"' in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Contrato)
+        ) is None
+
+
+def test_nuevo_contrato_rechaza_inmueble_inexistente() -> None:
+    """Muestra el error si el inmueble dejó de existir."""
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(
+        inmueble_id
+    )
+    datos["inmueble_id"] = "999999"
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert (
+        "El inmueble seleccionado no existe."
+        in response.text
+    )
+    assert 'name="metodo_revision"' in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Contrato)
+        ) is None
+
+
+def test_nuevo_contrato_rechaza_contrato_solapado() -> None:
+    """Muestra el error y conserva únicamente el primer contrato."""
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(
+        inmueble_id
+    )
+
+    # Creamos correctamente el primer contrato.
+    primera_respuesta = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert primera_respuesta.status_code == 302
+
+    # Intentamos crear otro contrato para el mismo período.
+    segunda_respuesta = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert segunda_respuesta.status_code == 400
+    assert (
+        "El inmueble ya tiene un contrato que se solapa"
+        in segunda_respuesta.text
+    )
+    assert (
+        'name="metodo_revision"'
+        in segunda_respuesta.text
+    )
+
+    with session_factory() as session:
+        assert len(
+            session.scalars(
+                select(Contrato)
+            ).all()
+        ) == 1
+
+
+def test_nuevo_contrato_captura_campo_ausente() -> None:
+    """Un campo ausente no debe producir un error interno."""
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(
+        inmueble_id
+    )
+    del datos["metodo_revision"]
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert 'name="metodo_revision"' in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Contrato)
+        ) is None
+
+
+@pytest.mark.parametrize(
+    ("campo", "mensaje"),
+    [
+        (
+            "direccion_facturacion",
+            "La dirección de facturación es obligatoria.",
+        ),
+        (
+            "poblacion_facturacion",
+            "La población de facturación es obligatoria.",
+        ),
+        (
+            "provincia_facturacion",
+            "La provincia de facturación es obligatoria.",
+        ),
+        (
+            "concepto_factura",
+            "El concepto de factura es obligatorio.",
+        ),
+    ],
+)
+def test_nuevo_contrato_exige_datos_facturacion(
+    campo: str,
+    mensaje: str,
+) -> None:
+    """Comprueba los datos obligatorios cuando se genera factura."""
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(
+        inmueble_id
+    )
+    datos[campo] = ""
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert mensaje in response.text
+    assert 'name="metodo_revision"' in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Contrato)
+        ) is None
+
 
