@@ -132,6 +132,9 @@ def test_crear_inquilino_rechaza_nombre_vacio() -> None:
 
     assert response.status_code == 400
     assert "El nombre es obligatorio." in response.text
+    assert 'name="nombre"' in response.text
+    assert 'name="nif"' in response.text
+    assert 'name="direccion"' in response.text
 
 
 def test_crear_inquilino_rechaza_nif_vacio() -> None:
@@ -300,6 +303,9 @@ def test_editar_inquilino_rechaza_nif_de_otro_inquilino() -> None:
 
     assert response.status_code == 400
     assert "Ya existe un inquilino con ese NIF." in response.text
+    assert 'name="nombre"' in response.text
+    assert 'name="nif"' in response.text
+    assert "Editar inquilino" in response.text
 
 
 def test_editar_inquilino_inexistente_devuelve_404() -> None:

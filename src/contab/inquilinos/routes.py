@@ -56,6 +56,23 @@ def _buscar_nif_duplicado(
     return None
 
 
+def _render_formulario_inquilino(
+    *,
+    titulo: str,
+    datos,
+    error: str | None,
+):
+    """Muestra el formulario de inquilinos con su contexto común."""
+    return render_template(
+        "inquilinos/formulario.html",
+        titulo=titulo,
+        datos=datos,
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
+
 @bp.get("/")
 def listar_inquilinos():
     """Muestra el listado de inquilinos registrados."""
@@ -89,12 +106,10 @@ def nuevo_inquilino():
 
     if error:
         return (
-            render_template(
-                "inquilinos/formulario.html",
+            _render_formulario_inquilino(
                 titulo="Nuevo inquilino",
                 datos=request.form,
                 error=error,
-                database_name=get_database_name(),
             ),
             400,
         )
@@ -110,12 +125,10 @@ def nuevo_inquilino():
 
             if error:
                 return (
-                    render_template(
-                        "inquilinos/formulario.html",
+                    _render_formulario_inquilino(
                         titulo="Nuevo inquilino",
                         datos=request.form,
                         error=error,
-                        database_name=get_database_name(),
                     ),
                     400,
                 )
@@ -150,24 +163,20 @@ def editar_inquilino(inquilino_id: int):
                 "notas": inquilino.notas or "",
             }
 
-            return render_template(
-                "inquilinos/formulario.html",
+            return _render_formulario_inquilino(
                 titulo="Editar inquilino",
                 datos=datos,
                 error=None,
-                database_name=get_database_name(),
             )
 
     valores, error = _validar_datos_inquilino(request.form)
 
     if error:
         return (
-            render_template(
-                "inquilinos/formulario.html",
+            _render_formulario_inquilino(
                 titulo="Editar inquilino",
                 datos=request.form,
                 error=error,
-                database_name=get_database_name(),
             ),
             400,
         )
@@ -187,12 +196,10 @@ def editar_inquilino(inquilino_id: int):
 
             if error:
                 return (
-                    render_template(
-                        "inquilinos/formulario.html",
+                    _render_formulario_inquilino(
                         titulo="Editar inquilino",
                         datos=request.form,
                         error=error,
-                        database_name=get_database_name(),
                     ),
                     400,
                 )

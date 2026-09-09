@@ -55,7 +55,7 @@ def test_crear_inmueble_rechaza_campos_obligatorios_vacios(
     assert response.status_code == 400
     assert mensaje in response.text
 
-    
+
 def crear_app_test():
     """Crea una aplicación con una base SQLite aislada para las pruebas."""
     app = create_app(
@@ -976,3 +976,63 @@ def test_listado_muestra_jerarquia_inmuebles() -> None:
     ) == 1
 
 
+
+
+def test_crear_local_rechaza_padre_que_no_es_total() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        padre_incorrecto = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local independiente",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(padre_incorrecto)
+        session.commit()
+        padre_id = padre_incorrecto.id
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data={
+            "tipo": "L",
+            "referencia": "LOCAL-2",
+            "codigo_facturacion": "A2",
+            "descripcion": "Local subordinado",
+            "direccion": "Dirección",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "50,00",
+            "es_parte_inmueble": "on",
+            "inmueble_padre_id": str(padre_id),
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "no es un inmueble subdividido"
+        in response.text
+    )
+
+    with session_factory() as session:
+        local = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia == "LOCAL-2"
+            )
+        )
+
+        assert local is None

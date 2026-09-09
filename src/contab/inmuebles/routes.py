@@ -82,7 +82,7 @@ def _validar_datos_inmueble(datos) -> tuple[dict, str | None]:
         participacion = _participacion_a_entero(datos["participacion"])
     except ValueError as exc:
         return {}, str(exc)
-        
+
     tipo = datos["tipo"].strip()
 
     if tipo not in TIPOS_INMUEBLE:
@@ -440,10 +440,6 @@ def editar_inmueble(inmueble_id: int):
                     else ""
                 ),
             }
-            
-            inmuebles_subdivididos = (
-                _inmuebles_subdivididos_formulario(session)
-            )
 
             return _render_formulario_inmueble(
                 session,
@@ -553,64 +549,4 @@ def cambiar_estado_inmueble(inmueble_id: int):
             inmueble.activo = not inmueble.activo
 
     return redirect(url_for("inmuebles.listar_inmuebles"))
-
-
-def test_crear_local_rechaza_padre_que_no_es_total() -> None:
-    app = crear_app_test()
-    client = app.test_client()
-
-    client.post("/", data={"database": "test"})
-
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        padre_incorrecto = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local independiente",
-            direccion="Dirección",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-        session.add(padre_incorrecto)
-        session.commit()
-        padre_id = padre_incorrecto.id
-
-    response = client.post(
-        "/inmuebles/nuevo",
-        data={
-            "tipo": "L",
-            "referencia": "LOCAL-2",
-            "codigo_facturacion": "A2",
-            "descripcion": "Local subordinado",
-            "direccion": "Dirección",
-            "codigo_postal": "",
-            "poblacion": "Pontevedra",
-            "provincia": "Pontevedra",
-            "ref_catastral": "",
-            "seguro": "",
-            "participacion": "50,00",
-            "es_parte_inmueble": "on",
-            "inmueble_padre_id": str(padre_id),
-            "notas": "",
-        },
-    )
-
-    assert response.status_code == 400
-    assert (
-        "no es un inmueble subdividido"
-        in response.text
-    )
-
-    with session_factory() as session:
-        local = session.scalar(
-            select(Inmueble).where(
-                Inmueble.referencia == "LOCAL-2"
-            )
-        )
-
-        assert local is None
 
