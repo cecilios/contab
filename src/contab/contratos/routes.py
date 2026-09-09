@@ -225,6 +225,70 @@ def _render_formulario_contrato(
     )
 
 
+def _render_finalizar_contrato(
+    *,
+    contrato: Contrato,
+    error: str | None,
+):
+    """Muestra el formulario para finalizar un contrato."""
+    return render_template(
+        "contratos/finalizar.html",
+        contrato=contrato,
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
+def _render_anexo_prorroga(
+    *,
+    contrato: Contrato,
+    datos,
+    error: str | None,
+):
+    """Muestra el formulario de un anexo de prórroga."""
+    return render_template(
+        "contratos/anexo_prorroga.html",
+        contrato=contrato,
+        datos=datos,
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
+def _render_anexo_renta_permanente(
+    *,
+    contrato: Contrato,
+    datos,
+    error: str | None,
+):
+    """Muestra el formulario de cambio permanente de renta."""
+    return render_template(
+        "contratos/anexo_renta_permanente.html",
+        contrato=contrato,
+        renta_actual=_renta_actual(contrato),
+        datos=datos,
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
+def _render_anexo_renta_temporal(
+    *,
+    contrato: Contrato,
+    datos,
+    error: str | None,
+):
+    """Muestra el formulario de cambio temporal de renta."""
+    return render_template(
+        "contratos/anexo_renta_temporal.html",
+        contrato=contrato,
+        renta_actual=_renta_actual(contrato),
+        datos=datos,
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
 def _validar_coherencia_historica_edicion(
     contrato: Contrato,
     fecha_inicio: date,
@@ -881,11 +945,9 @@ def finalizar_contrato(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            return render_template(
-                "contratos/finalizar.html",
+            return _render_finalizar_contrato(
                 contrato=contrato,
                 error=None,
-                database_name=get_database_name(),
             )
 
     try:
@@ -898,11 +960,9 @@ def finalizar_contrato(contrato_id: int):
                 return "Contrato no encontrado.", 404
 
             return (
-                render_template(
-                    "contratos/finalizar.html",
+                _render_finalizar_contrato(
                     contrato=contrato,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -931,11 +991,9 @@ def finalizar_contrato(contrato_id: int):
             contrato = session.get(Contrato, contrato_id)
 
             return (
-                render_template(
-                    "contratos/finalizar.html",
+                _render_finalizar_contrato(
                     contrato=contrato,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -978,12 +1036,10 @@ def formulario_anexo_prorroga(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            return render_template(
-                "contratos/anexo_prorroga.html",
+            return _render_anexo_prorroga(
                 contrato=contrato,
                 datos={},
                 error=None,
-                database_name=get_database_name(),
             )
 
     try:
@@ -999,12 +1055,10 @@ def formulario_anexo_prorroga(contrato_id: int):
                 return "Contrato no encontrado.", 404
 
             return (
-                render_template(
-                    "contratos/anexo_prorroga.html",
+                _render_anexo_prorroga(
                     contrato=contrato,
                     datos=request.form,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -1037,12 +1091,10 @@ def formulario_anexo_prorroga(contrato_id: int):
             contrato = session.get(Contrato, contrato_id)
 
             return (
-                render_template(
-                    "contratos/anexo_prorroga.html",
+                _render_anexo_prorroga(
                     contrato=contrato,
                     datos=request.form,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -1067,15 +1119,10 @@ def formulario_anexo_renta_permanente(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            renta_actual = _renta_actual(contrato)
-
-            return render_template(
-                "contratos/anexo_renta_permanente.html",
+            return _render_anexo_renta_permanente(
                 contrato=contrato,
-                renta_actual=renta_actual,
                 datos={},
                 error=None,
-                database_name=get_database_name(),
             )
 
     try:
@@ -1095,13 +1142,10 @@ def formulario_anexo_renta_permanente(contrato_id: int):
             renta_actual = _renta_actual(contrato)
 
             return (
-                render_template(
-                    "contratos/anexo_renta_permanente.html",
+                _render_anexo_renta_permanente(
                     contrato=contrato,
-                    renta_actual=renta_actual,
                     datos=request.form,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -1134,16 +1178,11 @@ def formulario_anexo_renta_permanente(contrato_id: int):
         with session_factory() as session:
             contrato = session.get(Contrato, contrato_id)
 
-            renta_actual = _renta_actual(contrato)
-
             return (
-                render_template(
-                    "contratos/anexo_renta_permanente.html",
+                _render_anexo_renta_permanente(
                     contrato=contrato,
-                    renta_actual=renta_actual,
                     datos=request.form,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -1168,15 +1207,10 @@ def formulario_anexo_renta_temporal(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            renta_actual = _renta_actual(contrato)
-
-            return render_template(
-                "contratos/anexo_renta_temporal.html",
+            return _render_anexo_renta_temporal(
                 contrato=contrato,
-                renta_actual=renta_actual,
                 datos={},
                 error=None,
-                database_name=get_database_name(),
             )
 
     try:
@@ -1202,16 +1236,11 @@ def formulario_anexo_renta_temporal(contrato_id: int):
             if contrato is None:
                 return "Contrato no encontrado.", 404
 
-            renta_actual = _renta_actual(contrato)
-
             return (
-                render_template(
-                    "contratos/anexo_renta_temporal.html",
+                _render_anexo_renta_temporal(
                     contrato=contrato,
                     datos=request.form,
-                    renta_actual=renta_actual,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -1245,16 +1274,12 @@ def formulario_anexo_renta_temporal(contrato_id: int):
     except ContratoError as exc:
         with session_factory() as session:
             contrato = session.get(Contrato, contrato_id)
-            renta_actual = _renta_actual(contrato)
 
             return (
-                render_template(
-                    "contratos/anexo_renta_temporal.html",
+                _render_anexo_renta_temporal(
                     contrato=contrato,
                     datos=request.form,
-                    renta_actual=renta_actual,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )

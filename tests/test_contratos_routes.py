@@ -1031,6 +1031,7 @@ def test_finalizar_contrato_rechaza_fecha_invalida() -> None:
         "La fecha indicada no es válida o no tiene el formato dd/mm/aaaa."
         in response.text
     )
+    assert 'name="fecha_fin"' in response.text
 
 
 def test_finalizar_contrato_inexistente_devuelve_404() -> None:
@@ -1574,6 +1575,12 @@ def test_anexo_prorroga_rechaza_vencimiento_no_posterior() -> None:
 
     assert response.status_code == 400
     assert "debe ser posterior" in response.text
+    assert 'name="fecha"' in response.text
+    assert (
+        'name="nueva_fecha_vencimiento"'
+        in response.text
+    )
+    assert 'name="descripcion"' in response.text
 
     with session_factory() as session:
         contrato = session.get(Contrato, contrato_id)
@@ -1604,6 +1611,10 @@ def test_anexo_renta_permanente_rechaza_fecha_que_no_es_dia_uno() -> None:
 
     assert response.status_code == 400
     assert "día 1 del mes" in response.text
+    assert 'name="fecha"' in response.text
+    assert 'name="fecha_desde"' in response.text
+    assert 'name="importe"' in response.text
+    assert 'name="descripcion"' in response.text
 
     with session_factory() as session:
         contrato = session.get(Contrato, contrato_id)
@@ -1637,6 +1648,12 @@ def test_anexo_renta_temporal_rechaza_fecha_hasta_que_no_es_fin_de_mes() -> None
 
     assert response.status_code == 400
     assert "último día del mes" in response.text
+    assert 'name="fecha"' in response.text
+    assert 'name="fecha_desde"' in response.text
+    assert 'name="fecha_hasta"' in response.text
+    assert 'name="tipo"' in response.text
+    assert 'name="valor"' in response.text
+    assert 'name="descripcion"' in response.text
 
     with session_factory() as session:
         contrato = session.get(Contrato, contrato_id)
