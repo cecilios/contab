@@ -457,3 +457,35 @@ def test_descargar_resumen_anual_iva() -> None:
     )
 
 
+def test_resumen_anual_iva_rechaza_datos_invalidos() -> None:
+    """Vuelve a mostrar completo el formulario si los datos son inválidos."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        "/informes/iva-resumen-anual",
+        data={
+            "anio": "",
+            "porcentaje_irpf_estimado": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "Debe indicar un año y un porcentaje "
+        "IRPF / IRNR válidos."
+        in response.text
+    )
+    assert 'name="anio"' in response.text
+    assert (
+        'name="porcentaje_irpf_estimado"'
+        in response.text
+    )
+    assert "Generar CSV" in response.text
+
+

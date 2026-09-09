@@ -968,3 +968,70 @@ def test_documento_duplicado_en_otro_inmueble_avisa(
     assert "Puede guardarlo" in aviso
 
 
+def test_eliminar_apunte_conciliado_desde_interfaz_muestra_error() -> None:
+    """Vuelve a mostrar la confirmación si el apunte no puede eliminarse."""
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    # Preparamos un apunte con un movimiento ya conciliado.
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            subcategoria=None,
+            concepto="Cuota de comunidad",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tercero_nombre="",
+        )
+        movimiento = crear_movimiento_desde_apunte(
+            apunte=apunte,
+            fecha_prevista=date(2026, 9, 20),
+        )
+        movimiento.estado = "CONCILIADO"
+
+        session.add_all(
+            [inmueble, apunte, movimiento]
+        )
+        session.commit()
+
+        apunte_id = apunte.id
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # Intentamos eliminarlo desde la interfaz.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/eliminar"
+    )
+
+    assert response.status_code == 400
+    assert "movimientos conciliados" in response.text
+    assert "Cuota de comunidad" in response.text
+    assert 'method="post"' in response.text
+
+    # El apunte debe continuar en la base de datos.
+    with session_factory() as session:
+        assert session.get(
+            ApunteContable,
+            apunte_id,
+        ) is not None
+

@@ -58,6 +58,41 @@ def _porcentaje_a_entero(valor: str) -> int:
     )
 
 
+def _render_formulario_iva(
+    *,
+    inmuebles,
+    anio,
+    error: str | None,
+):
+    """Muestra el formulario de exportación anual por inmueble."""
+    return render_template(
+        "informes/iva.html",
+        inmuebles=inmuebles,
+        anio=anio,
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
+def _render_formulario_resumen_anual_iva(
+    *,
+    anio,
+    porcentaje_irpf_estimado,
+    error: str | None,
+):
+    """Muestra el formulario del resumen anual de IVA."""
+    return render_template(
+        "informes/iva_resumen_anual.html",
+        anio=anio,
+        porcentaje_irpf_estimado=(
+            porcentaje_irpf_estimado
+        ),
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
+
 @bp.get("/")
 def indice():
     """Muestra los informes y exportaciones disponibles."""
@@ -80,12 +115,10 @@ def exportar_iva():
         ).all()
 
         if request.method == "GET":
-            return render_template(
-                "informes/iva.html",
+            return _render_formulario_iva(
                 inmuebles=inmuebles,
                 anio=date.today().year,
                 error=None,
-                database_name=get_database_name(),
             )
 
         try:
@@ -105,18 +138,13 @@ def exportar_iva():
 
         except (KeyError, ValueError):
             return (
-                render_template(
-                    "informes/iva.html",
+                _render_formulario_iva(
                     inmuebles=inmuebles,
-                    anio=request.form.get(
-                        "anio",
-                        date.today().year,
-                    ),
+                    anio=request.form.get("anio", date.today().year),
                     error=(
                         "Debe seleccionar un inmueble "
                         "e indicar un año válido."
                     ),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
@@ -131,15 +159,13 @@ def exportar_iva():
 
             if inmueble is None:
                 return (
-                    render_template(
-                        "informes/iva.html",
+                    _render_formulario_iva(
                         inmuebles=inmuebles,
                         anio=anio,
                         error=(
                             "El inmueble seleccionado "
                             "no existe."
                         ),
-                        database_name=get_database_name(),
                     ),
                     400,
                 )
@@ -225,12 +251,10 @@ def exportar_iva():
 def resumen_anual_iva():
     """Prepara y descarga el resumen anual de IVA."""
     if request.method == "GET":
-        return render_template(
-            "informes/iva_resumen_anual.html",
+        return _render_formulario_resumen_anual_iva(
             anio=date.today().year,
             porcentaje_irpf_estimado="24,00",
             error=None,
-            database_name=get_database_name(),
         )
 
     try:
@@ -252,8 +276,7 @@ def resumen_anual_iva():
 
     except (KeyError, ValueError):
         return (
-            render_template(
-                "informes/iva_resumen_anual.html",
+            _render_formulario_resumen_anual_iva(
                 anio=request.form.get(
                     "anio",
                     date.today().year,
@@ -268,7 +291,6 @@ def resumen_anual_iva():
                     "Debe indicar un año y un porcentaje "
                     "IRPF / IRNR válidos."
                 ),
-                database_name=get_database_name(),
             ),
             400,
         )

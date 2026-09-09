@@ -605,6 +605,18 @@ def _datos_apunte_formulario(
     return inmueble_id, valores
 
 
+def _render_eliminar_apunte(
+    *,
+    apunte: ApunteContable,
+    error: str | None,
+):
+    """Muestra la confirmación para eliminar un apunte."""
+    return render_template(
+        "contabilidad/eliminar.html",
+        apunte=apunte,
+        error=error,
+        database_name=get_database_name(),
+    )
 
 
 
@@ -1149,13 +1161,9 @@ def eliminar_apunte(apunte_id: int):
                 for movimiento in apunte.movimientos_previstos
             )
 
-            return render_template(
-                "contabilidad/eliminar.html",
+            return _render_eliminar_apunte(
                 apunte=apunte,
-                movimientos_pendientes=movimientos_pendientes,
-                tiene_conciliados=tiene_conciliados,
                 error=None,
-                database_name=get_database_name(),
             )
 
     try:
@@ -1193,13 +1201,9 @@ def eliminar_apunte(apunte_id: int):
             )
 
             return (
-                render_template(
-                    "contabilidad/eliminar.html",
+                _render_eliminar_apunte(
                     apunte=apunte,
-                    movimientos_pendientes=movimientos_pendientes,
-                    tiene_conciliados=True,
                     error=str(exc),
-                    database_name=get_database_name(),
                 ),
                 400,
             )
