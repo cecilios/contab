@@ -1,5 +1,6 @@
 """Define los modelos ORM de la base de datos de Contab."""
 
+from datetime import date
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -10,8 +11,6 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from datetime import date
 
 from contab.database import Base
 
@@ -112,7 +111,7 @@ class Inmueble(Base):
         back_populates="inmueble",
         passive_deletes="all",
     )
-    
+
     apuntes_contables: Mapped[
         list["ApunteContable"]
     ] = relationship(
@@ -252,7 +251,7 @@ class Contrato(Base):
         back_populates="contrato",
         passive_deletes="all",
     )
-    
+
     anexos: Mapped[list["AnexoContrato"]] = relationship(
         back_populates="contrato",
         passive_deletes="all",
@@ -393,7 +392,7 @@ class RentaContrato(Base):
     anexo: Mapped["AnexoContrato | None"] = relationship(
         back_populates="rentas",
     )
-    
+
 
 class RevisionRenta(Base):
     """Representa una revisión prevista o resuelta de la renta de un contrato."""
@@ -891,6 +890,80 @@ class MovimientoPrevisto(Base):
 
     apunte: Mapped["ApunteContable | None"] = relationship(
         back_populates="movimientos_previstos",
+    )
+
+
+class MovimientoBancario(Base):
+    """Movimiento bancario importado para su conciliación."""
+
+    __tablename__ = "movimiento_bancario"
+
+    __table_args__ = (
+        CheckConstraint(
+            "naturaleza IN ('INGRESO', 'GASTO')",
+            name="ck_movimiento_bancario_naturaleza",
+        ),
+        CheckConstraint(
+            "importe > 0",
+            name="ck_movimiento_bancario_importe",
+        ),
+        CheckConstraint(
+            "estado IN ("
+            "'PENDIENTE', "
+            "'CONCILIADO', "
+            "'DESCARTADO'"
+            ")",
+            name="ck_movimiento_bancario_estado",
+        ),
+        UniqueConstraint(
+            "huella_importacion",
+            name="uq_movimiento_bancario_huella",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    fecha: Mapped[date] = mapped_column(
+        nullable=False,
+    )
+
+    naturaleza: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    importe: Mapped[int] = mapped_column(
+        nullable=False,
+    )
+
+    tipo_original: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    descripcion_original: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
+    referencia_bancaria: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
+
+    huella_importacion: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    estado: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="PENDIENTE",
     )
 
 
