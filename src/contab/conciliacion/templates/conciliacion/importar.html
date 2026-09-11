@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Importar movimientos bancarios - Contab
+{% endblock %}
+
+{% block content %}
+    <h1>Importar movimientos bancarios</h1>
+
+    <p>
+        Banco configurado:
+        <strong>{{ banco }}</strong>
+    </p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if resultado %}
+        <p>{{ resultado }}</p>
+    {% endif %}
+
+    <form
+        method="post"
+        enctype="multipart/form-data"
+    >
+        <p>
+            <label for="archivo">
+                Archivo CSV:
+            </label>
+            <input
+                type="file"
+                id="archivo"
+                name="archivo"
+                accept=".csv,text/csv"
+                required
+            >
+        </p>
+
+        <p>
+            <button type="submit">
+                Importar
+            </button>
+        </p>
+    </form>
+{% endblock %}

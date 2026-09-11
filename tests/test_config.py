@@ -6,6 +6,7 @@ from contab.config import (
     CategoriaContable,
     ConfigError,
     SubcategoriaContable,
+    cargar_bancos,
     cargar_bases_datos,
     cargar_categorias_contables,
     cargar_secret_key,
@@ -350,4 +351,55 @@ def test_categorias_activas_filtra_subcategorias_inactivas() -> None:
         for subcategoria in activas[0].subcategorias
     ] == ["IBI"]
 
+
+def test_cargar_bancos(
+    tmp_path,
+) -> None:
+    """Carga el banco asociado a cada base de datos."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[databases]
+cliente = sqlite:///cliente.db
+hermana = sqlite:///hermana.db
+
+[bancos]
+cliente = IBERCAJA
+hermana = CAIXABANK
+""".strip(),
+        encoding="utf-8",
+    )
+
+    bancos = cargar_bancos(ruta)
+
+    assert bancos == {
+        "cliente": "IBERCAJA",
+        "hermana": "CAIXABANK",
+    }
+
+
+def test_cargar_bancos_exige_banco_para_cada_base(
+    tmp_path,
+) -> None:
+    """Cada base de datos debe tener un banco configurado."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[databases]
+cliente = sqlite:///cliente.db
+hermana = sqlite:///hermana.db
+
+[bancos]
+cliente = IBERCAJA
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="hermana",
+    ):
+        cargar_bancos(ruta)
 

@@ -375,3 +375,84 @@ def validar_clasificacion_contable(
             "está inactiva."
         )
 
+
+def cargar_bancos(
+    ruta: str | Path | None = None,
+) -> dict[str, str]:
+    """Carga el banco asociado a cada base de datos."""
+
+    if ruta is None:
+        ruta = ruta_configuracion()
+
+    ruta = Path(ruta)
+
+    if not ruta.exists():
+        raise ConfigError(
+            f"No se encuentra el archivo de configuración: {ruta}"
+        )
+
+    config = ConfigParser()
+
+    if not config.read(ruta, encoding="utf-8"):
+        raise ConfigError(
+            f"No se pudo leer el archivo de configuración: {ruta}"
+        )
+
+    if "databases" not in config:
+        raise ConfigError(
+            "El archivo de configuración no contiene "
+            "la sección [databases]."
+        )
+
+    if "bancos" not in config:
+        raise ConfigError(
+            "El archivo de configuración no contiene "
+            "la sección [bancos]."
+        )
+
+    bases_datos = {
+        nombre.strip()
+        for nombre, url in config["databases"].items()
+        if nombre.strip() and url.strip()
+    }
+
+    bancos = {
+        nombre.strip(): banco.strip().upper()
+        for nombre, banco in config["bancos"].items()
+        if nombre.strip() and banco.strip()
+    }
+
+    for nombre in bases_datos:
+        if nombre not in bancos:
+            raise ConfigError(
+                f"No se ha configurado el banco para "
+                f"la base de datos {nombre}."
+            )
+
+    bancos_desconocidos = (
+        set(bancos) - bases_datos
+    )
+
+    if bancos_desconocidos:
+        nombre = sorted(bancos_desconocidos)[0]
+
+        raise ConfigError(
+            f"Se ha configurado un banco para la base "
+            f"de datos inexistente {nombre}."
+        )
+
+    bancos_soportados = {
+        "IBERCAJA",
+        "CAIXABANK",
+    }
+
+    for nombre, banco in bancos.items():
+        if banco not in bancos_soportados:
+            raise ConfigError(
+                f"El banco {banco} configurado para "
+                f"{nombre} no está soportado."
+            )
+
+    return bancos
+
+

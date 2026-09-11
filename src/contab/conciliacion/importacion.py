@@ -360,3 +360,28 @@ def preparar_movimientos_bancarios(
     return nuevos
 
 
+LECTORES_BANCARIOS = {
+    "IBERCAJA": leer_csv_ibercaja,
+    "CAIXABANK": leer_csv_caixabank,
+}
+
+
+def leer_csv_bancario(
+    *,
+    banco: str,
+    contenido: str,
+) -> list[MovimientoBancarioImportado]:
+    """Lee un CSV utilizando el formato del banco configurado."""
+
+    codigo_banco = banco.strip().upper()
+
+    try:
+        lector = LECTORES_BANCARIOS[codigo_banco]
+    except KeyError as exc:
+        raise ImportacionBancariaError(
+            f"El banco '{banco}' no está soportado."
+        ) from exc
+
+    return lector(contenido)
+
+

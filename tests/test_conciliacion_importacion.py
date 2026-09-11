@@ -9,6 +9,7 @@ from contab.conciliacion.importacion import (
     _crear_huella,
     ImportacionBancariaError,
     MovimientoBancarioImportado,
+    leer_csv_bancario,
     leer_csv_caixabank,
     leer_csv_ibercaja,
     preparar_movimientos_bancarios,
@@ -277,5 +278,34 @@ def test_preparar_movimientos_omite_huellas_existentes(
     ).all()
 
     assert len(guardados) == 2
+
+
+def test_leer_csv_bancario_selecciona_ibercaja() -> None:
+    """Utiliza el lector correspondiente al banco indicado."""
+
+    contenido = """Nº Orden;Fecha Oper;Fecha Valor;Concepto;Descripción;Referencia;Importe;Saldo
+1;03-09-2026;03-09-2026;RECIBO;Comunidad;;-100,00;900,00
+"""
+
+    movimientos = leer_csv_bancario(
+        banco="ibercaja",
+        contenido=contenido,
+    )
+
+    assert len(movimientos) == 1
+    assert movimientos[0].tipo_original == "RECIBO"
+
+
+def test_leer_csv_bancario_rechaza_banco_desconocido() -> None:
+    """Rechaza bancos para los que no existe lector."""
+
+    with pytest.raises(
+        ImportacionBancariaError,
+        match="no está soportado",
+    ):
+        leer_csv_bancario(
+            banco="bbva",
+            contenido="",
+        )
 
 
