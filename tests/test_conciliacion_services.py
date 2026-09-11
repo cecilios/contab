@@ -2,12 +2,19 @@
 
 import pytest
 
-
 from datetime import date
 
 from contab.config import CategoriaContable
 from contab.contabilidad.services import crear_apunte_contable
-from contab.models import MovimientoPrevisto
+from contab.conciliacion.services import (
+    ConciliacionError,
+    descartar_movimiento_bancario,
+    restaurar_movimiento_bancario,
+)
+from contab.models import (
+    MovimientoBancario,
+    MovimientoPrevisto,
+)
 from contab.conciliacion.services import (
     ConciliacionError,
     crear_movimiento_desde_apunte,
@@ -232,5 +239,55 @@ def test_crear_movimiento_desde_apunte_admite_correcciones(
     assert movimiento.importe_esperado == 10000
     assert movimiento.concepto == "Primer plazo"
     assert movimiento.contraparte == "Comunidad"
+
+
+def test_descartar_y_restaurar_movimiento_bancario() -> None:
+    """Permite descartar un movimiento y bancario y restaurarlo."""
+
+    movimiento = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="GASTO",
+        importe=10000,
+        tipo_original="TARJETA VISA",
+        descripcion_original="Compra particular",
+        referencia_bancaria="",
+        huella_importacion="a" * 64,
+        estado="PENDIENTE",
+    )
+
+    descartar_movimiento_bancario(
+        movimiento
+    )
+
+    assert movimiento.estado == "DESCARTADO"
+
+    restaurar_movimiento_bancario(
+        movimiento
+    )
+
+    assert movimiento.estado == "PENDIENTE"
+
+
+def test_no_permite_descartar_movimiento_conciliado() -> None:
+    """Un movimiento conciliado no puede descartarse."""
+
+    movimiento = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=10000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Alquiler",
+        referencia_bancaria="",
+        huella_importacion="b" * 64,
+        estado="CONCILIADO",
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+        match="conciliado",
+    ):
+        descartar_movimiento_bancario(
+            movimiento
+        )
 
 

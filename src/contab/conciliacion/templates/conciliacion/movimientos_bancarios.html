@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Conciliación - Contab{% endblock %}
+
+{% block content %}
+    <h1>Movimientos bancarios</h1>
+
+    <p>
+        <a href="{{ url_for(
+            'conciliacion.importar_movimientos'
+        ) }}">
+            Importar movimientos
+        </a>
+
+        <form method="get">
+            <p>
+                <label for="estado">Estado:</label>
+
+                <select
+                    id="estado"
+                    name="estado"
+                >
+                    <option
+                        value="TODOS"
+                        {% if estado_seleccionado == "TODOS" %}
+                            selected
+                        {% endif %}
+                    >
+                        Todos
+                    </option>
+
+                    {% for valor, etiqueta in estados.items() %}
+                        <option
+                            value="{{ valor }}"
+                            {% if estado_seleccionado == valor %}
+                                selected
+                            {% endif %}
+                        >
+                            {{ etiqueta }}
+                        </option>
+                    {% endfor %}
+                </select>
+
+                <button type="submit">
+                    Filtrar
+                </button>
+            </p>
+        </form>
+
+    </p>
+
+    {% if movimientos %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Descripción</th>
+                    <th>Naturaleza</th>
+                    <th>Importe</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for movimiento in movimientos %}
+                    <tr>
+                        <td>
+                            {{ movimiento.fecha.strftime("%d/%m/%Y") }}
+                        </td>
+                        <td>{{ movimiento.tipo_original }}</td>
+                        <td>{{ movimiento.descripcion_original }}</td>
+                        <td>
+                            {{ naturalezas.get(
+                                movimiento.naturaleza,
+                                movimiento.naturaleza
+                            ) }}
+                        </td>
+                        <td>
+                            {{ importe_a_texto(movimiento.importe) }}
+                        </td>
+                        <td>
+                            {{ estados.get(
+                                movimiento.estado,
+                                movimiento.estado
+                            ) }}
+                        </td>
+                        <td>
+                            {% if movimiento.estado == "PENDIENTE" %}
+                                <form
+                                    method="post"
+                                    action="{{ url_for(
+                                        'conciliacion.descartar_movimiento',
+                                        movimiento_id=movimiento.id
+                                    ) }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="estado"
+                                        value="{{ estado_seleccionado }}"
+                                    >
+
+                                    <button type="submit">
+                                        Descartar
+                                    </button>
+                                </form>
+
+                            {% elif movimiento.estado == "DESCARTADO" %}
+                                <form
+                                    method="post"
+                                    action="{{ url_for(
+                                        'conciliacion.restaurar_movimiento',
+                                        movimiento_id=movimiento.id
+                                    ) }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="estado"
+                                        value="{{ estado_seleccionado }}"
+                                    >
+
+                                    <button type="submit">
+                                        Restaurar
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No hay movimientos bancarios importados.</p>
+    {% endif %}
+
+    {% if total_paginas > 1 %}
+        <nav>
+            {% if pagina > 1 %}
+                <a href="{{ url_for(
+                    'conciliacion.listar_movimientos',
+                    estado=estado_seleccionado,
+                    pagina=pagina - 1
+                ) }}">
+                    Página anterior
+                </a>
+            {% endif %}
+
+            <span>
+                Página {{ pagina }} de {{ total_paginas }}
+            </span>
+
+            {% if pagina < total_paginas %}
+                <a href="{{ url_for(
+                    'conciliacion.listar_movimientos',
+                    estado=estado_seleccionado,
+                    pagina=pagina + 1
+                ) }}">
+                    Página siguiente
+                </a>
+            {% endif %}
+        </nav>
+    {% endif %}
+{% endblock %}

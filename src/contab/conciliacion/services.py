@@ -6,6 +6,7 @@ from contab.models import (
     ApunteContable,
     Contrato,
     Inmueble,
+    MovimientoBancario,
     MovimientoPrevisto,
 )
 
@@ -117,5 +118,35 @@ def crear_movimiento_desde_apunte(
         ),
         notas=notas,
     )
+
+
+def descartar_movimiento_bancario(
+    movimiento: MovimientoBancario,
+) -> MovimientoBancario:
+    """Marca como ajeno a Contab un movimiento pendiente."""
+
+    if movimiento.estado == "CONCILIADO":
+        raise ConciliacionError(
+            "Un movimiento conciliado no puede descartarse."
+        )
+
+    movimiento.estado = "DESCARTADO"
+
+    return movimiento
+
+
+def restaurar_movimiento_bancario(
+    movimiento: MovimientoBancario,
+) -> MovimientoBancario:
+    """Devuelve a pendiente un movimiento descartado."""
+
+    if movimiento.estado != "DESCARTADO":
+        raise ConciliacionError(
+            "Sólo puede restaurarse un movimiento descartado."
+        )
+
+    movimiento.estado = "PENDIENTE"
+
+    return movimiento
 
 

@@ -1,5 +1,5 @@
 from io import BytesIO
-
+from datetime import date
 from sqlalchemy import select
 
 from contab.database import Base
@@ -179,5 +179,223 @@ def test_importar_movimientos_rechaza_formato_incorrecto() -> None:
         ).all()
 
         assert movimientos == []
+
+
+def test_listar_movimientos_bancarios() -> None:
+    """Muestra los movimientos del más reciente al más antiguo."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    # Creamos dos movimientos en distinto orden cronológico.
+    with session_factory() as session:
+        antiguo = MovimientoBancario(
+            fecha=date(2026, 8, 31),
+            naturaleza="GASTO",
+            importe=10000,
+            tipo_original="RECIBO",
+            descripcion_original="Comunidad agosto",
+            referencia_bancaria="",
+            huella_importacion="a" * 64,
+        )
+        reciente = MovimientoBancario(
+            fecha=date(2026, 9, 3),
+            naturaleza="INGRESO",
+            importe=160000,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original="Alquiler septiembre",
+            referencia_bancaria="123",
+            huella_importacion="b" * 64,
+        )
+
+        session.add_all([
+            antiguo,
+            reciente,
+        ])
+        session.commit()
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get("/conciliacion/")
+
+    assert response.status_code == 200
+    assert "Movimientos bancarios" in response.text
+    assert "Alquiler septiembre" in response.text
+    assert "Comunidad agosto" in response.text
+    assert "1.600,00" in response.text
+    assert "100,00" in response.text
+    assert "Pendiente" in response.text
+
+    assert response.text.index(
+        "Alquiler septiembre"
+    ) < response.text.index(
+        "Comunidad agosto"
+    )
+
+
+def test_listar_movimientos_filtra_por_estado() -> None:
+    """Filtra los movimientos bancarios por su estado."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        movimientos = [
+            MovimientoBancario(
+                fecha=date(2026, 9, 3),
+                naturaleza="INGRESO",
+                importe=10000,
+                tipo_original="TRANSFERENCIA",
+                descripcion_original="Movimiento pendiente",
+                referencia_bancaria="",
+                huella_importacion="a" * 64,
+                estado="PENDIENTE",
+            ),
+            MovimientoBancario(
+                fecha=date(2026, 9, 2),
+                naturaleza="INGRESO",
+                importe=20000,
+                tipo_original="TRANSFERENCIA",
+                descripcion_original="Movimiento conciliado",
+                referencia_bancaria="",
+                huella_importacion="b" * 64,
+                estado="CONCILIADO",
+            ),
+            MovimientoBancario(
+                fecha=date(2026, 9, 1),
+                naturaleza="GASTO",
+                importe=30000,
+                tipo_original="TARJETA",
+                descripcion_original="Movimiento descartado",
+                referencia_bancaria="",
+                huella_importacion="c" * 64,
+                estado="DESCARTADO",
+            ),
+        ]
+
+        session.add_all(movimientos)
+        session.commit()
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # Por defecto sólo aparecen los pendientes.
+    response = client.get("/conciliacion/")
+
+    assert response.status_code == 200
+    assert "Movimiento pendiente" in response.text
+    assert "Movimiento conciliado" not in response.text
+    assert "Movimiento descartado" not in response.text
+
+    # El usuario solicita todos los movimientos.
+    response = client.get(
+        "/conciliacion/?estado=TODOS"
+    )
+
+    assert "Movimiento pendiente" in response.text
+    assert "Movimiento conciliado" in response.text
+    assert "Movimiento descartado" in response.text
+
+    # El usuario selecciona únicamente los conciliados.
+    response = client.get(
+        "/conciliacion/?estado=CONCILIADO"
+    )
+
+    assert "Movimiento pendiente" not in response.text
+    assert "Movimiento conciliado" in response.text
+    assert "Movimiento descartado" not in response.text
+    assert "Descartar" not in response.text
+    assert "Restaurar" not in response.text
+
+
+def test_descartar_y_restaurar_movimiento_desde_listado() -> None:
+    """Descarta un movimiento y permite devolverlo a pendiente."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        movimiento = MovimientoBancario(
+            fecha=date(2026, 9, 3),
+            naturaleza="GASTO",
+            importe=10000,
+            tipo_original="TARJETA VISA",
+            descripcion_original="Compra particular",
+            referencia_bancaria="",
+            huella_importacion="a" * 64,
+            estado="PENDIENTE",
+        )
+        session.add(movimiento)
+        session.commit()
+
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario descarta el movimiento pendiente.
+    response = client.post(
+        (
+            f"/conciliacion/movimientos/"
+            f"{movimiento_id}/descartar"
+        ),
+        data={"estado": "PENDIENTE"},
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoBancario,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "DESCARTADO"
+
+    # El movimiento descartado ofrece la opción Restaurar.
+    response = client.get(
+        "/conciliacion/?estado=DESCARTADO"
+    )
+
+    assert response.status_code == 200
+    assert "Compra particular" in response.text
+    assert "Restaurar" in response.text
+
+    # El usuario devuelve el movimiento a Pendiente.
+    response = client.post(
+        (
+            f"/conciliacion/movimientos/"
+            f"{movimiento_id}/restaurar"
+        ),
+        data={"estado": "DESCARTADO"},
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoBancario,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "PENDIENTE"
 
 

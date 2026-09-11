@@ -2,14 +2,23 @@
 
 from flask import (
     Blueprint,
+    redirect,
     render_template,
     request,
+    url_for,
 )
+from sqlalchemy import func, select
 
+from contab.models import MovimientoBancario
 from contab.conciliacion.importacion import (
     ImportacionBancariaError,
     leer_csv_bancario,
     preparar_movimientos_bancarios,
+)
+from contab.conciliacion.services import (
+    ConciliacionError,
+    descartar_movimiento_bancario,
+    restaurar_movimiento_bancario,
 )
 from contab.context import (
     get_bank_name,
@@ -18,12 +27,52 @@ from contab.context import (
 )
 
 
+
 bp = Blueprint(
     "conciliacion",
     __name__,
     url_prefix="/conciliacion",
     template_folder="templates",
 )
+
+ESTADOS_MOVIMIENTO = {
+    "PENDIENTE": "Pendiente",
+    "CONCILIADO": "Conciliado",
+    "DESCARTADO": "Descartado",
+}
+
+NATURALEZAS_MOVIMIENTO = {
+    "INGRESO": "Ingreso",
+    "GASTO": "Gasto",
+}
+
+
+
+def _estado_retorno() -> str:
+    """Obtiene un filtro válido al que regresar."""
+
+    estado = request.form.get(
+        "estado",
+        "PENDIENTE",
+    ).strip().upper()
+
+    if estado not in {
+        "TODOS",
+        *ESTADOS_MOVIMIENTO,
+    }:
+        return "PENDIENTE"
+
+    return estado
+
+
+def _importe_a_texto(importe: int) -> str:
+    """Convierte un importe en céntimos a texto en euros."""
+
+    euros, centimos = divmod(importe, 100)
+
+    euros_texto = f"{euros:,}".replace(",", ".")
+
+    return f"{euros_texto},{centimos:02d}"
 
 
 def _render_formulario_importacion(
@@ -108,6 +157,169 @@ def importar_movimientos():
 
     return _render_formulario_importacion(
         resultado=resultado,
+    )
+
+
+@bp.get("/")
+def listar_movimientos():
+    """Muestra los movimientos bancarios ordenados y paginados."""
+
+    estado = request.args.get(
+        "estado",
+        default="PENDIENTE",
+    ).strip().upper()
+
+    estados_validos = {
+        "TODOS",
+        *ESTADOS_MOVIMIENTO,
+    }
+
+    if estado not in estados_validos:
+        estado = "PENDIENTE"
+
+    pagina = request.args.get(
+        "pagina",
+        default=1,
+        type=int,
+    )
+    pagina = max(pagina, 1)
+    por_pagina = 25
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        consulta_total = select(
+            func.count(MovimientoBancario.id)
+        )
+
+        consulta_movimientos = select(
+            MovimientoBancario
+        )
+
+        if estado != "TODOS":
+            consulta_total = consulta_total.where(
+                MovimientoBancario.estado == estado
+            )
+            consulta_movimientos = (
+                consulta_movimientos.where(
+                    MovimientoBancario.estado == estado
+                )
+            )
+
+        total = session.scalar(
+            consulta_total
+        ) or 0
+
+        total_paginas = max(
+            1,
+            (
+                total
+                + por_pagina
+                - 1
+            ) // por_pagina,
+        )
+
+        pagina = min(
+            pagina,
+            total_paginas,
+        )
+
+        movimientos = session.scalars(
+            consulta_movimientos
+            .order_by(
+                MovimientoBancario.fecha.desc(),
+                MovimientoBancario.id.desc(),
+            )
+            .offset(
+                (pagina - 1) * por_pagina
+            )
+            .limit(por_pagina)
+        ).all()
+
+        return render_template(
+            "conciliacion/movimientos_bancarios.html",
+            movimientos=movimientos,
+            pagina=pagina,
+            total_paginas=total_paginas,
+            estados=ESTADOS_MOVIMIENTO,
+            naturalezas=NATURALEZAS_MOVIMIENTO,
+            importe_a_texto=_importe_a_texto,
+            database_name=get_database_name(),
+            estado_seleccionado=estado,
+        )
+
+
+@bp.post(
+    "/movimientos/<int:movimiento_id>/descartar"
+)
+def descartar_movimiento(movimiento_id: int):
+    """Marca como ajeno a Contab un movimiento pendiente."""
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                movimiento = session.get(
+                    MovimientoBancario,
+                    movimiento_id,
+                )
+
+                if movimiento is None:
+                    return (
+                        "Movimiento bancario no encontrado.",
+                        404,
+                    )
+
+                descartar_movimiento_bancario(
+                    movimiento
+                )
+
+    except ConciliacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "conciliacion.listar_movimientos",
+            estado=_estado_retorno(),
+        )
+    )
+
+
+@bp.post(
+    "/movimientos/<int:movimiento_id>/restaurar"
+)
+def restaurar_movimiento(movimiento_id: int):
+    """Devuelve a pendiente un movimiento descartado."""
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                movimiento = session.get(
+                    MovimientoBancario,
+                    movimiento_id,
+                )
+
+                if movimiento is None:
+                    return (
+                        "Movimiento bancario no encontrado.",
+                        404,
+                    )
+
+                restaurar_movimiento_bancario(
+                    movimiento
+                )
+
+    except ConciliacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "conciliacion.listar_movimientos",
+            estado=_estado_retorno(),
+        )
     )
 
 
