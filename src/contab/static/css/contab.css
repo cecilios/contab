@@ -98,3 +98,29 @@ button {
     padding: 0;
     margin: 0;
 }
+
+.movimientos-bancarios,
+.apuntes-contables {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.movimientos-bancarios th,
+.movimientos-bancarios td,
+.apuntes-contables th,
+.apuntes-contables td {
+    border: 1px solid #999;
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.movimientos-bancarios th,
+.apuntes-contables th {
+    background-color: #eeeeee;
+}
+
+.movimientos-bancarios tbody tr:nth-child(even),
+.apuntes-contables tbody tr:nth-child(even) {
+    background-color: #f8f8f8;
+}

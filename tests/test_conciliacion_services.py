@@ -26,7 +26,7 @@ from contab.conciliacion.services import (
 def test_crear_movimiento_previsto(inmueble) -> None:
     movimiento = crear_movimiento_previsto(
         inmueble=inmueble,
-        fecha_prevista=date(2026, 9, 5),
+        fecha_prevista_desde=date(2026, 9, 5),
         naturaleza=" gasto ",
         concepto="  Recibo de agua  ",
         importe_esperado=5432,
@@ -35,7 +35,8 @@ def test_crear_movimiento_previsto(inmueble) -> None:
     )
 
     assert movimiento.inmueble is inmueble
-    assert movimiento.fecha_prevista == date(2026, 9, 5)
+    assert movimiento.fecha_prevista_desde == date(2026, 9, 5)
+    assert movimiento.fecha_prevista_hasta is None
     assert movimiento.naturaleza == "GASTO"
     assert movimiento.concepto == "Recibo de agua"
     assert movimiento.importe_esperado == 5432
@@ -68,7 +69,7 @@ def test_crear_movimiento_previsto_rechaza_datos_invalidos(
     ):
         crear_movimiento_previsto(
             inmueble=inmueble,
-            fecha_prevista=date(2026, 9, 5),
+            fecha_prevista_desde=date(2026, 9, 5),
             naturaleza=naturaleza,
             concepto=concepto,
             importe_esperado=importe,
@@ -102,7 +103,7 @@ def test_crear_movimiento_previsto_vinculado_a_apunte(
     movimiento = crear_movimiento_previsto(
         inmueble=inmueble,
         apunte=apunte,
-        fecha_prevista=date(2026, 9, 5),
+        fecha_prevista_desde=date(2026, 9, 5),
         naturaleza="GASTO",
         concepto="Cuota de comunidad",
         importe_esperado=12500,
@@ -159,7 +160,7 @@ def test_movimiento_y_apunte_deben_tener_misma_naturaleza(
         crear_movimiento_previsto(
             inmueble=inmueble,
             apunte=apunte,
-            fecha_prevista=date(2026, 9, 5),
+            fecha_prevista_desde=date(2026, 9, 5),
             naturaleza="GASTO",
             concepto="Movimiento incorrecto",
             importe_esperado=100000,
@@ -192,12 +193,13 @@ def test_crear_movimiento_desde_apunte_reutiliza_datos(
 
     movimiento = crear_movimiento_desde_apunte(
         apunte=apunte,
-        fecha_prevista=date(2026, 9, 5),
+        fecha_prevista_desde=date(2026, 9, 5),
     )
 
     assert movimiento.apunte is apunte
     assert movimiento.inmueble is inmueble
-    assert movimiento.fecha_prevista == date(2026, 9, 5)
+    assert movimiento.fecha_prevista_desde == date(2026, 9, 5)
+    assert movimiento.fecha_prevista_hasta is None
     assert movimiento.naturaleza == "GASTO"
     assert movimiento.concepto == "Cuota de comunidad"
     assert movimiento.importe_esperado == 12500
@@ -230,7 +232,7 @@ def test_crear_movimiento_desde_apunte_admite_correcciones(
 
     movimiento = crear_movimiento_desde_apunte(
         apunte=apunte,
-        fecha_prevista=date(2026, 9, 5),
+        fecha_prevista_desde=date(2026, 9, 5),
         importe_esperado=10000,
         concepto="Primer plazo",
         contraparte="Comunidad",
@@ -288,6 +290,65 @@ def test_no_permite_descartar_movimiento_conciliado() -> None:
     ):
         descartar_movimiento_bancario(
             movimiento
+        )
+
+
+def test_crear_movimiento_previsto_admite_fechas_vacias(
+    inmueble,
+) -> None:
+    """Permite una previsión sin intervalo fiable."""
+
+    movimiento = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Recibo pendiente",
+        importe_esperado=10000,
+    )
+
+    assert movimiento.fecha_prevista_desde is None
+    assert movimiento.fecha_prevista_hasta is None
+
+
+@pytest.mark.parametrize(
+    (
+        "fecha_desde",
+        "fecha_hasta",
+        "mensaje",
+    ),
+    [
+        (
+            None,
+            date(2026, 9, 20),
+            "sin indicar la fecha prevista desde",
+        ),
+        (
+            date(2026, 9, 20),
+            date(2026, 9, 15),
+            "no puede ser anterior",
+        ),
+    ],
+)
+
+
+def test_crear_movimiento_previsto_rechaza_intervalo_invalido(
+    inmueble,
+    fecha_desde,
+    fecha_hasta,
+    mensaje,
+) -> None:
+    """Rechaza combinaciones incoherentes del intervalo."""
+
+    with pytest.raises(
+        ConciliacionError,
+        match=mensaje,
+    ):
+        crear_movimiento_previsto(
+            inmueble=inmueble,
+            naturaleza="GASTO",
+            concepto="Recibo",
+            importe_esperado=10000,
+            fecha_prevista_desde=fecha_desde,
+            fecha_prevista_hasta=fecha_hasta,
         )
 
 

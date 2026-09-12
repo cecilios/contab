@@ -698,7 +698,7 @@ def test_eliminar_apunte_con_movimiento_conciliado_falla(
 
     movimiento = crear_movimiento_desde_apunte(
         apunte=apunte,
-        fecha_prevista=date(2026, 9, 5),
+        fecha_prevista_desde=date(2026, 9, 5),
     )
     movimiento.estado = "CONCILIADO"
 
@@ -855,7 +855,7 @@ def test_eliminar_apunte_elimina_movimiento_pendiente(
 
     movimiento = crear_movimiento_desde_apunte(
         apunte=apunte,
-        fecha_prevista=date(2026, 9, 5),
+        fecha_prevista_desde=date(2026, 9, 5),
     )
 
     session.add_all([apunte, movimiento])
@@ -1001,7 +1001,7 @@ def test_eliminar_apunte_conciliado_desde_interfaz_muestra_error() -> None:
         )
         movimiento = crear_movimiento_desde_apunte(
             apunte=apunte,
-            fecha_prevista=date(2026, 9, 20),
+            fecha_prevista_desde=date(2026, 9, 20),
         )
         movimiento.estado = "CONCILIADO"
 

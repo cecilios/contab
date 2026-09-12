@@ -37,7 +37,7 @@ def test_crear_movimiento_previsto_sin_apunte(
 ) -> None:
     movimiento = MovimientoPrevisto(
         inmueble=inmueble,
-        fecha_prevista=date(2026, 9, 5),
+        fecha_prevista_desde=date(2026, 9, 5),
         naturaleza="GASTO",
         concepto="Recibo de agua",
         importe_esperado=5000,
@@ -63,7 +63,7 @@ def test_crear_movimiento_previsto_con_apunte_y_contrato(
         inmueble=inmueble,
         contrato=contrato,
         apunte=apunte,
-        fecha_prevista=date(2026, 9, 1),
+        fecha_prevista_desde=date(2026, 9, 1),
         naturaleza="INGRESO",
         concepto="Cobro del alquiler",
         importe_esperado=102000,
@@ -87,7 +87,7 @@ def test_un_apunte_admite_varios_movimientos_previstos(
     primero = MovimientoPrevisto(
         inmueble=inmueble,
         apunte=apunte,
-        fecha_prevista=date(2026, 9, 1),
+        fecha_prevista_desde=date(2026, 9, 1),
         naturaleza="INGRESO",
         concepto="Primer pago",
         importe_esperado=50000,
@@ -96,7 +96,7 @@ def test_un_apunte_admite_varios_movimientos_previstos(
     segundo = MovimientoPrevisto(
         inmueble=inmueble,
         apunte=apunte,
-        fecha_prevista=date(2026, 9, 15),
+        fecha_prevista_desde=date(2026, 9, 15),
         naturaleza="INGRESO",
         concepto="Segundo pago",
         importe_esperado=52000,
@@ -114,7 +114,7 @@ def test_movimiento_previsto_rechaza_naturaleza_desconocida(
 ) -> None:
     movimiento = MovimientoPrevisto(
         inmueble=inmueble,
-        fecha_prevista=date(2026, 9, 1),
+        fecha_prevista_desde=date(2026, 9, 1),
         naturaleza="DESCONOCIDA",
         concepto="Concepto",
         importe_esperado=10000,
@@ -132,7 +132,7 @@ def test_movimiento_previsto_rechaza_importe_negativo(
 ) -> None:
     movimiento = MovimientoPrevisto(
         inmueble=inmueble,
-        fecha_prevista=date(2026, 9, 1),
+        fecha_prevista_desde=date(2026, 9, 1),
         naturaleza="GASTO",
         concepto="Concepto",
         importe_esperado=-1,
@@ -150,7 +150,7 @@ def test_movimiento_previsto_rechaza_estado_desconocido(
 ) -> None:
     movimiento = MovimientoPrevisto(
         inmueble=inmueble,
-        fecha_prevista=date(2026, 9, 1),
+        fecha_prevista_desde=date(2026, 9, 1),
         naturaleza="INGRESO",
         concepto="Concepto",
         importe_esperado=10000,

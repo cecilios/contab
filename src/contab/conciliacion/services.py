@@ -18,10 +18,11 @@ class ConciliacionError(Exception):
 def crear_movimiento_previsto(
     *,
     inmueble: Inmueble,
-    fecha_prevista: date,
     naturaleza: str,
     concepto: str,
     importe_esperado: int,
+    fecha_prevista_desde: date | None = None,
+    fecha_prevista_hasta: date | None = None,
     contraparte: str = "",
     apunte: ApunteContable | None = None,
     contrato: Contrato | None = None,
@@ -60,8 +61,7 @@ def crear_movimiento_previsto(
                 "tener la misma naturaleza."
             )
 
-    if (
-        contrato is not None
+    if (contrato is not None
         and contrato.inmueble is not inmueble
     ):
         raise ConciliacionError(
@@ -69,11 +69,29 @@ def crear_movimiento_previsto(
             "pertenecer al mismo inmueble."
         )
 
+    if (fecha_prevista_hasta is not None
+        and fecha_prevista_desde is None
+    ):
+        raise ConciliacionError(
+            "No puede indicarse la fecha prevista hasta "
+            "sin indicar la fecha prevista desde."
+        )
+
+    if (fecha_prevista_desde is not None
+        and fecha_prevista_hasta is not None
+        and fecha_prevista_hasta < fecha_prevista_desde
+    ):
+        raise ConciliacionError(
+            "La fecha prevista hasta no puede ser anterior "
+            "a la fecha prevista desde."
+        )
+
     return MovimientoPrevisto(
         inmueble=inmueble,
         contrato=contrato,
         apunte=apunte,
-        fecha_prevista=fecha_prevista,
+        fecha_prevista_desde=fecha_prevista_desde,
+        fecha_prevista_hasta=fecha_prevista_hasta,
         naturaleza=naturaleza,
         concepto=concepto,
         importe_esperado=importe_esperado,
@@ -86,7 +104,8 @@ def crear_movimiento_previsto(
 def crear_movimiento_desde_apunte(
     *,
     apunte: ApunteContable,
-    fecha_prevista: date,
+    fecha_prevista_desde: date | None = None,
+    fecha_prevista_hasta: date | None = None,
     importe_esperado: int | None = None,
     concepto: str | None = None,
     contraparte: str | None = None,
@@ -99,7 +118,8 @@ def crear_movimiento_desde_apunte(
         inmueble=apunte.inmueble,
         apunte=apunte,
         contrato=contrato,
-        fecha_prevista=fecha_prevista,
+        fecha_prevista_desde=fecha_prevista_desde,
+        fecha_prevista_hasta=fecha_prevista_hasta,
         naturaleza=apunte.naturaleza,
         concepto=(
             apunte.concepto

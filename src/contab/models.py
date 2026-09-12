@@ -816,12 +816,32 @@ class MovimientoPrevisto(Base):
             name="ck_movimiento_previsto_naturaleza",
         ),
         CheckConstraint(
-            "importe_esperado >= 0",
+            "importe_esperado > 0",
             name="ck_movimiento_previsto_importe",
         ),
         CheckConstraint(
-            "estado IN ('PENDIENTE', 'CONCILIADO')",
+            "estado IN ("
+            "'PENDIENTE', "
+            "'PARCIAL', "
+            "'CONCILIADO', "
+            "'CANCELADO'"
+            ")",
             name="ck_movimiento_previsto_estado",
+        ),
+        CheckConstraint(
+            """
+            fecha_prevista_hasta IS NULL
+            OR fecha_prevista_desde IS NOT NULL
+            """,
+            name="ck_movimiento_previsto_fechas_completas",
+        ),
+        CheckConstraint(
+            """
+            fecha_prevista_desde IS NULL
+            OR fecha_prevista_hasta IS NULL
+            OR fecha_prevista_hasta >= fecha_prevista_desde
+            """,
+            name="ck_movimiento_previsto_fechas_orden",
         ),
     )
 
@@ -846,9 +866,18 @@ class MovimientoPrevisto(Base):
         ),
     )
 
-    fecha_prevista: Mapped[date] = mapped_column(
+    fecha_prevista_desde: Mapped[
+        date | None
+    ] = mapped_column(
         Date,
-        nullable=False,
+        nullable=True,
+    )
+
+    fecha_prevista_hasta: Mapped[
+        date | None
+    ] = mapped_column(
+        Date,
+        nullable=True,
     )
 
     naturaleza: Mapped[str] = mapped_column(
