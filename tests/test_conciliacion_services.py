@@ -17,8 +17,10 @@ from contab.models import (
 )
 from contab.conciliacion.services import (
     ConciliacionError,
+    cancelar_movimiento_previsto,
     crear_movimiento_desde_apunte,
     crear_movimiento_previsto,
+    restaurar_movimiento_previsto,
 )
 
 
@@ -350,5 +352,92 @@ def test_crear_movimiento_previsto_rechaza_intervalo_invalido(
             fecha_prevista_desde=fecha_desde,
             fecha_prevista_hasta=fecha_hasta,
         )
+
+
+def test_cancelar_y_restaurar_movimiento_previsto(
+    inmueble,
+) -> None:
+    """Cancela una previsión pendiente y permite restaurarla."""
+
+    movimiento = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 15),
+        fecha_prevista_hasta=date(2026, 9, 20),
+        naturaleza="GASTO",
+        concepto="Recibo de gas",
+        importe_esperado=12500,
+        contraparte="Comercializadora",
+        estado="PENDIENTE",
+    )
+
+    cancelar_movimiento_previsto(
+        movimiento
+    )
+
+    assert movimiento.estado == "CANCELADO"
+
+    restaurar_movimiento_previsto(
+        movimiento
+    )
+
+    assert movimiento.estado == "PENDIENTE"
+
+
+@pytest.mark.parametrize(
+    "estado",
+    [
+        "PARCIAL",
+        "CONCILIADO",
+    ],
+)
+def test_no_permite_cancelar_movimiento_previsto_utilizado(
+    inmueble,
+    estado: str,
+) -> None:
+    """No cancela una previsión parcial o totalmente conciliada."""
+
+    movimiento = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler",
+        importe_esperado=100000,
+        contraparte="Inquilino",
+        estado=estado,
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+        match="pendiente",
+    ):
+        cancelar_movimiento_previsto(
+            movimiento
+        )
+
+    assert movimiento.estado == estado
+
+
+def test_no_permite_restaurar_movimiento_previsto_no_cancelado(
+    inmueble,
+) -> None:
+    """Sólo permite restaurar una previsión cancelada."""
+
+    movimiento = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Recibo de comunidad",
+        importe_esperado=10000,
+        contraparte="Comunidad",
+        estado="PENDIENTE",
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+        match="cancelado",
+    ):
+        restaurar_movimiento_previsto(
+            movimiento
+        )
+
+    assert movimiento.estado == "PENDIENTE"
 
 

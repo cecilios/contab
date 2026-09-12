@@ -99,7 +99,15 @@ button {
     margin: 0;
 }
 
+.enlaces-acciones {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 .movimientos-bancarios,
+.movimientos-previstos,
 .apuntes-contables {
     width: 100%;
     border-collapse: collapse;
@@ -107,6 +115,8 @@ button {
 
 .movimientos-bancarios th,
 .movimientos-bancarios td,
+.movimientos-previstos th,
+.movimientos-previstos td,
 .apuntes-contables th,
 .apuntes-contables td {
     border: 1px solid #999;
@@ -116,11 +126,13 @@ button {
 }
 
 .movimientos-bancarios th,
+.movimientos-previstos th,
 .apuntes-contables th {
     background-color: #eeeeee;
 }
 
 .movimientos-bancarios tbody tr:nth-child(even),
+.movimientos-previstos tbody tr:nth-child(even),
 .apuntes-contables tbody tr:nth-child(even) {
     background-color: #f8f8f8;
 }

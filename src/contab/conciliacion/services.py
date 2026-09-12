@@ -170,3 +170,33 @@ def restaurar_movimiento_bancario(
     return movimiento
 
 
+def cancelar_movimiento_previsto(
+    movimiento: MovimientoPrevisto,
+) -> MovimientoPrevisto:
+    """Cancela un movimiento previsto todavía pendiente."""
+
+    if movimiento.estado != "PENDIENTE":
+        raise ConciliacionError(
+            "Sólo puede cancelarse un movimiento previsto pendiente."
+        )
+
+    movimiento.estado = "CANCELADO"
+
+    return movimiento
+
+
+def restaurar_movimiento_previsto(
+    movimiento: MovimientoPrevisto,
+) -> MovimientoPrevisto:
+    """Devuelve a pendiente un movimiento previsto cancelado."""
+
+    if movimiento.estado != "CANCELADO":
+        raise ConciliacionError(
+            "Sólo puede restaurarse un movimiento previsto cancelado."
+        )
+
+    movimiento.estado = "PENDIENTE"
+
+    return movimiento
+
+

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Movimientos previstos - Contab
+{% endblock %}
+
+{% block content %}
+    <h1>Movimientos previstos</h1>
+
+    <p>
+        <a href="{{ url_for(
+            'conciliacion.listar_movimientos'
+        ) }}">
+            Movimientos bancarios
+        </a>
+    </p>
+
+    <form method="get">
+        <p>
+            <label for="estado">Estado:</label>
+
+            <select
+                id="estado"
+                name="estado"
+            >
+                <option
+                    value="TODOS"
+                    {% if estado_seleccionado == "TODOS" %}
+                        selected
+                    {% endif %}
+                >
+                    Todos
+                </option>
+
+                {% for valor, etiqueta in estados.items() %}
+                    <option
+                        value="{{ valor }}"
+                        {% if estado_seleccionado == valor %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ etiqueta }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <button type="submit">
+                Filtrar
+            </button>
+        </p>
+    </form>
+
+    {% if movimientos %}
+        <table class="movimientos-previstos">
+            <thead>
+                <tr>
+                    <th>Fecha prevista</th>
+                    <th>Inmueble</th>
+                    <th>Tipo</th>
+                    <th>Concepto</th>
+                    <th>Contraparte</th>
+                    <th>Origen</th>
+                    <th>Importe</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for movimiento in movimientos %}
+                    <tr>
+                        <td>
+                            {{ intervalo_a_texto(movimiento) }}
+                        </td>
+                        <td>
+                            {{ movimiento.inmueble.referencia }}
+                        </td>
+                        <td>
+                            {{ naturalezas.get(
+                                movimiento.naturaleza,
+                                movimiento.naturaleza
+                            ) }}
+                        </td>
+                        <td>{{ movimiento.concepto }}</td>
+                        <td>{{ movimiento.contraparte }}</td>
+                        <td>
+                            {% if movimiento.apunte_id is not none %}
+                                Apunte contable
+                            {% elif movimiento.contrato_id is not none %}
+                                Contrato
+                            {% else %}
+                                Previsión independiente
+                            {% endif %}
+                        </td>
+                        <td>
+                            {{ importe_a_texto(
+                                movimiento.importe_esperado
+                            ) }}
+                        </td>
+                        <td>
+                            {{ estados.get(
+                                movimiento.estado,
+                                movimiento.estado
+                            ) }}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>
+            No hay movimientos previstos con el estado seleccionado.
+        </p>
+    {% endif %}
+
+    {% if total_paginas > 1 %}
+        <nav>
+            {% if pagina > 1 %}
+                <a href="{{ url_for(
+                    'conciliacion.listar_movimientos_previstos',
+                    estado=estado_seleccionado,
+                    pagina=pagina - 1
+                ) }}">
+                    Página anterior
+                </a>
+            {% endif %}
+
+            <span>
+                Página {{ pagina }} de {{ total_paginas }}
+            </span>
+
+            {% if pagina < total_paginas %}
+                <a href="{{ url_for(
+                    'conciliacion.listar_movimientos_previstos',
+                    estado=estado_seleccionado,
+                    pagina=pagina + 1
+                ) }}">
+                    Página siguiente
+                </a>
+            {% endif %}
+        </nav>
+    {% endif %}
+{% endblock %}

@@ -1,453 +1,331 @@
-# Desarrollo de contab
+CONTAB DEVELOPMENT HANDOFF
+==========================
+
+Purpose
+-------
+
+Internal technical checkpoint for resuming Contab development in a fresh
+conversation. Read this file, inspect the current develop branch, and continue
+from CURRENT INCOMPLETE STEP. The user's local tree can be ahead of GitHub
+between commits.
+
+Repository and workflow
+-----------------------
+
+- Repository: https://github.com/cecilios/contab
+- Branch: develop
+- Development version: 0.2.0
+- Stack: LMDE 7, Python 3.13, Flask, SQLAlchemy, Alembic, SQLite,
+  Jinja2, pytest and Waitress.
+- The user edits locally following step-by-step guidance.
+- Inspect current code before proposing exact edits. Use rg to find callers.
+- Run focused tests and then the full suite.
+- Explicit unit tests are preferred even when integration tests cover the same
+  function indirectly.
+- In long multi-step tests, add a short comment before each user action.
+- Commit messages are Spanish infinitive phrases.
+
+Product priorities
+------------------
+
+Contab is a small personal application for fewer than ten properties. Its two
+primary goals are:
+
+1. Reduce the work required to reconcile bank movements with expected income
+   and expenses.
+2. Preserve accounting detail so changing Spanish tax reports can be produced
+   without rebuilding the year's accounting manually.
+
+Everything else is secondary. Prefer the smallest understandable solution to a
+real need. Keep code and UI minimal. Slightly forward-looking database fields
+are acceptable only when clearly predictable and cheap. Avoid hypothetical
+features. Tests are valuable, not unwanted code growth.
+
+Architecture and conventions
+----------------------------
+
+- Modular Flask monolith.
+- Business rules in services, testable without Flask.
+- Routes own HTTP, sessions, transactions and templates.
+- Use a render helper when the same form is returned through several GET/error
+  paths. A listing with one render path does not need one.
+- Use SQLAlchemy select(), not legacy Session.query().
+- Money is positive integer cents; nature determines income or expense.
+- Percentage values with two decimals use hundredths of a percentage point.
+- Show human labels, not internal codes.
+- Avoid JavaScript unless a small interaction clearly improves usability.
+- Supporting PDFs live in the filesystem; do not build document-history UIs.
+- Preserve data in migrations. SQLite constraint changes normally require
+  Alembic batch_alter_table.
+- Back up databases before schema changes.
+
+Implemented functional scope
+----------------------------
+
+- Multiple logical SQLite databases selected at application entry.
+- Properties, including type T subdivided parent properties and rentable child
+  units linked through inmueble_padre_id. Type T cannot have contracts.
+- Tenants and contracts with multiple holders, billing data, rents and rent
+  revisions.
+- Accounting categories/subcategories in contab.ini, including active states.
+- Accounting-entry CRUD, validation and human-oriented forms.
+- ApunteContable includes optional periodo_desde/periodo_hasta, tratamiento
+  (CONTABILIZAR, REPERCUTIR, FACTURAR), document name and issuer data.
+- Accounting CSV reports: individual annual VAT CSV, ZIP with all applicable
+  property CSVs, and annual VAT summary.
+- Demo database creation script.
+- Initial invoice models exist, but ODS/PDF generation is postponed.
+- Ibercaja and CaixaBank CSV importers.
+- Persisted bank movements, duplicate prevention, listing, state filters and
+  discard/restore operations.
+- Expected-movement model and services.
+
+Key business decisions
+----------------------
+
+Initial historical rent loading is intentionally simple: enter the current
+valid rent on the contract or last annex. There is no opening-rent workflow,
+historical closure flag or fictitious annex.
+
+Automatic invoicing is postponed because accounting and reconciliation provide
+more value.
+
+Accounting treatments:
+
+- CONTABILIZAR: included in accounting reports.
+- REPERCUTIR: passed to the tenant, not treated as owner expense/income.
+- FACTURAR: eventually included in a tenant invoice.
+
+Common type-T expenses may later be distributed proportionally in IRPF reports.
+No DistribucionApunte table is currently needed. "Distribute" means accounting
+report allocation; "repercutir" means charging the tenant.
+
+Configuration
+-------------
+
+contab.ini includes [app], [databases], [bancos],
+[categorias_contables] and [subcategorias_contables]. Each logical database has
+one bank:
+
+    [databases]
+    cliente = sqlite:///data/cliente.db
+    hermana = sqlite:///data/hermana.db
+
+    [bancos]
+    cliente = IBERCAJA
+    hermana = CAIXABANK
+
+config.py has cargar_bancos(), which requires one supported bank per database
+and rejects entries for nonexistent databases.
+
+app.py stores app.extensions["contab_databases"] and
+app.extensions["contab_bancos"]. context.py has explicitly tested helpers:
+get_database_name(), get_session_factory() and get_bank_name(), including their
+error cases.
+
+Bank import
+-----------
+
+src/contab/conciliacion/importacion.py owns bank-file parsing.
+src/contab/conciliacion/services.py owns reconciliation rules.
+
+MovimientoBancarioImportado is a frozen, slotted dataclass containing fecha,
+naturaleza, importe, tipo_original, descripcion_original,
+referencia_bancaria and huella_importacion.
+
+Readers leer_csv_ibercaja(), leer_csv_caixabank() and dispatcher
+leer_csv_bancario():
+
+- locate bank-specific headers after preambles;
+- use operation date, never value date;
+- parse Spanish amounts and store positive cents;
+- derive INGRESO/GASTO from source sign;
+- strip surrounding whitespace;
+- preserve type, description and optional reference;
+- reject zero values and malformed input;
+- produce stable SHA-256 fingerprints.
+
+An occurrence counter distinguishes legitimate identical rows in one CSV.
+Full anonymized CSV fixtures provide regression coverage.
+
+preparar_movimientos_bancarios() queries fingerprints and returns only new
+models. It neither adds nor commits; the route controls the transaction.
 
-## 1. Entorno objetivo
+MovimientoBancario fields: id, fecha, naturaleza, importe, tipo_original,
+descripcion_original, referencia_bancaria, unique huella_importacion and estado
+(PENDIENTE, CONCILIADO, DESCARTADO). Do not add bank, account, value date,
+balance or apunte_id.
+
+Bank UI
+-------
 
-La aplicación se desarrolla inicialmente para:
+- /conciliacion/ lists bank movements.
+- /conciliacion/importar imports CSV via GET/POST.
+- POST routes discard and restore bank movements.
+- Main navigation has one Conciliacion link to the list.
+- The list links to import and expected movements.
+- Default filter: PENDIENTE. Other filters: TODOS, CONCILIADO, DESCARTADO.
+- Order: fecha DESC, id DESC. Page size: 25.
+- Pending can be discarded; discarded can be restored; reconciled has neither
+  action. Filters survive pagination and actions.
+- CSS classes include movimientos-bancarios, apuntes-contables and
+  movimientos-previstos. .enlaces-acciones uses flex gap instead of separator
+  characters.
 
-- Linux LMDE 7.
-- Escritorio Xfce.
-- Python 3.13.
-- Ejecución local.
-- Acceso mediante navegador web.
+Reconciliation design
+---------------------
 
-No se requiere ningún servicio externo para ejecutar la aplicación.
+Expected movements originate from:
 
-## 2. Tecnologías
+1. Invoice generation: accounting entry plus expected income.
+2. Manual accounting entry: optional expected income/expense.
+3. Later periodic generation from per-property rules.
 
-Tecnologías iniciales:
+An expectation linked to an accounting entry is documented and normally exact.
+A periodic expectation without an entry is approximate. When the real entry is
+created later, link or replace the periodic expectation; do not duplicate it.
 
-- Python.
-- Flask.
-- SQLite.
-- SQLAlchemy.
-- Alembic.
-- pytest.
-- Jinja2/HTML para la interfaz web.
-- Git.
-- GitHub.
+Matching generates proposals and never silently confirms them. The user imports
+CSV, runs matching over new and old pending bank movements, confirms/rejects
+proposals, discards unrelated movements and can match unresolved items manually.
 
-Se evitarán inicialmente frameworks JavaScript u otras dependencias que no
-aporten una ventaja clara al proyecto.
+A confirmed association connects MovimientoBancario to MovimientoPrevisto and,
+indirectly through apunte_id, to ApunteContable. A matched periodic expectation
+without apunte_id must warn that the accounting entry/supporting document is
+missing. Never auto-create that accounting entry because classification, period,
+VAT and document information may be unknown.
 
-Las nuevas dependencias se incorporarán sólo cuando exista una necesidad
-concreta.
+Keep reconciled expected movements. States are PENDIENTE, PARCIAL, CONCILIADO
+and CANCELADO. Do not add UTILIZADO.
 
-## 3. Arquitectura
+Future associations must support one bank movement to several expectations,
+several bank movements to one expectation, and partial matching. Therefore do
+not put a single direct foreign key between MovimientoBancario and
+MovimientoPrevisto. A later association table will contain importe_asociado.
 
-La aplicación deberá mantener separadas:
+Dates and approximate amounts are scoring signals, not hard exclusion rules. A
+movement expected from day 15 may arrive on day 14. Do not ask the user for a
+tolerance percentage; tolerance belongs to the algorithm.
 
-- Presentación web.
-- Lógica de negocio.
-- Persistencia de datos.
-- Generación de documentos e informes.
+MovimientoPrevisto
+------------------
 
-La lógica de negocio no deberá depender innecesariamente de Flask.
+Fields: id, required inmueble_id, optional contrato_id, optional apunte_id,
+optional fecha_prevista_desde, optional fecha_prevista_hasta, naturaleza,
+concepto, strictly positive importe_esperado, contraparte, estado and notes.
 
-Por ejemplo, el cálculo de la renta aplicable a un mes, una revisión de renta
-o la generación de una factura deberán poder ejecutarse y probarse sin
-necesidad de realizar una petición HTTP.
+Date rules:
 
-Esto facilitará las pruebas automatizadas y permitirá modificar la interfaz
-sin afectar al núcleo de la aplicación.
+- both dates may be empty;
+- desde may exist without hasta;
+- hasta cannot exist without desde;
+- if both exist, hasta >= desde.
 
-Las reglas de negocio se documentan en:
+The former required fecha_prevista was migrated. Existing values were copied to
+both new date columns. The migration used batch mode, updated amount/state/date
+checks, and blocks incompatible downgrade rather than inventing dates.
 
-    docs/BUSINESS_RULES.md
+No tolerance, expected bank text, recurring-rule reference or reconciled amount
+is stored yet.
 
-Este documento constituye la referencia funcional para la implementación del
-modelo de datos y de la lógica de negocio.
+Expected-movement list and services completed locally
+------------------------------------------------------
 
-## 4. Estructura inicial
+GET /conciliacion/previstos and template
+conciliacion/movimientos_previstos.html exist locally. The list defaults to
+PENDIENTE; filters TODOS/PENDIENTE/PARCIAL/CONCILIADO/CANCELADO; paginates; and
+shows interval, property, nature, concept, counterparty, derived origin, amount
+and state.
 
-La estructura actual del repositorio es:
+Interval display:
 
-    contab/
-    ├── docs/
-    │   ├── BUSINESS_RULES.md
-    │   ├── DEVELOPMENT.md
-    │   └── PROJECT.md
-    ├── src/
-    │   └── contab/
-    │       ├── __init__.py
-    │       └── app.py
-    ├── tests/
-    │   └── test_app.py
-    ├── .gitignore
-    ├── LICENSE.md
-    ├── README.md
-    └── pyproject.toml
+- no date: "Sin fecha prevista"
+- from only: "Desde dd/mm/yyyy"
+- equal dates: one date
+- range: "dd/mm/yyyy a dd/mm/yyyy"
 
-Se utiliza el esquema `src/` para separar claramente el paquete Python del
-resto del repositorio.
+Origin is derived: apunte_id -> "Apunte contable"; otherwise contrato_id ->
+"Contrato"; otherwise "Previsión independiente".
 
-La estructura interna de `src/contab` se ampliará cuando se implementen la
-persistencia y la lógica de negocio.
+Services cancelar_movimiento_previsto() and
+restaurar_movimiento_previsto() have direct passing tests:
 
-No se crearán módulos anticipadamente sin una necesidad concreta.
+- only PENDIENTE can become CANCELADO;
+- PARCIAL/CONCILIADO cannot be cancelled;
+- only CANCELADO can be restored to PENDIENTE;
+- errors do not change the original state.
 
-## 5. Entorno virtual
+CURRENT INCOMPLETE STEP
+-----------------------
 
-Cada árbol de trabajo dispone de su propio entorno virtual:
+A local route test named approximately
+test_cancelar_movimiento_previsto_desde_interfaz POSTs to:
 
-    .venv/
+    /conciliacion/previstos/<movimiento_id>/cancelar
 
-El entorno no se almacena en Git.
+It currently fails with HTTP 404 because the route is not implemented. The full
+suite was green before this deliberately failing test. Do not recreate the model,
+list or service tests above.
 
-Creación:
+Resume steps
+------------
 
-    python3 -m venv .venv
+1. In conciliacion/routes.py import redirect/url_for and the expected-movement
+   cancel/restore services plus ConciliacionError.
 
-Activación:
+2. Add _estado_previsto_retorno(): read request.form["estado"] with PENDIENTE
+   default; allow TODOS and keys of ESTADOS_MOVIMIENTO_PREVISTO; otherwise return
+   PENDIENTE.
 
-    source .venv/bin/activate
+3. Implement POST /conciliacion/previstos/<int:id>/cancelar:
 
-El proyecto se instala durante el desarrollo en modo editable:
+    open selected DB session and transaction
+    session.get(MovimientoPrevisto, id)
+    missing -> 404
+    call cancelar_movimiento_previsto()
+    ConciliacionError -> 400, never 500
+    redirect to listar_movimientos_previstos preserving filter
 
-    python -m pip install -e .
+4. Add one route test and route for:
 
-De esta forma las modificaciones realizadas en `src/contab` están
-inmediatamente disponibles sin reinstalar el paquete.
+    POST /conciliacion/previstos/<int:id>/restaurar
 
-## Arquitectura de la aplicación
+Use the same transaction/error/redirect pattern.
 
-Contab se desarrollará como un **monolito modular**.
+5. Add Acciones to movimientos_previstos.html:
 
-La aplicación utilizará:
+- PENDIENTE -> POST "Cancelar"
+- CANCELADO -> POST "Restaurar"
+- PARCIAL/CONCILIADO -> blank
+- hidden estado=estado_seleccionado preserves the filter.
 
-- un único proceso;
-- un único servidor web Flask;
-- una única base de datos SQLite;
-- módulos funcionales claramente separados.
+6. Test persistence, missing id -> 404, invalid transition -> 400, and absence
+   of buttons for PARCIAL/CONCILIADO. Run focused tests, full suite and visual
+   checks.
 
-La modularidad se realizará dentro de la propia aplicación, evitando
-servidores, procesos o bases de datos independientes para cada módulo.
-Flask actuará como punto de entrada y ensamblará los distintos módulos,
-preferentemente mediante *Blueprints*.
+After completing that block
+---------------------------
 
-La estructura funcional prevista inicialmente es:
+Build the first pure matching-proposal algorithm before periodic rules:
 
-- `inmuebles`: mantenimiento de inmuebles;
-- `inquilinos`: mantenimiento de inquilinos;
-- `contratos`: contratos, rentas, revisiones y ajustes de renta;
-- `previsiones`: previsiones de gastos;
-- `facturacion`: generación y gestión de facturas;
-- `conciliacion`: importación y conciliación de movimientos bancarios;
-- `contabilidad`: elaboración de la información contable;
-- `informes`: informes que combinen información de distintas áreas.
+- pending bank movements only;
+- pending/partial expected movements only;
+- nature compatibility mandatory;
+- amount and date proximity contribute to scoring;
+- dates are soft and cannot eliminate near candidates;
+- return proposals without changing database state.
 
-Esta división es inicial y podrá evolucionar conforme se desarrolle la
-aplicación. En particular, las previsiones de gastos y los informes podrán
-reorganizarse si la lógica de negocio aconseja otra agrupación.
+Do not create the many-to-many reconciliation table until confirmation and
+partial-allocation behavior is concrete.
 
-Cada módulo deberá mantener separadas, en la medida en que resulte útil,
-la interfaz web y la lógica de negocio. Una estructura típica será:
+Documentation roles
+-------------------
 
-    modulo/
-        routes.py
-        services.py
-        templates/
-
-`routes.py` se ocupará de la interacción HTTP y la interfaz web, mientras
-que `services.py` contendrá la lógica de negocio. La lógica de negocio no
-deberá depender innecesariamente de Flask, de forma que pueda probarse
-directamente mediante tests automatizados.
-
-`app.py` tendrá principalmente la responsabilidad de crear y configurar
-la aplicación Flask, registrar los módulos y proporcionar la entrada
-general a la aplicación. No deberá acumular lógica propia de los módulos.
-
-Los distintos módulos compartirán los modelos SQLAlchemy y la misma base
-de datos. La separación modular es una separación de responsabilidades
-del código, no una arquitectura de microservicios.
-
-Las URL seguirán igualmente una organización modular, por ejemplo:
-
-    /
-    /inmuebles/
-    /inquilinos/
-    /contratos/
-    /facturacion/
-    /previsiones/
-    /conciliacion/
-    /contabilidad/
-    /informes/
-
-Todos estos recursos serán servidos por el mismo servidor Flask y el mismo
-puerto.
-
-Los informes específicos de una funcionalidad pertenecerán, en principio,
-al módulo correspondiente. El módulo `informes` se reservará principalmente
-para informes que combinen información procedente de varias áreas.
-
-Esta arquitectura deberá favorecer que una implementación pueda sustituirse
-o convivir temporalmente con otra durante su desarrollo y pruebas, sin
-afectar innecesariamente al resto de la aplicación.
-
-
-
-## 6. Base de datos
-
-Se utilizará SQLite.
-
-SQLAlchemy proporcionará la capa de acceso y modelado.
-
-Las modificaciones del esquema se gestionarán mediante Alembic para permitir
-actualizar bases de datos existentes sin destruir sus datos.
-
-La base de datos real y cualquier información privada del usuario nunca se
-almacenarán en el repositorio Git.
-
-Los datos utilizados por las pruebas serán ficticios.
-
-### 6.1. Criterios de modelado
-
-Los campos de texto se representarán generalmente mediante `TEXT`.
-
-Los importes monetarios se almacenarán como enteros expresados en céntimos.
-
-Los porcentajes que necesiten dos decimales se almacenarán como enteros
-expresados en centésimas de punto porcentual.
-
-Ejemplos:
-
-    1.250,37 EUR -> 125037
-       21,00 %   -> 2100
-       32,56 %   -> 3256
-
-Se evitará almacenar información derivable cuando mantenerla duplicada pueda
-producir inconsistencias.
-
-Las restricciones estructurales sencillas se implementarán en la base de
-datos mediante:
-
-- `NOT NULL`.
-- `UNIQUE`.
-- claves externas.
-- `CHECK`.
-
-Las reglas que dependan de varias entidades, periodos temporales o procesos de
-negocio se implementarán principalmente en la lógica de aplicación y estarán
-cubiertas por pruebas automatizadas.
-
-### 6.2. Modelo inicial
-
-El modelo funcional inicial está compuesto por:
-
-    inmueble
-    inquilino
-    contrato
-    contrato_inquilino
-    renta_contrato
-    revision_renta
-    ajuste_renta
-
-La definición funcional y las reglas de estas entidades se mantienen en
-`BUSINESS_RULES.md`.
-
-La renta vigente no se almacenará directamente en `contrato`.
-
-Se obtendrá del histórico `renta_contrato`.
-
-Las revisiones previstas y realizadas se almacenarán separadamente mediante
-`revision_renta`.
-
-Las modificaciones temporales de la cantidad facturada se representarán
-mediante `ajuste_renta`, sin modificar la renta ordinaria.
-
-Esta separación permitirá calcular la renta facturable para un mes siguiendo
-conceptualmente:
-
-    renta ordinaria vigente
-            ↓
-    ajuste temporal vigente, si existe
-            ↓
-    renta facturable
-
-## 7. Pruebas
-
-Se utilizará pytest.
-
-El proyecto tendrá:
-
-- Pruebas unitarias para lógica aislada.
-- Pruebas de integración para operaciones completas.
-- Bases de datos temporales específicas para las pruebas.
-
-Las pruebas nunca deberán utilizar la base de datos real.
-
-Antes de considerar estable un cambio deberá ejecutarse:
-
-    pytest
-
-Las pruebas automatizadas deberán crecer junto con la funcionalidad del
-programa.
-
-Las reglas de negocio relevantes deberán tener pruebas específicas.
-
-En particular, el modelo inicial deberá probar, entre otras situaciones:
-
-- Restricciones de las tablas.
-- Relaciones entre entidades.
-- Contratos con varios titulares.
-- Ausencia de contratos simultáneos para un mismo inmueble.
-- Histórico de rentas.
-- Revisiones positivas, negativas y no aplicadas.
-- Generación de la siguiente revisión anual.
-- Ajustes temporales.
-- Cambios de renta ordinaria durante un ajuste temporal.
-- Rechazo de ajustes solapados.
-- Inactivación de inmuebles con contratos vigentes.
-
-## 8. Git
-
-El repositorio remoto se mantiene en GitHub.
-
-Ramas principales:
-
-### master
-
-Contiene versiones consideradas estables y potencialmente utilizables por el
-usuario.
-
-### develop
-
-Rama habitual de desarrollo e integración.
-
-La nueva funcionalidad se incorpora inicialmente a `develop` y posteriormente
-se consolida en `master` cuando constituye un incremento suficientemente
-estable.
-
-### Ramas auxiliares
-
-Cuando sea necesario interrumpir temporalmente el trabajo de `develop` para
-realizar una modificación aislada, podrá crearse una rama específica.
-
-Por ejemplo:
-
-    feature/nombre
-    fix/nombre
-    PR227
-
-No se establece una categoría especial para hotfixes: una corrección urgente
-se tratará como cualquier otro desarrollo aislado que deba completarse antes
-de continuar con el trabajo principal.
-
-### 8.1. Mensajes de commit
-
-Los mensajes de commit se redactarán preferentemente en español y comenzarán
-con un verbo en infinitivo.
-
-Ejemplos:
-
-    Añadir documentación inicial del proyecto
-    Crear modelos iniciales de la base de datos
-    Implementar revisión anual de rentas
-    Corregir cálculo de ajustes temporales
-
-## 9. Git worktree
-
-Los diferentes árboles de trabajo se gestionan mediante `git worktree`.
-
-La estructura inicial es:
-
-    contab/
-    ├── master/
-    └── develop/
-
-Cada árbol dispone de su propio `.venv`.
-
-No se prevé normalmente trabajar simultáneamente en varias ramas, pero esta
-estructura permite mantener árboles separados cuando sea necesario.
-
-## 10. Estrategia de desarrollo
-
-El desarrollo será incremental y cada etapa deberá dejar una aplicación
-verificable.
-
-El orden inicial previsto es:
-
-1. Infraestructura básica de la aplicación.
-2. Modelo de inmuebles, inquilinos y contratos.
-3. Histórico de rentas y datos necesarios para sus revisiones.
-4. Interfaz web para introducir y mantener estos datos.
-5. Generación automática de facturas.
-6. Registro automático de ingresos pendientes.
-7. Previsiones de gastos.
-8. Importación de movimientos bancarios.
-9. Conciliación bancaria asistida.
-10. Informes y exportaciones.
-
-Aunque la conciliación bancaria constituye el principal objetivo funcional de
-`contab`, las primeras etapas proporcionarán los datos fiables necesarios para
-poder realizarla posteriormente.
-
-La facturación constituye la primera funcionalidad que aportará utilidad
-directa al usuario después de introducir los datos iniciales.
-
-Por ello, el modelo de rentas y revisiones debe estar suficientemente definido
-antes de implementar la facturación.
-
-## 11. Estado actual
-
-La infraestructura inicial está operativa.
-
-Actualmente se dispone de:
-
-- Repositorio Git local.
-- Repositorio privado en GitHub.
-- Ramas `master` y `develop`.
-- Worktrees independientes.
-- Entorno virtual Python.
-- Proyecto instalable en modo editable.
-- Flask funcionando localmente.
-- pytest funcionando.
-- Primer smoke test de la aplicación web.
-- Documentación de objetivos del proyecto.
-- Documentación de desarrollo.
-- Documento de reglas de negocio.
-- Primera definición conceptual del modelo de datos.
-
-El servidor de desarrollo puede ejecutarse mediante:
-
-    flask --app contab.app:create_app run
-
-La prueba actual verifica que la aplicación responde correctamente a una
-petición HTTP básica.
-
-Todavía no se ha implementado la base de datos ni existen modelos SQLAlchemy.
-
-## 12. Próximo paso
-
-Antes de escribir los modelos SQLAlchemy se realizará una revisión conjunta
-final del modelo compuesto por:
-
-    inmueble
-    inquilino
-    contrato
-    contrato_inquilino
-    renta_contrato
-    revision_renta
-    ajuste_renta
-
-Se comprobarán:
-
-- Campos.
-- Tipos.
-- Obligatoriedad y valores nulos.
-- Claves primarias.
-- Claves externas.
-- Restricciones `UNIQUE`.
-- Restricciones `CHECK`.
-- Relaciones.
-- Reglas que deben implementarse en la lógica de negocio.
-
-Una vez aprobado el modelo se procederá a:
-
-1. Configurar SQLAlchemy y SQLite.
-2. Implementar los modelos.
-3. Configurar Alembic.
-4. Crear la primera migración.
-5. Crear las pruebas del modelo y sus restricciones.
-6. Verificar la creación y consulta de datos de prueba.
-
-Sólo después se comenzará la interfaz web de mantenimiento de estos datos.
+- docs/PROJECT.md: user-facing scope and principles.
+- docs/Ajustes-contables.md: accounting-entry behavior.
+- docs/Conciliacion.md: Reconciliation design and behavior.
+- docs/Importacion-bancaria.md: Bank data import and behavior.
+- docs/Informes-contables.md: accounting-reporting behavior and situation.
+- docs/Inmuebles, inquilinos y contratos.md: Properties, tenants and contracts, principles and behaviour.
+- docs/Facturacion.md: billing behavior and situation.
+- docs/DEVELOPMENT.md: internal technical handoff.

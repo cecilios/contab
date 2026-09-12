@@ -8,8 +8,12 @@ from flask import (
     url_for,
 )
 from sqlalchemy import func, select
+from sqlalchemy.orm import joinedload
 
-from contab.models import MovimientoBancario
+from contab.models import (
+    MovimientoBancario,
+    MovimientoPrevisto,
+)
 from contab.conciliacion.importacion import (
     ImportacionBancariaError,
     leer_csv_bancario,
@@ -46,6 +50,38 @@ NATURALEZAS_MOVIMIENTO = {
     "GASTO": "Gasto",
 }
 
+ESTADOS_MOVIMIENTO_PREVISTO = {
+    "PENDIENTE": "Pendiente",
+    "PARCIAL": "Parcial",
+    "CONCILIADO": "Conciliado",
+    "CANCELADO": "Cancelado",
+}
+
+
+
+def _intervalo_a_texto(
+    movimiento: MovimientoPrevisto,
+) -> str:
+    """Muestra de forma legible el intervalo previsto."""
+
+    desde = movimiento.fecha_prevista_desde
+    hasta = movimiento.fecha_prevista_hasta
+
+    if desde is None:
+        return "Sin fecha prevista"
+
+    desde_texto = desde.strftime("%d/%m/%Y")
+
+    if hasta is None:
+        return f"Desde {desde_texto}"
+
+    if hasta == desde:
+        return desde_texto
+
+    return (
+        f"{desde_texto} a "
+        f"{hasta.strftime('%d/%m/%Y')}"
+    )
 
 
 def _estado_retorno() -> str:
@@ -90,74 +126,6 @@ def _render_formulario_importacion(
         database_name=get_database_name(),
     )
 
-
-@bp.route("/importar", methods=["GET", "POST"])
-def importar_movimientos():
-    """Importa los movimientos del banco configurado."""
-
-    if request.method == "GET":
-        return _render_formulario_importacion()
-
-    archivo = request.files.get("archivo")
-
-    if archivo is None or not archivo.filename:
-        return (
-            _render_formulario_importacion(
-                error="Debe seleccionar un archivo CSV.",
-            ),
-            400,
-        )
-
-    try:
-        contenido = archivo.read().decode(
-            "utf-8-sig"
-        )
-
-        importados = leer_csv_bancario(
-            banco=get_bank_name(),
-            contenido=contenido,
-        )
-
-    except UnicodeDecodeError:
-        return (
-            _render_formulario_importacion(
-                error=(
-                    "El archivo CSV no está codificado "
-                    "en UTF-8."
-                ),
-            ),
-            400,
-        )
-
-    except ImportacionBancariaError as exc:
-        return (
-            _render_formulario_importacion(
-                error=str(exc),
-            ),
-            400,
-        )
-
-    session_factory = get_session_factory()
-
-    with session_factory() as session:
-        with session.begin():
-            nuevos = preparar_movimientos_bancarios(
-                session=session,
-                movimientos=importados,
-            )
-
-            session.add_all(nuevos)
-
-    existentes = len(importados) - len(nuevos)
-
-    resultado = (
-        f"Movimientos importados: {len(nuevos)}. "
-        f"Ya existentes: {existentes}."
-    )
-
-    return _render_formulario_importacion(
-        resultado=resultado,
-    )
 
 
 @bp.get("/")
@@ -249,9 +217,78 @@ def listar_movimientos():
         )
 
 
-@bp.post(
-    "/movimientos/<int:movimiento_id>/descartar"
-)
+
+
+@bp.route("/importar", methods=["GET", "POST"])
+def importar_movimientos():
+    """Importa los movimientos del banco configurado."""
+
+    if request.method == "GET":
+        return _render_formulario_importacion()
+
+    archivo = request.files.get("archivo")
+
+    if archivo is None or not archivo.filename:
+        return (
+            _render_formulario_importacion(
+                error="Debe seleccionar un archivo CSV.",
+            ),
+            400,
+        )
+
+    try:
+        contenido = archivo.read().decode(
+            "utf-8-sig"
+        )
+
+        importados = leer_csv_bancario(
+            banco=get_bank_name(),
+            contenido=contenido,
+        )
+
+    except UnicodeDecodeError:
+        return (
+            _render_formulario_importacion(
+                error=(
+                    "El archivo CSV no está codificado "
+                    "en UTF-8."
+                ),
+            ),
+            400,
+        )
+
+    except ImportacionBancariaError as exc:
+        return (
+            _render_formulario_importacion(
+                error=str(exc),
+            ),
+            400,
+        )
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        with session.begin():
+            nuevos = preparar_movimientos_bancarios(
+                session=session,
+                movimientos=importados,
+            )
+
+            session.add_all(nuevos)
+
+    existentes = len(importados) - len(nuevos)
+
+    resultado = (
+        f"Movimientos importados: {len(nuevos)}. "
+        f"Ya existentes: {existentes}."
+    )
+
+    return _render_formulario_importacion(
+        resultado=resultado,
+    )
+
+
+@bp.post("/movimientos/<int:movimiento_id>/descartar")
 def descartar_movimiento(movimiento_id: int):
     """Marca como ajeno a Contab un movimiento pendiente."""
 
@@ -286,9 +323,7 @@ def descartar_movimiento(movimiento_id: int):
     )
 
 
-@bp.post(
-    "/movimientos/<int:movimiento_id>/restaurar"
-)
+@bp.post("/movimientos/<int:movimiento_id>/restaurar")
 def restaurar_movimiento(movimiento_id: int):
     """Devuelve a pendiente un movimiento descartado."""
 
@@ -321,5 +356,95 @@ def restaurar_movimiento(movimiento_id: int):
             estado=_estado_retorno(),
         )
     )
+
+
+@bp.get("/previstos")
+def listar_movimientos_previstos():
+    """Muestra los movimientos previstos ordenados y paginados."""
+
+    estado = request.args.get(
+        "estado",
+        default="PENDIENTE",
+    ).strip().upper()
+
+    estados_validos = {
+        "TODOS",
+        *ESTADOS_MOVIMIENTO_PREVISTO,
+    }
+
+    if estado not in estados_validos:
+        estado = "PENDIENTE"
+
+    pagina = request.args.get(
+        "pagina",
+        default=1,
+        type=int,
+    )
+    pagina = max(pagina, 1)
+    por_pagina = 25
+
+    consulta_total = select(
+        func.count(MovimientoPrevisto.id)
+    )
+    consulta_movimientos = select(
+        MovimientoPrevisto
+    ).options(
+        joinedload(MovimientoPrevisto.inmueble)
+    )
+
+    if estado != "TODOS":
+        consulta_total = consulta_total.where(
+            MovimientoPrevisto.estado == estado
+        )
+        consulta_movimientos = (
+            consulta_movimientos.where(
+                MovimientoPrevisto.estado == estado
+            )
+        )
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        total = session.scalar(
+            consulta_total
+        ) or 0
+
+        total_paginas = max(
+            1,
+            (
+                total
+                + por_pagina
+                - 1
+            ) // por_pagina,
+        )
+        pagina = min(
+            pagina,
+            total_paginas,
+        )
+
+        movimientos = session.scalars(
+            consulta_movimientos
+            .order_by(
+                MovimientoPrevisto.fecha_prevista_desde.desc(),
+                MovimientoPrevisto.id.desc(),
+            )
+            .offset(
+                (pagina - 1) * por_pagina
+            )
+            .limit(por_pagina)
+        ).all()
+
+        return render_template(
+            "conciliacion/movimientos_previstos.html",
+            movimientos=movimientos,
+            pagina=pagina,
+            total_paginas=total_paginas,
+            estado_seleccionado=estado,
+            estados=ESTADOS_MOVIMIENTO_PREVISTO,
+            naturalezas=NATURALEZAS_MOVIMIENTO,
+            importe_a_texto=_importe_a_texto,
+            intervalo_a_texto=_intervalo_a_texto,
+            database_name=get_database_name(),
+        )
 
 

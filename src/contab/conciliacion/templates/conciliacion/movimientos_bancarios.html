@@ -5,13 +5,21 @@
 {% block content %}
     <h1>Movimientos bancarios</h1>
 
-    <p>
+    <p class="enlaces-acciones">
         <a href="{{ url_for(
             'conciliacion.importar_movimientos'
         ) }}">
             Importar movimientos
         </a>
 
+        <a href="{{ url_for(
+            'conciliacion.listar_movimientos_previstos'
+        ) }}">
+            Movimientos previstos
+        </a>
+    </p>
+
+    <p>
         <form method="get">
             <p>
                 <label for="estado">Estado:</label>

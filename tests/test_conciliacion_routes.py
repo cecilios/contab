@@ -3,7 +3,11 @@ from datetime import date
 from sqlalchemy import select
 
 from contab.database import Base
-from contab.models import MovimientoBancario
+from contab.models import (
+    Inmueble,
+    MovimientoBancario,
+    MovimientoPrevisto,
+)
 from contab.app import create_app
 
 
@@ -397,5 +401,123 @@ def test_descartar_y_restaurar_movimiento_desde_listado() -> None:
 
         assert movimiento is not None
         assert movimiento.estado == "PENDIENTE"
+
+
+def test_listar_movimientos_previstos() -> None:
+    """Muestra las previsiones pendientes ordenadas por fecha."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        movimiento = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 15),
+            fecha_prevista_hasta=date(2026, 9, 20),
+            naturaleza="GASTO",
+            concepto="Recibo de gas",
+            importe_esperado=12537,
+            contraparte="Comercializadora",
+            estado="PENDIENTE",
+        )
+
+        session.add_all([
+            inmueble,
+            movimiento,
+        ])
+        session.commit()
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/conciliacion/previstos"
+    )
+
+    assert response.status_code == 200
+    assert "Movimientos previstos" in response.text
+    assert "LOCAL-1" in response.text
+    assert "15/09/2026 a 20/09/2026" in response.text
+    assert "Recibo de gas" in response.text
+    assert "Comercializadora" in response.text
+    assert "125,37" in response.text
+    assert "Pendiente" in response.text
+    assert "Previsión independiente" in response.text
+
+
+def test_cancelar_movimiento_previsto_desde_interfaz() -> None:
+    """Cancela desde el listado un movimiento previsto pendiente."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        movimiento = MovimientoPrevisto(
+            inmueble=inmueble,
+            naturaleza="GASTO",
+            concepto="Recibo de comunidad",
+            importe_esperado=10000,
+            contraparte="Comunidad",
+            estado="PENDIENTE",
+        )
+
+        session.add_all([
+            inmueble,
+            movimiento,
+        ])
+        session.commit()
+
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        (
+            f"/conciliacion/previstos/"
+            f"{movimiento_id}/cancelar"
+        ),
+        data={"estado": "PENDIENTE"},
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "CANCELADO"
 
 
