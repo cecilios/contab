@@ -9,7 +9,7 @@
 
     <p>
         <a href="{{ url_for(
-            'conciliacion.listar_movimientos'
+            'conciliacion.listar_movimientos_bancarios'
         ) }}">
             Movimientos bancarios
         </a>
@@ -62,6 +62,7 @@
                     <th>Origen</th>
                     <th>Importe</th>
                     <th>Estado</th>
+                    <th>Acciones</th>
                 </tr>
             </thead>
 
@@ -101,6 +102,46 @@
                                 movimiento.estado,
                                 movimiento.estado
                             ) }}
+                        </td>
+                        <td>
+                            {% if movimiento.estado == "PENDIENTE" %}
+                                <form
+                                    method="post"
+                                    action="{{ url_for(
+                                        'conciliacion.cancelar_movimiento_previsto_desde_interfaz',
+                                        movimiento_id=movimiento.id
+                                    ) }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="estado"
+                                        value="{{ estado_seleccionado }}"
+                                    >
+
+                                    <button type="submit">
+                                        Cancelar
+                                    </button>
+                                </form>
+
+                            {% elif movimiento.estado == "CANCELADO" %}
+                                <form
+                                    method="post"
+                                    action="{{ url_for(
+                                        'conciliacion.restaurar_movimiento_previsto_desde_interfaz',
+                                        movimiento_id=movimiento.id
+                                    ) }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="estado"
+                                        value="{{ estado_seleccionado }}"
+                                    >
+
+                                    <button type="submit">
+                                        Restaurar
+                                    </button>
+                                </form>
+                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}

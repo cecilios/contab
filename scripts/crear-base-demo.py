@@ -17,6 +17,7 @@ from contab.models import (
     ContratoInquilino,
     Inmueble,
     Inquilino,
+    MovimientoPrevisto,
     RentaContrato,
     RevisionRenta,
 )
@@ -331,6 +332,44 @@ def _crear_contratos_demo(
         registros.extend([inquilino, contrato])
 
     return registros
+
+
+def _crear_movimientos_previstos_demo(
+    inmueble: Inmueble,
+) -> list[MovimientoPrevisto]:
+    """Crea previsiones ficticias para probar la conciliación."""
+
+    return [
+        MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 1),
+            fecha_prevista_hasta=date(2026, 9, 5),
+            naturaleza="INGRESO",
+            concepto="Alquiler Septiembre",
+            importe_esperado=112116,
+            contraparte="Ferretería Demo, S.L.",
+            estado="PENDIENTE",
+        ),
+        MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 10),
+            fecha_prevista_hasta=date(2026, 9, 15),
+            naturaleza="GASTO",
+            concepto="Comunidad Septiembre",
+            importe_esperado=15436,
+            contraparte="Comunidad de propietarios",
+            estado="PENDIENTE",
+        ),
+        MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 6, 10),
+            naturaleza="GASTO",
+            concepto="Seguro póliza 50.878",
+            importe_esperado=10338,
+            contraparte="Aseguradora Demo",
+            estado="CANCELADO",
+        ),
+    ]
 
 
 def _apuntes_local(
@@ -654,20 +693,27 @@ def main() -> None:
             _apuntes_resumen_anual(inmuebles)
         )
 
+        movimientos_previstos = (
+            _crear_movimientos_previstos_demo(
+                inmuebles["alogro"]
+            )
+        )
+
         session.add_all(
             [
                 *inmuebles.values(),
                 *contratos,
                 *apuntes,
+                *movimientos_previstos,
             ]
         )
         session.commit()
 
     print(
         f"Base demo cargada: {args.database}. "
-        f"{len(apuntes)} apuntes creados."
+        f"{len(apuntes)} apuntes y "
+        f"{len(movimientos_previstos)} movimientos previstos creados."
     )
-
 
 if __name__ == "__main__":
     main()

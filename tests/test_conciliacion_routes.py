@@ -36,7 +36,7 @@ def crear_app_test():
     return app
 
 
-def test_formulario_importar_movimientos() -> None:
+def test_formulario_importar_movimientos_bancarios() -> None:
     """Muestra el formulario y el banco configurado."""
 
     app = crear_app_test()
@@ -519,5 +519,138 @@ def test_cancelar_movimiento_previsto_desde_interfaz() -> None:
 
         assert movimiento is not None
         assert movimiento.estado == "CANCELADO"
+
+
+def test_restaurar_movimiento_previsto_desde_interfaz() -> None:
+    """Restaura desde el listado un movimiento previsto cancelado."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        movimiento = MovimientoPrevisto(
+            inmueble=inmueble,
+            naturaleza="GASTO",
+            concepto="Recibo de comunidad",
+            importe_esperado=10000,
+            contraparte="Comunidad",
+            estado="CANCELADO",
+        )
+
+        session.add_all([
+            inmueble,
+            movimiento,
+        ])
+        session.commit()
+
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario restaura el movimiento cancelado.
+    response = client.post(
+        (
+            f"/conciliacion/previstos/"
+            f"{movimiento_id}/restaurar"
+        ),
+        data={"estado": "CANCELADO"},
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "PENDIENTE"
+
+
+def test_acciones_movimientos_previstos_segun_estado() -> None:
+    """Muestra sólo las acciones permitidas para cada estado."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        movimientos = [
+            MovimientoPrevisto(
+                inmueble=inmueble,
+                naturaleza="GASTO",
+                concepto="Movimiento pendiente",
+                importe_esperado=10000,
+                estado="PENDIENTE",
+            ),
+            MovimientoPrevisto(
+                inmueble=inmueble,
+                naturaleza="GASTO",
+                concepto="Movimiento cancelado",
+                importe_esperado=10000,
+                estado="CANCELADO",
+            ),
+            MovimientoPrevisto(
+                inmueble=inmueble,
+                naturaleza="GASTO",
+                concepto="Movimiento parcial",
+                importe_esperado=10000,
+                estado="PARCIAL",
+            ),
+            MovimientoPrevisto(
+                inmueble=inmueble,
+                naturaleza="GASTO",
+                concepto="Movimiento conciliado",
+                importe_esperado=10000,
+                estado="CONCILIADO",
+            ),
+        ]
+
+        session.add(inmueble)
+        session.add_all(movimientos)
+        session.commit()
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario muestra movimientos previstos de todos los estados.
+    response = client.get(
+        "/conciliacion/previstos?estado=TODOS"
+    )
+
+    assert response.status_code == 200
+
+    assert response.text.count("Cancelar") == 1
+    assert response.text.count("Restaurar") == 1
 
 

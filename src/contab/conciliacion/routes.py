@@ -21,8 +21,10 @@ from contab.conciliacion.importacion import (
 )
 from contab.conciliacion.services import (
     ConciliacionError,
+    cancelar_movimiento_previsto,
     descartar_movimiento_bancario,
     restaurar_movimiento_bancario,
+    restaurar_movimiento_previsto,
 )
 from contab.context import (
     get_bank_name,
@@ -84,7 +86,7 @@ def _intervalo_a_texto(
     )
 
 
-def _estado_retorno() -> str:
+def _estado_bancario_retorno() -> str:
     """Obtiene un filtro válido al que regresar."""
 
     estado = request.form.get(
@@ -95,6 +97,23 @@ def _estado_retorno() -> str:
     if estado not in {
         "TODOS",
         *ESTADOS_MOVIMIENTO,
+    }:
+        return "PENDIENTE"
+
+    return estado
+
+
+def _estado_previsto_retorno() -> str:
+    """Obtiene un filtro válido de movimientos previstos al que regresar."""
+
+    estado = request.form.get(
+        "estado",
+        "PENDIENTE",
+    ).strip().upper()
+
+    if estado not in {
+        "TODOS",
+        *ESTADOS_MOVIMIENTO_PREVISTO,
     }:
         return "PENDIENTE"
 
@@ -127,9 +146,8 @@ def _render_formulario_importacion(
     )
 
 
-
 @bp.get("/")
-def listar_movimientos():
+def listar_movimientos_bancarios():
     """Muestra los movimientos bancarios ordenados y paginados."""
 
     estado = request.args.get(
@@ -220,7 +238,7 @@ def listar_movimientos():
 
 
 @bp.route("/importar", methods=["GET", "POST"])
-def importar_movimientos():
+def importar_movimientos_bancarios():
     """Importa los movimientos del banco configurado."""
 
     if request.method == "GET":
@@ -289,7 +307,7 @@ def importar_movimientos():
 
 
 @bp.post("/movimientos/<int:movimiento_id>/descartar")
-def descartar_movimiento(movimiento_id: int):
+def descartar_movimiento_bancario_desde_interfaz(movimiento_id: int):
     """Marca como ajeno a Contab un movimiento pendiente."""
 
     session_factory = get_session_factory()
@@ -317,14 +335,14 @@ def descartar_movimiento(movimiento_id: int):
 
     return redirect(
         url_for(
-            "conciliacion.listar_movimientos",
-            estado=_estado_retorno(),
+            "conciliacion.listar_movimientos_bancarios",
+            estado=_estado_bancario_retorno(),
         )
     )
 
 
 @bp.post("/movimientos/<int:movimiento_id>/restaurar")
-def restaurar_movimiento(movimiento_id: int):
+def restaurar_movimiento_bancario_desde_interfaz(movimiento_id: int):
     """Devuelve a pendiente un movimiento descartado."""
 
     session_factory = get_session_factory()
@@ -352,8 +370,8 @@ def restaurar_movimiento(movimiento_id: int):
 
     return redirect(
         url_for(
-            "conciliacion.listar_movimientos",
-            estado=_estado_retorno(),
+            "conciliacion.listar_movimientos_bancarios",
+            estado=_estado_bancario_retorno(),
         )
     )
 
@@ -446,5 +464,79 @@ def listar_movimientos_previstos():
             intervalo_a_texto=_intervalo_a_texto,
             database_name=get_database_name(),
         )
+
+
+@bp.post("/previstos/<int:movimiento_id>/cancelar")
+def cancelar_movimiento_previsto_desde_interfaz(
+    movimiento_id: int,
+):
+    """Cancela un movimiento previsto todavía pendiente."""
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                movimiento = session.get(
+                    MovimientoPrevisto,
+                    movimiento_id,
+                )
+
+                if movimiento is None:
+                    return (
+                        "Movimiento previsto no encontrado.",
+                        404,
+                    )
+
+                cancelar_movimiento_previsto(
+                    movimiento
+                )
+
+    except ConciliacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "conciliacion.listar_movimientos_previstos",
+            estado=_estado_previsto_retorno(),
+        )
+    )
+
+
+@bp.post("/previstos/<int:movimiento_id>/restaurar")
+def restaurar_movimiento_previsto_desde_interfaz(
+    movimiento_id: int,
+):
+    """Devuelve a pendiente un movimiento previsto cancelado."""
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                movimiento = session.get(
+                    MovimientoPrevisto,
+                    movimiento_id,
+                )
+
+                if movimiento is None:
+                    return (
+                        "Movimiento previsto no encontrado.",
+                        404,
+                    )
+
+                restaurar_movimiento_previsto(
+                    movimiento
+                )
+
+    except ConciliacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "conciliacion.listar_movimientos_previstos",
+            estado=_estado_previsto_retorno(),
+        )
+    )
 
 
