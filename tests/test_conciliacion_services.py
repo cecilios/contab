@@ -6,6 +6,7 @@ from datetime import date
 
 from contab.config import CategoriaContable
 from contab.models import (
+    Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
 )
@@ -14,9 +15,12 @@ from contab.conciliacion.services import (
     ConciliacionError,
     buscar_candidatos_conciliacion,
     cancelar_movimiento_previsto,
+    clasificar_movimiento_bancario,
+    clasificar_movimientos_bancarios,
     crear_movimiento_desde_apunte,
     crear_movimiento_previsto,
     descartar_movimiento_bancario,
+    proponer_conciliacion,
     puntuar_candidato_conciliacion,
     restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
@@ -618,5 +622,826 @@ def test_contraparte_vacia_no_puntua(
     )
 
     assert puntuacion == 0
+
+
+def test_puntuar_candidato_suma_alias_bancario() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 10),
+        naturaleza="GASTO",
+        importe=9999,
+        tipo_original="RECIBO",
+        descripcion_original="C.P. AV. LOGROÑ SEPTIEMBRE",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad Septiembre",
+        importe_esperado=15436,
+        contraparte="Comunidad de propietarios",
+        estado="PENDIENTE",
+    )
+
+    puntuacion = puntuar_candidato_conciliacion(
+        bancario,
+        previsto,
+        aliases=[
+            "C.P. AV. LOGROÑ",
+        ],
+    )
+
+    assert puntuacion == 40
+
+
+def test_puntuar_candidato_suma_alias_una_sola_vez() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 10),
+        naturaleza="GASTO",
+        importe=9999,
+        tipo_original="C.P. AV. LOGROÑ",
+        descripcion_original="CP.AV.LOGROÑO",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad Septiembre",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    puntuacion = puntuar_candidato_conciliacion(
+        bancario,
+        previsto,
+        aliases=[
+            "C.P. AV. LOGROÑ",
+            "CP.AV.LOGROÑO",
+        ],
+    )
+
+    assert puntuacion == 40
+
+
+def test_puntuar_candidato_busca_alias_en_referencia_bancaria() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 10),
+        naturaleza="GASTO",
+        importe=9999,
+        tipo_original="RECIBO",
+        descripcion_original="CUOTA",
+        referencia_bancaria="C.P. AV. LOGROÑ",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad Septiembre",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    assert puntuar_candidato_conciliacion(
+        bancario,
+        previsto,
+        aliases=["C.P. AV. LOGROÑ"],
+    ) == 40
+
+
+def test_buscar_candidatos_aplica_alias_por_inmueble_y_tipo() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 8),
+        naturaleza="GASTO",
+        importe=9999,
+        tipo_original="RECIBO",
+        descripcion_original="C.P. AV. LOGROÑ",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    comunidad = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad Septiembre",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    seguro = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Seguro Septiembre",
+        importe_esperado=10338,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    candidatos = buscar_candidatos_conciliacion(
+        bancario,
+        [
+            seguro,
+            comunidad,
+        ],
+        aliases_configurados=[
+            (
+                "COMUNIDAD",
+                "AVLOGRO",
+                "C.P. AV. LOGROÑ",
+            ),
+            (
+                "SEGURO",
+                "AVLOGRO",
+                "ASEGURADORA",
+            ),
+        ],
+    )
+
+    assert candidatos == [
+        (comunidad, 40),
+        (seguro, 0),
+    ]
+
+
+def test_buscar_candidatos_no_aplica_alias_de_otro_inmueble() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="A1",
+        descripcion="Local 1",
+        direccion="Dirección 1",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 10),
+        naturaleza="GASTO",
+        importe=9999,
+        tipo_original="RECIBO",
+        descripcion_original="C.P. AV. LOGROÑ",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad Septiembre",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    candidatos = buscar_candidatos_conciliacion(
+        bancario,
+        [previsto],
+        aliases_configurados=[
+            (
+                "COMUNIDAD",
+                "OTRO_INMUEBLE",
+                "C.P. AV. LOGROÑ",
+            ),
+        ],
+    )
+
+    assert candidatos == [
+        (previsto, 0),
+    ]
+
+
+def test_buscar_candidatos_no_aplica_alias_de_otro_tipo() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 8),
+        naturaleza="GASTO",
+        importe=9999,
+        tipo_original="RECIBO",
+        descripcion_original="C.P. AV. LOGROÑ",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad Septiembre",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    candidatos = buscar_candidatos_conciliacion(
+        bancario,
+        [previsto],
+        aliases_configurados=[
+            (
+                "ALQUILER",
+                "AVLOGRO",
+                "C.P. AV. LOGROÑ",
+            ),
+        ],
+    )
+
+    assert candidatos == [
+        (previsto, 0),
+    ]
+
+
+def test_proponer_conciliacion_elige_mejor_candidato() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 10),
+        naturaleza="GASTO",
+        importe=15436,
+        tipo_original="RECIBO",
+        descripcion_original="C.P. AV. LOGROÑ",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    mejor = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad Septiembre",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    peor = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Seguro Septiembre",
+        importe_esperado=9999,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    propuesta = proponer_conciliacion(
+        bancario,
+        [peor, mejor],
+        aliases_configurados=[
+            (
+                "COMUNIDAD",
+                "AVLOGRO",
+                "C.P. AV. LOGROÑ",
+            ),
+        ],
+    )
+
+    assert propuesta is mejor
+
+
+def test_proponer_conciliacion_no_propone_candidato_sin_puntuacion() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 10),
+        naturaleza="GASTO",
+        importe=9999,
+        tipo_original="RECIBO",
+        descripcion_original="DESCONOCIDO",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad Septiembre",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    propuesta = proponer_conciliacion(
+        bancario,
+        [previsto],
+    )
+
+    assert propuesta is None
+
+
+def test_proponer_conciliacion_no_decide_un_empate() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 10),
+        naturaleza="GASTO",
+        importe=15436,
+        tipo_original="RECIBO",
+        descripcion_original="",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    primero = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Comunidad septiembre",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    segundo = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Otro gasto",
+        importe_esperado=15436,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    propuesta = proponer_conciliacion(
+        bancario,
+        [primero, segundo],
+    )
+
+    assert propuesta is None
+
+
+def test_proponer_conciliacion_no_propone_solo_por_fecha() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 10),
+        naturaleza="GASTO",
+        importe=9999,
+        tipo_original="RECIBO",
+        descripcion_original="DESCONOCIDO",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 10),
+        fecha_prevista_hasta=date(2026, 9, 10),
+        naturaleza="GASTO",
+        concepto="Suministro",
+        importe_esperado=12345,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    propuesta = proponer_conciliacion(
+        bancario,
+        [previsto],
+    )
+
+    assert propuesta is None
+
+
+def test_proponer_conciliacion_propone_solo_por_importe() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 20),
+        naturaleza="GASTO",
+        importe=12345,
+        tipo_original="RECIBO ENERGIA",
+        descripcion_original="COMERCIALIZADORA DESCONOCIDA",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="Electricidad septiembre",
+        importe_esperado=12345,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    propuesta = proponer_conciliacion(
+        bancario,
+        [previsto],
+    )
+
+    assert propuesta is previsto
+
+
+def test_buscar_candidatos_admite_movimiento_siete_dias_antes() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 8, 25),
+        naturaleza="INGRESO",
+        importe=100000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="ALQUILER SEPTIEMBRE",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=100000,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    candidatos = buscar_candidatos_conciliacion(
+        bancario,
+        [previsto],
+    )
+
+    assert candidatos == [(previsto, 100)]
+
+
+def test_buscar_candidatos_rechaza_movimiento_demasiado_anticipado() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 8, 24),
+        naturaleza="INGRESO",
+        importe=100000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="ALQUILER SEPTIEMBRE",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=100000,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    candidatos = buscar_candidatos_conciliacion(
+        bancario,
+        [previsto],
+    )
+
+    assert candidatos == []
+
+
+def test_buscar_candidatos_admite_movimiento_posterior_a_fecha_prevista() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 20),
+        naturaleza="INGRESO",
+        importe=100000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="ALQUILER SEPTIEMBRE",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=100000,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    candidatos = buscar_candidatos_conciliacion(
+        bancario,
+        [previsto],
+    )
+
+    assert candidatos == [(previsto, 100)]
+
+
+def test_clasificar_movimiento_propone_descarte_por_alias() -> None:
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        importe=2350,
+        tipo_original="PAGO TARJETA",
+        descripcion_original="CAFETERIA EL MODE",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    clasificacion, propuesta = clasificar_movimiento_bancario(
+        bancario,
+        [],
+        aliases_descartar=[
+            "CAFETERIA EL MODE",
+        ],
+    )
+
+    assert clasificacion == "DESCARTAR"
+    assert propuesta is None
+
+
+def test_clasificar_movimiento_sin_evidencia_queda_pendiente() -> None:
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        importe=2350,
+        tipo_original="RECIBO",
+        descripcion_original="DESCONOCIDO",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    clasificacion, propuesta = clasificar_movimiento_bancario(
+        bancario,
+        [],
+        aliases_descartar=[
+            "CAFETERIA EL MODE",
+        ],
+    )
+
+    assert clasificacion == "PENDIENTE"
+    assert propuesta is None
+
+
+def test_clasificar_movimiento_prioriza_conciliacion() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="GASTO",
+        importe=12345,
+        tipo_original="RECIBO",
+        descripcion_original="EMPRESA CONOCIDA",
+        referencia_bancaria="",
+        huella_importacion="bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="Suministro septiembre",
+        importe_esperado=12345,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    clasificacion, propuesta = clasificar_movimiento_bancario(
+        bancario,
+        [previsto],
+        aliases_descartar=[
+            "EMPRESA CONOCIDA",
+        ],
+    )
+
+    assert clasificacion == "CONCILIAR"
+    assert propuesta is previsto
+
+
+def test_clasificar_movimientos_bancarios_agrupa_propuestas() -> None:
+    inmueble = Inmueble(
+        referencia="AVLOGRO",
+        tipo="L",
+        codigo_facturacion="AL",
+        descripcion="Local",
+        direccion="Avenida Logroño",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=100000,
+        contraparte="INQUILINO",
+        estado="PENDIENTE",
+    )
+
+    conciliable = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=100000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="INQUILINO",
+        referencia_bancaria="",
+        huella_importacion="conciliable",
+        estado="PENDIENTE",
+    )
+
+    descartable = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="GASTO",
+        importe=2500,
+        tipo_original="TARJETA",
+        descripcion_original="CAFETERIA EL MODE",
+        referencia_bancaria="",
+        huella_importacion="descartable",
+        estado="PENDIENTE",
+    )
+
+    pendiente = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="GASTO",
+        importe=6789,
+        tipo_original="RECIBO",
+        descripcion_original="DESCONOCIDO",
+        referencia_bancaria="",
+        huella_importacion="pendiente",
+        estado="PENDIENTE",
+    )
+
+    ya_descartado = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="GASTO",
+        importe=1111,
+        tipo_original="TARJETA",
+        descripcion_original="CAFETERIA EL MODE",
+        referencia_bancaria="",
+        huella_importacion="ya-descartado",
+        estado="DESCARTADO",
+    )
+
+    (
+        a_conciliar,
+        a_descartar,
+        pendientes,
+    ) = clasificar_movimientos_bancarios(
+        [
+            conciliable,
+            descartable,
+            pendiente,
+            ya_descartado,
+        ],
+        [previsto],
+        aliases_descartar=[
+            "CAFETERIA EL MODE",
+        ],
+    )
+
+    assert a_conciliar == [
+        (conciliable, previsto),
+    ]
+
+    assert a_descartar == [
+        descartable,
+    ]
+
+    assert pendientes == [
+        pendiente,
+    ]
 
 

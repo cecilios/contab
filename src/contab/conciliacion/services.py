@@ -2,7 +2,7 @@
 
 import unicodedata
 
-from datetime import date
+from datetime import date, timedelta
 
 from contab.models import (
     ApunteContable,
@@ -36,6 +36,45 @@ def _normalizar_texto_conciliacion(
     return " ".join(
         texto.split()
     )
+
+
+def _fecha_compatible_conciliacion(
+    movimiento_bancario: MovimientoBancario,
+    movimiento_previsto: MovimientoPrevisto,
+) -> bool:
+    """Comprueba que el movimiento no llegue excesivamente anticipado."""
+
+    fecha_desde = movimiento_previsto.fecha_prevista_desde
+
+    if fecha_desde is None:
+        return True
+
+    return (
+        movimiento_bancario.fecha
+        >= fecha_desde - timedelta(days=7)
+    )
+
+
+def _aliases_movimiento_previsto(
+    movimiento: MovimientoPrevisto,
+    aliases_configurados: list[tuple[str, str, str]],
+) -> list[str]:
+    """Selecciona los alias aplicables a un movimiento previsto."""
+
+    referencia = movimiento.inmueble.referencia.upper()
+
+    concepto = _normalizar_texto_conciliacion(
+        movimiento.concepto
+    )
+
+    return [
+        alias
+        for tipo, inmueble_ref, alias in aliases_configurados
+        if (
+            inmueble_ref.upper() == referencia
+            and _normalizar_texto_conciliacion(tipo) in concepto
+        )
+    ]
 
 
 def crear_movimiento_previsto(
@@ -226,6 +265,7 @@ def restaurar_movimiento_previsto(
 def puntuar_candidato_conciliacion(
     movimiento_bancario: MovimientoBancario,
     movimiento_previsto: MovimientoPrevisto,
+    aliases: list[str] | None = None,
 ) -> int:
     """Puntúa la posible relación entre dos movimientos pendientes."""
 
@@ -237,6 +277,12 @@ def puntuar_candidato_conciliacion(
 
     if (movimiento_bancario.naturaleza
         != movimiento_previsto.naturaleza
+    ):
+        return 0
+
+    if not _fecha_compatible_conciliacion(
+        movimiento_bancario,
+        movimiento_previsto,
     ):
         return 0
 
@@ -252,8 +298,7 @@ def puntuar_candidato_conciliacion(
         if fecha_hasta is None:
             if movimiento_bancario.fecha == fecha_desde:
                 puntuacion += 20
-        elif (
-            fecha_desde
+        elif (fecha_desde
             <= movimiento_bancario.fecha
             <= fecha_hasta
         ):
@@ -268,6 +313,7 @@ def puntuar_candidato_conciliacion(
             [
                 movimiento_bancario.tipo_original,
                 movimiento_bancario.descripcion_original,
+                movimiento_bancario.referencia_bancaria,
             ]
         )
     )
@@ -277,14 +323,33 @@ def puntuar_candidato_conciliacion(
     ):
         puntuacion += 50
 
+    if aliases:
+        for alias in aliases:
+            alias_normalizado = _normalizar_texto_conciliacion(
+                alias
+            )
+
+            if (alias_normalizado
+                and alias_normalizado != contraparte
+                and alias_normalizado in texto_bancario
+            ):
+                puntuacion += 40
+                break
+
     return puntuacion
 
 
 def buscar_candidatos_conciliacion(
     movimiento_bancario: MovimientoBancario,
     movimientos_previstos: list[MovimientoPrevisto],
+    aliases_configurados: (
+        list[tuple[str, str, str]] | None
+    ) = None,
 ) -> list[tuple[MovimientoPrevisto, int]]:
     """Devuelve las previsiones compatibles ordenadas por puntuación."""
+
+    if aliases_configurados is None:
+        aliases_configurados = []
 
     if movimiento_bancario.estado != "PENDIENTE":
         return []
@@ -301,9 +366,21 @@ def buscar_candidatos_conciliacion(
         ):
             continue
 
+        aliases = _aliases_movimiento_previsto(
+            movimiento_previsto,
+            aliases_configurados,
+        )
+
+        if not _fecha_compatible_conciliacion(
+            movimiento_bancario,
+            movimiento_previsto,
+        ):
+            continue
+
         puntuacion = puntuar_candidato_conciliacion(
             movimiento_bancario,
             movimiento_previsto,
+            aliases=aliases,
         )
 
         candidatos.append(
@@ -316,5 +393,151 @@ def buscar_candidatos_conciliacion(
     )
 
     return candidatos
+
+
+def proponer_conciliacion(
+    movimiento_bancario: MovimientoBancario,
+    movimientos_previstos: list[MovimientoPrevisto],
+    aliases_configurados: (
+        list[tuple[str, str, str]] | None
+    ) = None,
+) -> MovimientoPrevisto | None:
+    """Propone el mejor movimiento previsto cuando hay un candidato claro."""
+
+    candidatos = buscar_candidatos_conciliacion(
+        movimiento_bancario,
+        movimientos_previstos,
+        aliases_configurados=aliases_configurados,
+    )
+
+    if not candidatos:
+        return None
+
+    mejor_movimiento, mejor_puntuacion = candidatos[0]
+
+    if mejor_puntuacion <= 20:
+        return None
+
+    if (
+        len(candidatos) > 1
+        and candidatos[1][1] == mejor_puntuacion
+    ):
+        return None
+
+    return mejor_movimiento
+
+
+def proponer_descarte(
+    movimiento_bancario: MovimientoBancario,
+    aliases_descartar: list[str] | None = None,
+) -> bool:
+    """Indica si un movimiento pendiente parece ajeno a Contab."""
+
+    if movimiento_bancario.estado != "PENDIENTE":
+        return False
+
+    if not aliases_descartar:
+        return False
+
+    texto_bancario = _normalizar_texto_conciliacion(
+        " ".join(
+            [
+                movimiento_bancario.tipo_original,
+                movimiento_bancario.descripcion_original,
+                movimiento_bancario.referencia_bancaria,
+            ]
+        )
+    )
+
+    return any(
+        alias_normalizado
+        and alias_normalizado in texto_bancario
+        for alias in aliases_descartar
+        if (
+            alias_normalizado
+            := _normalizar_texto_conciliacion(alias)
+        )
+    )
+
+
+def clasificar_movimiento_bancario(
+    movimiento_bancario: MovimientoBancario,
+    movimientos_previstos: list[MovimientoPrevisto],
+    aliases_configurados: (
+        list[tuple[str, str, str]] | None
+    ) = None,
+    aliases_descartar: list[str] | None = None,
+) -> tuple[str, MovimientoPrevisto | None]:
+    """Clasifica un movimiento pendiente para su revisión."""
+
+    propuesta = proponer_conciliacion(
+        movimiento_bancario,
+        movimientos_previstos,
+        aliases_configurados=aliases_configurados,
+    )
+
+    if propuesta is not None:
+        return "CONCILIAR", propuesta
+
+    if proponer_descarte(
+        movimiento_bancario,
+        aliases_descartar=aliases_descartar,
+    ):
+        return "DESCARTAR", None
+
+    return "PENDIENTE", None
+
+
+def clasificar_movimientos_bancarios(
+    movimientos_bancarios: list[MovimientoBancario],
+    movimientos_previstos: list[MovimientoPrevisto],
+    aliases_configurados: (
+        list[tuple[str, str, str]] | None
+    ) = None,
+    aliases_descartar: list[str] | None = None,
+) -> tuple[
+    list[tuple[MovimientoBancario, MovimientoPrevisto]],
+    list[MovimientoBancario],
+    list[MovimientoBancario],
+]:
+    """Agrupa los movimientos pendientes según la propuesta automática."""
+
+    a_conciliar = []
+    a_descartar = []
+    pendientes = []
+
+    for movimiento_bancario in movimientos_bancarios:
+        if movimiento_bancario.estado != "PENDIENTE":
+            continue
+
+        clasificacion, propuesta = clasificar_movimiento_bancario(
+            movimiento_bancario,
+            movimientos_previstos,
+            aliases_configurados=aliases_configurados,
+            aliases_descartar=aliases_descartar,
+        )
+
+        if clasificacion == "CONCILIAR":
+            assert propuesta is not None
+
+            a_conciliar.append(
+                (movimiento_bancario, propuesta)
+            )
+
+        elif clasificacion == "DESCARTAR":
+            a_descartar.append(
+                movimiento_bancario
+            )
+
+        else:
+            pendientes.append(
+                movimiento_bancario
+            )
+
+    return (
+        a_conciliar,
+        a_descartar,
+        pendientes,
+    )
 
 

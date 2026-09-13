@@ -5,6 +5,11 @@ from pathlib import Path
 from dataclasses import dataclass
 from sqlalchemy import select
 
+from contab.models import (
+    Inmueble,
+    MovimientoBancario,
+    MovimientoPrevisto,
+)
 from contab.conciliacion.importacion import (
     _crear_huella,
     ImportacionBancariaError,
@@ -14,7 +19,9 @@ from contab.conciliacion.importacion import (
     leer_csv_ibercaja,
     preparar_movimientos_bancarios,
 )
-from contab.models import MovimientoBancario
+from contab.conciliacion.services import (
+    proponer_conciliacion,
+)
 
 
 DATOS_TEST = Path(__file__).parent / "datos"
@@ -307,5 +314,148 @@ def test_leer_csv_bancario_rechaza_banco_desconocido() -> None:
             banco="bbva",
             contenido="",
         )
+
+
+def test_proponer_conciliacion_con_movimiento_real_ibercaja(
+    session,
+) -> None:
+    """Propone un alquiler real aunque llegue fuera de la fecha prevista."""
+
+    contenido = (
+        DATOS_TEST / "movimientos-ibercaja.csv"
+    ).read_text(encoding="utf-8")
+
+    importados = leer_csv_ibercaja(contenido)
+
+    bancarios = preparar_movimientos_bancarios(
+        session=session,
+        movimientos=importados,
+    )
+
+    bancario = next(
+        movimiento
+        for movimiento in bancarios
+        if "JOSE JIMENEZ JAMARILLO"
+        in movimiento.descripcion_original
+        and movimiento.fecha == date(2026, 9, 7)
+    )
+
+    inmueble = Inmueble(
+        referencia="MARISCAL",
+        tipo="V",
+        codigo_facturacion="MR",
+        descripcion="Piso Mariscal Ramos",
+        direccion="Mariscal Ramos 15",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    alquiler_jose = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=167214,
+        contraparte="JOSE JIMENEZ JAMARILLO",
+        estado="PENDIENTE",
+    )
+
+    otro_alquiler = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="INGRESO",
+        concepto="Otro alquiler septiembre",
+        importe_esperado=160000,
+        contraparte="OTRO INQUILINO",
+        estado="PENDIENTE",
+    )
+
+    propuesta = proponer_conciliacion(
+        bancario,
+        [
+            otro_alquiler,
+            alquiler_jose,
+        ],
+    )
+
+    assert propuesta is alquiler_jose
+
+
+def test_proponer_conciliacion_con_alias_real_ibercaja(
+    session,
+) -> None:
+    """Propone una comunidad real reconocida mediante alias."""
+
+    contenido = (
+        DATOS_TEST / "movimientos-ibercaja.csv"
+    ).read_text(encoding="utf-8")
+
+    importados = leer_csv_ibercaja(contenido)
+
+    bancarios = preparar_movimientos_bancarios(
+        session=session,
+        movimientos=importados,
+    )
+
+    bancario = next(
+        movimiento
+        for movimiento in bancarios
+        if (
+            movimiento.fecha == date(2026, 9, 1)
+            and "C.P. MARISCAL RAMOS"
+            in movimiento.descripcion_original
+        )
+    )
+
+    inmueble = Inmueble(
+        referencia="MARISCAL",
+        tipo="V",
+        codigo_facturacion="MR",
+        descripcion="Piso Mariscal Ramos",
+        direccion="Mariscal Ramos 15",
+        poblacion="Madrid",
+        provincia="Madrid",
+    )
+
+    comunidad_mariscal = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="Comunidad septiembre",
+        importe_esperado=19257,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    otro_gasto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="Seguro septiembre",
+        importe_esperado=19257,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    propuesta = proponer_conciliacion(
+        bancario,
+        [
+            otro_gasto,
+            comunidad_mariscal,
+        ],
+        aliases_configurados=[
+            (
+                "COMUNIDAD",
+                "MARISCAL",
+                "C.P. MARISCAL RAMOS",
+            ),
+        ],
+    )
+
+    assert propuesta is comunidad_mariscal
 
 
