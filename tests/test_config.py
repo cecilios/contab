@@ -6,6 +6,7 @@ from contab.config import (
     CategoriaContable,
     ConfigError,
     SubcategoriaContable,
+    cargar_alias_conciliacion,
     cargar_bancos,
     cargar_bases_datos,
     cargar_categorias_contables,
@@ -14,7 +15,6 @@ from contab.config import (
     ruta_configuracion,
     validar_clasificacion_contable,
 )
-
 
 
 def test_cargar_bases_datos_lee_una_base(tmp_path: Path) -> None:
@@ -402,4 +402,124 @@ cliente = IBERCAJA
         match="hermana",
     ):
         cargar_bancos(ruta)
+
+
+def test_cargar_alias_conciliacion(
+    tmp_path: Path,
+) -> None:
+    """Carga los alias de conciliación agrupados por base de datos."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[databases]
+demo = sqlite:///demo.db
+principal = sqlite:///contab.db
+
+[conciliacion:demo:comunidad:AVLOGRO]
+alias =
+    C.P. AV. LOGROÑ
+    CP.AV.LOGROÑO
+    C.P. AVENIDA LO
+
+[conciliacion:demo:alquiler:AVLOGRO]
+alias =
+    FRUTERIAS EL
+    GERARDO LOPEZ
+
+[conciliacion:principal:alquiler:OTRO]
+alias =
+    OTRO INQUILINO
+""".strip(),
+        encoding="utf-8",
+    )
+
+    aliases = cargar_alias_conciliacion(ruta)
+
+    assert aliases == {
+        "demo": [
+            (
+                "COMUNIDAD",
+                "AVLOGRO",
+                "C.P. AV. LOGROÑ",
+            ),
+            (
+                "COMUNIDAD",
+                "AVLOGRO",
+                "CP.AV.LOGROÑO",
+            ),
+            (
+                "COMUNIDAD",
+                "AVLOGRO",
+                "C.P. AVENIDA LO",
+            ),
+            (
+                "ALQUILER",
+                "AVLOGRO",
+                "FRUTERIAS EL",
+            ),
+            (
+                "ALQUILER",
+                "AVLOGRO",
+                "GERARDO LOPEZ",
+            ),
+        ],
+        "principal": [
+            (
+                "ALQUILER",
+                "OTRO",
+                "OTRO INQUILINO",
+            ),
+        ],
+    }
+
+
+def test_cargar_alias_conciliacion_rechaza_base_desconocida(
+    tmp_path: Path,
+) -> None:
+    """Un alias debe pertenecer a una base de datos configurada."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[databases]
+demo = sqlite:///demo.db
+
+[conciliacion:inexistente:alquiler:AVLOGRO]
+alias =
+    GERARDO LOPEZ
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="inexistente",
+    ):
+        cargar_alias_conciliacion(ruta)
+
+
+def test_cargar_alias_conciliacion_rechaza_alias_vacios(
+    tmp_path: Path,
+) -> None:
+    """Una sección de conciliación debe contener algún alias."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[databases]
+demo = sqlite:///demo.db
+
+[conciliacion:demo:alquiler:AVLOGRO]
+alias =
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="ningún alias",
+    ):
+        cargar_alias_conciliacion(ruta)
+
 

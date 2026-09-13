@@ -456,3 +456,74 @@ def cargar_bancos(
     return bancos
 
 
+def cargar_alias_conciliacion(
+    ruta: str | Path | None = None,
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Carga los alias temporales usados para proponer conciliaciones."""
+
+    if ruta is None:
+        ruta = ruta_configuracion()
+
+    ruta = Path(ruta)
+
+    bases_datos = cargar_bases_datos(ruta)
+
+    config = ConfigParser(interpolation=None)
+
+    if not config.read(ruta, encoding="utf-8"):
+        raise ConfigError(
+            f"No se pudo leer el archivo de configuración: {ruta}"
+        )
+
+    resultado: dict[str, list[tuple[str, str, str]]] = {}
+
+    for seccion in config.sections():
+        if not seccion.lower().startswith("conciliacion:"):
+            continue
+
+        partes = [
+            parte.strip()
+            for parte in seccion.split(":")
+        ]
+
+        if len(partes) != 4:
+            raise ConfigError(
+                f"La sección [{seccion}] no tiene un formato válido."
+            )
+
+        _, base_datos, tipo, inmueble_ref = partes
+
+        base_datos = base_datos.lower()
+        tipo = tipo.upper()
+        inmueble_ref = inmueble_ref.upper()
+
+        if base_datos not in bases_datos:
+            raise ConfigError(
+                f"La sección [{seccion}] corresponde a "
+                f"la base de datos inexistente {base_datos}."
+            )
+
+        aliases = [
+            linea.strip()
+            for linea in config[seccion].get("alias", "").splitlines()
+            if linea.strip()
+        ]
+
+        if not aliases:
+            raise ConfigError(
+                f"La sección [{seccion}] no contiene ningún alias."
+            )
+
+        resultado.setdefault(
+            base_datos,
+            [],
+        ).extend(
+            (
+                tipo,
+                inmueble_ref,
+                alias,
+            )
+            for alias in aliases
+        )
+
+    return resultado
