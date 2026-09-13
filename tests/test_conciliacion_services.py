@@ -5,21 +5,20 @@ import pytest
 from datetime import date
 
 from contab.config import CategoriaContable
-from contab.contabilidad.services import crear_apunte_contable
-from contab.conciliacion.services import (
-    ConciliacionError,
-    descartar_movimiento_bancario,
-    restaurar_movimiento_bancario,
-)
 from contab.models import (
     MovimientoBancario,
     MovimientoPrevisto,
 )
+from contab.contabilidad.services import crear_apunte_contable
 from contab.conciliacion.services import (
     ConciliacionError,
+    buscar_candidatos_conciliacion,
     cancelar_movimiento_previsto,
     crear_movimiento_desde_apunte,
     crear_movimiento_previsto,
+    descartar_movimiento_bancario,
+    puntuar_candidato_conciliacion,
+    restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
 )
 
@@ -439,5 +438,185 @@ def test_no_permite_restaurar_movimiento_previsto_no_cancelado(
         )
 
     assert movimiento.estado == "PENDIENTE"
+
+
+def test_puntuar_candidato_conciliacion(
+    inmueble,
+) -> None:
+    """Valora importe exacto y fecha prevista."""
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=112116,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Alquiler",
+        referencia_bancaria="",
+        huella_importacion="c" * 64,
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=112116,
+        contraparte="Inquilino",
+        estado="PENDIENTE",
+    )
+
+    puntuacion = puntuar_candidato_conciliacion(
+        bancario,
+        previsto,
+    )
+
+    assert puntuacion == 120
+
+
+def test_buscar_candidatos_conciliacion(
+    inmueble,
+) -> None:
+    """Ordena las previsiones pendientes compatibles."""
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=112116,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Alquiler",
+        referencia_bancaria="",
+        huella_importacion="d" * 64,
+        estado="PENDIENTE",
+    )
+
+    importe_exacto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler exacto",
+        importe_esperado=112116,
+        estado="PENDIENTE",
+    )
+
+    fecha_compatible = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        naturaleza="INGRESO",
+        concepto="Alquiler con otro importe",
+        importe_esperado=100000,
+        estado="PENDIENTE",
+    )
+
+    sin_coincidencias = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Otro alquiler",
+        importe_esperado=80000,
+        estado="PENDIENTE",
+    )
+
+    cancelado = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Cancelado",
+        importe_esperado=112116,
+        estado="CANCELADO",
+    )
+
+    gasto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Recibo",
+        importe_esperado=112116,
+        estado="PENDIENTE",
+    )
+
+    candidatos = buscar_candidatos_conciliacion(
+        bancario,
+        [
+            sin_coincidencias,
+            fecha_compatible,
+            cancelado,
+            gasto,
+            importe_exacto,
+        ],
+    )
+
+    assert candidatos == [
+        (importe_exacto, 100),
+        (fecha_compatible, 20),
+        (sin_coincidencias, 0),
+    ]
+
+
+def test_puntuar_candidato_por_contraparte(
+    inmueble,
+) -> None:
+    """Reconoce la contraparte aunque cambien mayúsculas y tildes."""
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=160000,
+        tipo_original="TRANSFERENCIA OTRA ENTIDAD",
+        descripcion_original=(
+            "BARBARA BONITA BARCENAS 11222333Y "
+            "Piso septiembre"
+        ),
+        referencia_bancaria="",
+        huella_importacion="e" * 64,
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=150000,
+        contraparte="Bárbara Bonita Barcenas",
+        estado="PENDIENTE",
+    )
+
+    puntuacion = puntuar_candidato_conciliacion(
+        bancario,
+        previsto,
+    )
+
+    assert puntuacion == 50
+
+
+def test_contraparte_vacia_no_puntua(
+    inmueble,
+) -> None:
+    """Una contraparte vacía no coincide con cualquier texto."""
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=10000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="PAGO",
+        referencia_bancaria="",
+        huella_importacion="f" * 64,
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Ingreso",
+        importe_esperado=20000,
+        contraparte="",
+        estado="PENDIENTE",
+    )
+
+    puntuacion = puntuar_candidato_conciliacion(
+        bancario,
+        previsto,
+    )
+
+    assert puntuacion == 0
 
 

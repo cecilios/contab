@@ -1,5 +1,7 @@
 """Implementa la lógica de negocio de la conciliación bancaria."""
 
+import unicodedata
+
 from datetime import date
 
 from contab.models import (
@@ -13,6 +15,27 @@ from contab.models import (
 
 class ConciliacionError(Exception):
     """Indica que no puede crearse un movimiento previsto válido."""
+
+
+def _normalizar_texto_conciliacion(
+    texto: str | None,
+) -> str:
+    """Normaliza texto para comparaciones sencillas de conciliación."""
+
+    if not texto:
+        return ""
+
+    texto = texto.upper()
+
+    texto = "".join(
+        caracter
+        for caracter in unicodedata.normalize("NFD", texto)
+        if unicodedata.category(caracter) != "Mn"
+    )
+
+    return " ".join(
+        texto.split()
+    )
 
 
 def crear_movimiento_previsto(
@@ -198,5 +221,100 @@ def restaurar_movimiento_previsto(
     movimiento.estado = "PENDIENTE"
 
     return movimiento
+
+
+def puntuar_candidato_conciliacion(
+    movimiento_bancario: MovimientoBancario,
+    movimiento_previsto: MovimientoPrevisto,
+) -> int:
+    """Puntúa la posible relación entre dos movimientos pendientes."""
+
+    if movimiento_bancario.estado != "PENDIENTE":
+        return 0
+
+    if movimiento_previsto.estado != "PENDIENTE":
+        return 0
+
+    if (movimiento_bancario.naturaleza
+        != movimiento_previsto.naturaleza
+    ):
+        return 0
+
+    puntuacion = 0
+
+    if movimiento_bancario.importe == movimiento_previsto.importe_esperado:
+        puntuacion += 100
+
+    fecha_desde = movimiento_previsto.fecha_prevista_desde
+    fecha_hasta = movimiento_previsto.fecha_prevista_hasta
+
+    if fecha_desde is not None:
+        if fecha_hasta is None:
+            if movimiento_bancario.fecha == fecha_desde:
+                puntuacion += 20
+        elif (
+            fecha_desde
+            <= movimiento_bancario.fecha
+            <= fecha_hasta
+        ):
+            puntuacion += 20
+
+    contraparte = _normalizar_texto_conciliacion(
+        movimiento_previsto.contraparte
+    )
+
+    texto_bancario = _normalizar_texto_conciliacion(
+        " ".join(
+            [
+                movimiento_bancario.tipo_original,
+                movimiento_bancario.descripcion_original,
+            ]
+        )
+    )
+
+    if (contraparte
+        and contraparte in texto_bancario
+    ):
+        puntuacion += 50
+
+    return puntuacion
+
+
+def buscar_candidatos_conciliacion(
+    movimiento_bancario: MovimientoBancario,
+    movimientos_previstos: list[MovimientoPrevisto],
+) -> list[tuple[MovimientoPrevisto, int]]:
+    """Devuelve las previsiones compatibles ordenadas por puntuación."""
+
+    if movimiento_bancario.estado != "PENDIENTE":
+        return []
+
+    candidatos = []
+
+    for movimiento_previsto in movimientos_previstos:
+        if movimiento_previsto.estado != "PENDIENTE":
+            continue
+
+        if (
+            movimiento_previsto.naturaleza
+            != movimiento_bancario.naturaleza
+        ):
+            continue
+
+        puntuacion = puntuar_candidato_conciliacion(
+            movimiento_bancario,
+            movimiento_previsto,
+        )
+
+        candidatos.append(
+            (movimiento_previsto, puntuacion)
+        )
+
+    candidatos.sort(
+        key=lambda candidato: candidato[1],
+        reverse=True,
+    )
+
+    return candidatos
 
 

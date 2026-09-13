@@ -322,7 +322,7 @@ Documentation roles
 -------------------
 
 - docs/PROJECT.md: user-facing scope and principles.
-- docs/Ajustes-contables.md: accounting-entry behavior.
+- docs/Apuntes-contables.md: accounting-entry behavior.
 - docs/Conciliacion.md: Reconciliation design and behavior.
 - docs/Importacion-bancaria.md: Bank data import and behavior.
 - docs/Informes-contables.md: accounting-reporting behavior and situation.
