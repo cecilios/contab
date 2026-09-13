@@ -3,7 +3,6 @@
 
 import argparse
 from datetime import date
-
 from sqlalchemy import inspect, select
 
 from contab.config import cargar_bases_datos
@@ -20,6 +19,9 @@ from contab.models import (
     MovimientoPrevisto,
     RentaContrato,
     RevisionRenta,
+)
+from contab.conciliacion.services import (
+    crear_movimiento_desde_apunte,
 )
 
 
@@ -334,42 +336,120 @@ def _crear_contratos_demo(
     return registros
 
 
-def _crear_movimientos_previstos_demo(
-    inmueble: Inmueble,
-) -> list[MovimientoPrevisto]:
-    """Crea previsiones ficticias para probar la conciliación."""
+def _crear_datos_conciliacion_demo(
+    inmuebles: dict[str, Inmueble],
+) -> tuple[
+    list[ApunteContable],
+    list[MovimientoPrevisto],
+]:
+    """Crea casos que pueden conciliarse con el CSV demo de Ibercaja."""
 
-    return [
-        MovimientoPrevisto(
-            inmueble=inmueble,
-            fecha_prevista_desde=date(2026, 9, 1),
-            fecha_prevista_hasta=date(2026, 9, 5),
-            naturaleza="INGRESO",
-            concepto="Alquiler Septiembre",
-            importe_esperado=112116,
-            contraparte="Ferretería Demo, S.L.",
-            estado="PENDIENTE",
-        ),
-        MovimientoPrevisto(
-            inmueble=inmueble,
-            fecha_prevista_desde=date(2026, 9, 10),
-            fecha_prevista_hasta=date(2026, 9, 15),
-            naturaleza="GASTO",
-            concepto="Comunidad Septiembre",
-            importe_esperado=15436,
-            contraparte="Comunidad de propietarios",
-            estado="PENDIENTE",
-        ),
-        MovimientoPrevisto(
-            inmueble=inmueble,
-            fecha_prevista_desde=date(2026, 6, 10),
-            naturaleza="GASTO",
-            concepto="Seguro póliza 50.878",
-            importe_esperado=10338,
-            contraparte="Aseguradora Demo",
-            estado="CANCELADO",
-        ),
+    apunte_jose = _ingreso(
+        inmuebles["piso"],
+        mes=9,
+        concepto="Alquiler septiembre José Jiménez",
+        base=167214,
+        iva=0,
+        retencion=0,
+    )
+    apunte_jose.tercero_nombre = "JOSE JIMENEZ JAMARILLO"
+
+    previsto_jose = crear_movimiento_desde_apunte(
+        apunte=apunte_jose,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        contraparte="JOSE JIMENEZ JAMARILLO",
+    )
+
+    apunte_barbara = _ingreso(
+        inmuebles["apartamento"],
+        mes=9,
+        concepto="Alquiler septiembre Bárbara Bonita",
+        base=160000,
+        iva=0,
+        retencion=0,
+    )
+    apunte_barbara.tercero_nombre = "BARBARA BONITA BARCENAS"
+
+    previsto_barbara = crear_movimiento_desde_apunte(
+        apunte=apunte_barbara,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        contraparte="BARBARA BONITA BARCENAS",
+    )
+
+    apunte_comunidad = _gasto(
+        inmuebles["alogro"],
+        mes=9,
+        concepto="Comunidad Mariscal Ramos septiembre",
+        base=19257,
+        categoria="GAS_COMUNIDAD",
+    )
+    apunte_comunidad.tercero_nombre = "C.P. MARISCAL RAMOS"
+
+    previsto_comunidad = crear_movimiento_desde_apunte(
+        apunte=apunte_comunidad,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 5),
+        contraparte="C.P. MARISCAL RAMOS",
+    )
+
+    apunte_reparacion = _gasto(
+        inmuebles["alogro"],
+        mes=8,
+        concepto="Reparación Moncada 7",
+        base=9075,
+        categoria="GAS_REPARACIONES",
+    )
+    apunte_reparacion.tercero_nombre = (
+        "INSTALACIONES GOMEZ, S.L."
+    )
+
+    previsto_reparacion = crear_movimiento_desde_apunte(
+        apunte=apunte_reparacion,
+        fecha_prevista_desde=date(2026, 8, 5),
+        fecha_prevista_hasta=date(2026, 8, 5),
+        contraparte="INSTALACIONES GOMEZ, S.L.",
+    )
+
+    # Esta previsión no tiene correspondencia en el CSV.
+    # Sirve para comprobar que una previsión pendiente no provoca
+    # por sí sola una conciliación incorrecta.
+    apunte_sin_correspondencia = _gasto(
+        inmuebles["alogro"],
+        mes=9,
+        concepto="Reparación pendiente sin movimiento bancario",
+        base=8765,
+        categoria="GAS_REPARACIONES",
+    )
+    apunte_sin_correspondencia.tercero_nombre = (
+        "PROVEEDOR SIN MOVIMIENTO"
+    )
+
+    previsto_sin_correspondencia = crear_movimiento_desde_apunte(
+        apunte=apunte_sin_correspondencia,
+        fecha_prevista_desde=date(2026, 9, 10),
+        fecha_prevista_hasta=date(2026, 9, 15),
+        contraparte="PROVEEDOR SIN MOVIMIENTO",
+    )
+
+    apuntes = [
+        apunte_jose,
+        apunte_barbara,
+        apunte_comunidad,
+        apunte_reparacion,
+        apunte_sin_correspondencia,
     ]
+
+    movimientos_previstos = [
+        previsto_jose,
+        previsto_barbara,
+        previsto_comunidad,
+        previsto_reparacion,
+        previsto_sin_correspondencia,
+    ]
+
+    return apuntes, movimientos_previstos
 
 
 def _apuntes_local(
@@ -693,10 +773,15 @@ def main() -> None:
             _apuntes_resumen_anual(inmuebles)
         )
 
-        movimientos_previstos = (
-            _crear_movimientos_previstos_demo(
-                inmuebles["alogro"]
-            )
+        (
+            apuntes_conciliacion,
+            movimientos_previstos,
+        ) = _crear_datos_conciliacion_demo(
+            inmuebles
+        )
+
+        apuntes.extend(
+            apuntes_conciliacion
         )
 
         session.add_all(

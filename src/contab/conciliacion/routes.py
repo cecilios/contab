@@ -2,9 +2,11 @@
 
 from flask import (
     Blueprint,
+    current_app,
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 from sqlalchemy import func, select
@@ -22,6 +24,7 @@ from contab.conciliacion.importacion import (
 from contab.conciliacion.services import (
     ConciliacionError,
     cancelar_movimiento_previsto,
+    clasificar_movimientos_bancarios,
     descartar_movimiento_bancario,
     restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
@@ -144,6 +147,118 @@ def _render_formulario_importacion(
         resultado=resultado,
         database_name=get_database_name(),
     )
+
+
+def _movimientos_rechazados_revision() -> set[int]:
+    """Obtiene los movimientos excluidos de la revisión actual."""
+
+    database_name = get_database_name()
+
+    rechazados_por_base = session.get(
+        "conciliacion_rechazados",
+        {},
+    )
+
+    return set(
+        rechazados_por_base.get(
+            database_name,
+            [],
+        )
+    )
+
+
+
+@bp.get("/revisar")
+def revisar_conciliacion():
+    """Muestra las propuestas automáticas antes de confirmarlas."""
+
+    database_name = get_database_name()
+
+    aliases_por_base = current_app.extensions.get(
+        "contab_alias_conciliacion",
+        {},
+    )
+    aliases_configurados = aliases_por_base.get(
+        database_name,
+        [],
+    )
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        movimientos_bancarios = session.scalars(
+            select(MovimientoBancario)
+            .where(
+                MovimientoBancario.estado == "PENDIENTE"
+            )
+            .order_by(
+                MovimientoBancario.fecha.desc(),
+                MovimientoBancario.id.desc(),
+            )
+        ).all()
+
+        movimientos_previstos = session.scalars(
+            select(MovimientoPrevisto)
+            .options(
+                joinedload(MovimientoPrevisto.inmueble)
+            )
+            .where(
+                MovimientoPrevisto.estado == "PENDIENTE"
+            )
+            .order_by(
+                MovimientoPrevisto.fecha_prevista_desde,
+                MovimientoPrevisto.id,
+            )
+        ).all()
+
+        (
+            a_conciliar,
+            a_descartar,
+            pendientes,
+        ) = clasificar_movimientos_bancarios(
+            movimientos_bancarios,
+            movimientos_previstos,
+            aliases_configurados=aliases_configurados,
+        )
+
+        rechazados = _movimientos_rechazados_revision()
+
+        a_conciliar = [
+            (bancario, previsto)
+            for bancario, previsto in a_conciliar
+            if bancario.id not in rechazados
+        ]
+
+        a_descartar = [
+            bancario
+            for bancario in a_descartar
+            if bancario.id not in rechazados
+        ]
+
+        pendientes_ids = {
+            movimiento.id
+            for movimiento in pendientes
+        }
+
+        pendientes_ids.update(
+            rechazados
+        )
+
+        pendientes = [
+            movimiento
+            for movimiento in movimientos_bancarios
+            if movimiento.id in pendientes_ids
+        ]
+
+        return render_template(
+            "conciliacion/revisar.html",
+            a_conciliar=a_conciliar,
+            a_descartar=a_descartar,
+            pendientes=pendientes,
+            importe_a_texto=_importe_a_texto,
+            intervalo_a_texto=_intervalo_a_texto,
+            database_name=database_name,
+        )
 
 
 @bp.get("/")
@@ -536,6 +651,67 @@ def restaurar_movimiento_previsto_desde_interfaz(
         url_for(
             "conciliacion.listar_movimientos_previstos",
             estado=_estado_previsto_retorno(),
+        )
+    )
+
+
+@bp.post("/revisar/<int:movimiento_id>/dejar-pendiente")
+def dejar_movimiento_pendiente_revision(
+    movimiento_id: int,
+):
+    """Rechaza una propuesta automática durante la revisión actual."""
+
+    session_factory = get_session_factory()
+
+    with session_factory() as db_session:
+        movimiento = db_session.get(
+            MovimientoBancario,
+            movimiento_id,
+        )
+
+        if movimiento is None:
+            return (
+                "Movimiento bancario no encontrado.",
+                404,
+            )
+
+        if movimiento.estado != "PENDIENTE":
+            return (
+                "El movimiento bancario ya no está pendiente.",
+                400,
+            )
+
+    database_name = get_database_name()
+
+    rechazados_por_base = dict(
+        session.get(
+            "conciliacion_rechazados",
+            {},
+        )
+    )
+
+    rechazados = set(
+        rechazados_por_base.get(
+            database_name,
+            [],
+        )
+    )
+
+    rechazados.add(
+        movimiento_id
+    )
+
+    rechazados_por_base[
+        database_name
+    ] = sorted(rechazados)
+
+    session[
+        "conciliacion_rechazados"
+    ] = rechazados_por_base
+
+    return redirect(
+        url_for(
+            "conciliacion.revisar_conciliacion"
         )
     )
 

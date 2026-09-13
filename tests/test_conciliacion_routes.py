@@ -654,3 +654,133 @@ def test_acciones_movimientos_previstos_segun_estado() -> None:
     assert response.text.count("Restaurar") == 1
 
 
+def test_revisar_conciliacion_clasifica_movimientos() -> None:
+    """Muestra propuestas y pendientes sin modificar sus estados."""
+
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+        bancos={
+            "test": "IBERCAJA",
+        },
+        aliases_conciliacion={
+            "test": [
+                (
+                    "COMUNIDAD",
+                    "LOCAL-1",
+                    "C.P. LOCAL PRUEBA",
+                ),
+            ],
+        },
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        previsto = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 1),
+            fecha_prevista_hasta=date(2026, 9, 5),
+            naturaleza="GASTO",
+            concepto="Comunidad septiembre",
+            importe_esperado=10000,
+            contraparte="",
+            estado="PENDIENTE",
+        )
+
+        conciliable = MovimientoBancario(
+            fecha=date(2026, 9, 2),
+            naturaleza="GASTO",
+            importe=10000,
+            tipo_original="RECIBO",
+            descripcion_original="C.P. LOCAL PRUEBA",
+            referencia_bancaria="",
+            huella_importacion="a" * 64,
+            estado="PENDIENTE",
+        )
+
+        pendiente = MovimientoBancario(
+            fecha=date(2026, 9, 2),
+            naturaleza="GASTO",
+            importe=54321,
+            tipo_original="RECIBO",
+            descripcion_original="MOVIMIENTO DESCONOCIDO",
+            referencia_bancaria="",
+            huella_importacion="b" * 64,
+            estado="PENDIENTE",
+        )
+
+        session.add_all([
+            inmueble,
+            previsto,
+            conciliable,
+            pendiente,
+        ])
+        session.commit()
+
+        conciliable_id = conciliable.id
+        pendiente_id = pendiente.id
+        previsto_id = previsto.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario abre la revisión automática de conciliación.
+    response = client.get(
+        "/conciliacion/revisar"
+    )
+
+    assert response.status_code == 200
+    assert "Revisar conciliación" in response.text
+    assert "Propuestas de conciliación" in response.text
+    assert "Comunidad septiembre" in response.text
+    assert "LOCAL-1" in response.text
+    assert "MOVIMIENTO DESCONOCIDO" in response.text
+    assert "Pendientes" in response.text
+
+    # Abrir la revisión no confirma ni descarta nada.
+    with session_factory() as session:
+        conciliable = session.get(
+            MovimientoBancario,
+            conciliable_id,
+        )
+        pendiente = session.get(
+            MovimientoBancario,
+            pendiente_id,
+        )
+        previsto = session.get(
+            MovimientoPrevisto,
+            previsto_id,
+        )
+
+        assert conciliable is not None
+        assert pendiente is not None
+        assert previsto is not None
+
+        assert conciliable.estado == "PENDIENTE"
+        assert pendiente.estado == "PENDIENTE"
+        assert previsto.estado == "PENDIENTE"
+
+

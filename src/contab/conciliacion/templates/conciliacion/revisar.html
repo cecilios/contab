@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Revisar conciliación - Contab{% endblock %}
+
+{% block content %}
+    <h1>Revisar conciliación</h1>
+
+    <p>
+        Las propuestas mostradas todavía no modifican
+        los movimientos bancarios ni los previstos.
+    </p>
+
+    <p class="enlaces-acciones">
+        <a href="{{ url_for(
+            'conciliacion.listar_movimientos_bancarios'
+        ) }}">
+            Movimientos bancarios
+        </a>
+
+        <a href="{{ url_for(
+            'conciliacion.listar_movimientos_previstos'
+        ) }}">
+            Movimientos previstos
+        </a>
+    </p>
+
+    <h2>Propuestas de conciliación</h2>
+
+    {% if a_conciliar %}
+        <table class="movimientos-bancarios">
+            <thead>
+                <tr>
+                    <th>Fecha banco</th>
+                    <th>Movimiento bancario</th>
+                    <th>Importe</th>
+                    <th>Movimiento previsto</th>
+                    <th>Inmueble</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for bancario, previsto in a_conciliar %}
+                    <tr>
+                        <td>
+                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
+                        </td>
+
+                        <td>
+                            {{ bancario.descripcion_original }}
+                        </td>
+
+                        <td>
+                            {{ importe_a_texto(bancario.importe) }}
+                        </td>
+
+                        <td>
+                            {{ previsto.concepto }}
+                            <br>
+                            <small>
+                                {{ intervalo_a_texto(previsto) }}
+                            </small>
+                        </td>
+
+                        <td>
+                            {{ previsto.inmueble.referencia }}
+                        </td>
+                        <td>
+                            <form
+                                method="post"
+                                action="{{ url_for(
+                                    'conciliacion.dejar_movimiento_pendiente_revision',
+                                    movimiento_id=bancario.id
+                                ) }}"
+                            >
+                                <button type="submit">
+                                    Dejar pendiente
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No hay propuestas de conciliación.</p>
+    {% endif %}
+
+    <h2>Propuestas de descarte</h2>
+
+    {% if a_descartar %}
+        <table class="movimientos-bancarios">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Movimiento bancario</th>
+                    <th>Importe</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for bancario in a_descartar %}
+                    <tr>
+                        <td>
+                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
+                        </td>
+
+                        <td>
+                            {{ bancario.descripcion_original }}
+                        </td>
+
+                        <td>
+                            {{ importe_a_texto(bancario.importe) }}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No hay propuestas de descarte.</p>
+    {% endif %}
+
+    <h2>Pendientes</h2>
+
+    {% if pendientes %}
+        <table class="movimientos-bancarios">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Movimiento bancario</th>
+                    <th>Importe</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for bancario in pendientes %}
+                    <tr>
+                        <td>
+                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
+                        </td>
+
+                        <td>
+                            {{ bancario.descripcion_original }}
+                        </td>
+
+                        <td>
+                            {{ importe_a_texto(bancario.importe) }}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No hay movimientos pendientes de resolver.</p>
+    {% endif %}
+{% endblock %}
