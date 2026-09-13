@@ -53,3 +53,85 @@ test = IBERCAJA
     }
 
 
+def test_create_app_carga_alias_conciliacion_configurados(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Carga los alias de conciliación configurados."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[app]
+secret_key = clave-test
+
+[databases]
+test = sqlite:///:memory:
+
+[bancos]
+test = IBERCAJA
+
+[conciliacion:test:comunidad:AVLOGRO]
+alias =
+    C.P. AV. LOGROÑ
+    CP.AV.LOGROÑO
+
+[conciliacion:test:alquiler:AVLOGRO]
+alias =
+    GERARDO LOPEZ
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = create_app()
+
+    assert app.extensions["contab_alias_conciliacion"] == {
+        "test": [
+            (
+                "COMUNIDAD",
+                "AVLOGRO",
+                "C.P. AV. LOGROÑ",
+            ),
+            (
+                "COMUNIDAD",
+                "AVLOGRO",
+                "CP.AV.LOGROÑO",
+            ),
+            (
+                "ALQUILER",
+                "AVLOGRO",
+                "GERARDO LOPEZ",
+            ),
+        ],
+    }
+
+
+def test_create_app_acepta_alias_conciliacion_inyectados() -> None:
+    """Permite inyectar alias sin cargar el archivo de configuración."""
+
+    aliases = {
+        "test": [
+            (
+                "ALQUILER",
+                "AVLOGRO",
+                "GERARDO LOPEZ",
+            ),
+        ],
+    }
+
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="clave-test",
+        aliases_conciliacion=aliases,
+    )
+
+    assert app.extensions["contab_alias_conciliacion"] == aliases
+
+

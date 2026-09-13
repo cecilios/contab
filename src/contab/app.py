@@ -10,6 +10,7 @@ from contab.contabilidad.routes import bp as contabilidad_bp
 from contab.informes.routes import bp as informes_bp
 from contab.conciliacion.routes import bp as conciliacion_bp
 from contab.config import (
+    cargar_alias_conciliacion,
     cargar_bancos,
     cargar_bases_datos,
     cargar_secret_key,
@@ -20,6 +21,9 @@ def create_app(
     databases: dict[str, str] | None = None,
     secret_key: str | None = None,
     bancos: dict[str, str] | None = None,
+    aliases_conciliacion: (
+        dict[str, list[tuple[str, str, str]]] | None
+    ) = None,
 ) -> Flask:
     """Crea la aplicación Flask y configura las bases de datos disponibles."""
     app = Flask(__name__)
@@ -41,14 +45,21 @@ def create_app(
             else {}
         )
 
+    if aliases_conciliacion is None:
+        aliases_conciliacion = (
+            cargar_alias_conciliacion()
+            if cargar_configuracion_bases
+            else {}
+        )
+
     app.extensions["contab_databases"] = {
         nombre: create_session_factory(
             create_sqlite_engine(database_url)
         )
         for nombre, database_url in databases.items()
     }
-
     app.extensions["contab_bancos"] = bancos
+    app.extensions["contab_alias_conciliacion"] = aliases_conciliacion
 
     app.register_blueprint(inmuebles_bp)
     app.register_blueprint(inquilinos_bp)
