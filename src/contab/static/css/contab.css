@@ -136,3 +136,8 @@ button {
 .apuntes-contables tbody tr:nth-child(even) {
     background-color: #f8f8f8;
 }
+
+.confirmar-propuestas {
+    margin-top: 1rem;
+    text-align: center;
+}

@@ -81,6 +81,16 @@
                 {% endfor %}
             </tbody>
         </table>
+
+        <form
+            class="confirmar-propuestas"
+            method="post"
+            action="{{ url_for('conciliacion.confirmar_propuestas_revision') }}"
+        >
+            <button type="submit">
+                Confirmar propuestas
+            </button>
+        </form>
     {% else %}
         <p>No hay propuestas con importe coincidente.</p>
     {% endif %}

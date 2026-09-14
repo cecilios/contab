@@ -25,6 +25,7 @@ from contab.conciliacion.services import (
     ConciliacionError,
     cancelar_movimiento_previsto,
     clasificar_movimientos_bancarios,
+    confirmar_conciliacion,
     descartar_movimiento_bancario,
     restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
@@ -717,6 +718,112 @@ def dejar_movimiento_pendiente_revision(
     rechazados_por_base[
         database_name
     ] = sorted(rechazados)
+
+    session[
+        "conciliacion_rechazados"
+    ] = rechazados_por_base
+
+    return redirect(
+        url_for(
+            "conciliacion.revisar_conciliacion"
+        )
+    )
+
+
+@bp.post("/revisar/confirmar")
+def confirmar_propuestas_revision():
+    """Confirma las propuestas automáticas exactas aceptadas."""
+
+    database_name = get_database_name()
+
+    aliases_por_base = current_app.extensions.get(
+        "contab_alias_conciliacion",
+        {},
+    )
+    aliases_configurados = aliases_por_base.get(
+        database_name,
+        [],
+    )
+
+    rechazados = _movimientos_rechazados_revision()
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as db_session:
+            with db_session.begin():
+                movimientos_bancarios = db_session.scalars(
+                    select(MovimientoBancario)
+                    .where(
+                        MovimientoBancario.estado
+                        == "PENDIENTE"
+                    )
+                    .order_by(
+                        MovimientoBancario.fecha.desc(),
+                        MovimientoBancario.id.desc(),
+                    )
+                ).all()
+
+                movimientos_previstos = db_session.scalars(
+                    select(MovimientoPrevisto)
+                    .options(
+                        joinedload(
+                            MovimientoPrevisto.inmueble
+                        )
+                    )
+                    .where(
+                        MovimientoPrevisto.estado
+                        == "PENDIENTE"
+                    )
+                    .order_by(
+                        MovimientoPrevisto.fecha_prevista_desde,
+                        MovimientoPrevisto.id,
+                    )
+                ).all()
+
+                (
+                    a_conciliar,
+                    _,
+                    _,
+                ) = clasificar_movimientos_bancarios(
+                    movimientos_bancarios,
+                    movimientos_previstos,
+                    aliases_configurados=aliases_configurados,
+                )
+
+                for bancario, previsto in a_conciliar:
+                    if bancario.id in rechazados:
+                        continue
+
+                    if (
+                        bancario.importe
+                        != previsto.importe_esperado
+                    ):
+                        continue
+
+                    conciliacion = confirmar_conciliacion(
+                        bancario,
+                        previsto,
+                    )
+
+                    db_session.add(
+                        conciliacion
+                    )
+
+    except ConciliacionError as exc:
+        return str(exc), 400
+
+    rechazados_por_base = dict(
+        session.get(
+            "conciliacion_rechazados",
+            {},
+        )
+    )
+
+    rechazados_por_base.pop(
+        database_name,
+        None,
+    )
 
     session[
         "conciliacion_rechazados"
