@@ -695,7 +695,8 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
             provincia="Madrid",
         )
 
-        previsto = MovimientoPrevisto(
+        # Propuesta exacta: comunidad.
+        previsto_1 = MovimientoPrevisto(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 1),
             fecha_prevista_hasta=date(2026, 9, 5),
@@ -706,7 +707,7 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
             estado="PENDIENTE",
         )
 
-        conciliable = MovimientoBancario(
+        conciliable_1 = MovimientoBancario(
             fecha=date(2026, 9, 2),
             naturaleza="GASTO",
             importe=10000,
@@ -717,7 +718,8 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
             estado="PENDIENTE",
         )
 
-        pendiente = MovimientoBancario(
+        # Movimiento sin propuesta.
+        pendiente_1 = MovimientoBancario(
             fecha=date(2026, 9, 2),
             naturaleza="GASTO",
             importe=54321,
@@ -728,17 +730,46 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
             estado="PENDIENTE",
         )
 
-        session.add_all([
-            inmueble,
-            previsto,
-            conciliable,
-            pendiente,
-        ])
+        # Propuesta clara, pero con importes diferentes.
+        previsto_2 = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 1),
+            fecha_prevista_hasta=date(2026, 9, 5),
+            naturaleza="INGRESO",
+            concepto="Alquiler septiembre Bárbara",
+            importe_esperado=152500,
+            contraparte="BARBARA BONITA BARCENAS",
+            estado="PENDIENTE",
+        )
+
+        conciliable_2 = MovimientoBancario(
+            fecha=date(2026, 9, 3),
+            naturaleza="INGRESO",
+            importe=150000,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original="BARBARA BONITA BARCENAS",
+            referencia_bancaria="",
+            huella_importacion="c" * 64,
+            estado="PENDIENTE",
+        )
+
+        session.add_all(
+            [
+                inmueble,
+                previsto_1,
+                conciliable_1,
+                pendiente_1,
+                previsto_2,
+                conciliable_2,
+            ]
+        )
         session.commit()
 
-        conciliable_id = conciliable.id
-        pendiente_id = pendiente.id
-        previsto_id = previsto.id
+        conciliable_1_id = conciliable_1.id
+        pendiente_1_id = pendiente_1.id
+        previsto_1_id = previsto_1.id
+        conciliable_2_id = conciliable_2.id
+        previsto_2_id = previsto_2.id
 
     client = app.test_client()
 
@@ -754,33 +785,57 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
 
     assert response.status_code == 200
     assert "Revisar conciliación" in response.text
+
+    # La propuesta exacta aparece en la sección normal.
     assert "Propuestas de conciliación" in response.text
     assert "Comunidad septiembre" in response.text
     assert "LOCAL-1" in response.text
-    assert "MOVIMIENTO DESCONOCIDO" in response.text
+    assert "100,00" in response.text
+
+    # La propuesta con importe diferente aparece separada.
+    assert "Propuestas con importes diferentes" in response.text
+    assert "Alquiler septiembre Bárbara" in response.text
+    assert "BARBARA BONITA BARCENAS" in response.text
+    assert "1.500,00" in response.text
+    assert "1.525,00" in response.text
+
+    # El movimiento que no tiene propuesta sigue pendiente.
     assert "Pendientes" in response.text
+    assert "MOVIMIENTO DESCONOCIDO" in response.text
 
     # Abrir la revisión no confirma ni descarta nada.
     with session_factory() as session:
-        conciliable = session.get(
+        conciliable_1 = session.get(
             MovimientoBancario,
-            conciliable_id,
+            conciliable_1_id,
         )
-        pendiente = session.get(
+        pendiente_1 = session.get(
             MovimientoBancario,
-            pendiente_id,
+            pendiente_1_id,
         )
-        previsto = session.get(
+        previsto_1 = session.get(
             MovimientoPrevisto,
-            previsto_id,
+            previsto_1_id,
+        )
+        conciliable_2 = session.get(
+            MovimientoBancario,
+            conciliable_2_id,
+        )
+        previsto_2 = session.get(
+            MovimientoPrevisto,
+            previsto_2_id,
         )
 
-        assert conciliable is not None
-        assert pendiente is not None
-        assert previsto is not None
+        assert conciliable_1 is not None
+        assert pendiente_1 is not None
+        assert previsto_1 is not None
+        assert conciliable_2 is not None
+        assert previsto_2 is not None
 
-        assert conciliable.estado == "PENDIENTE"
-        assert pendiente.estado == "PENDIENTE"
-        assert previsto.estado == "PENDIENTE"
+        assert conciliable_1.estado == "PENDIENTE"
+        assert pendiente_1.estado == "PENDIENTE"
+        assert previsto_1.estado == "PENDIENTE"
+        assert conciliable_2.estado == "PENDIENTE"
+        assert previsto_2.estado == "PENDIENTE"
 
 

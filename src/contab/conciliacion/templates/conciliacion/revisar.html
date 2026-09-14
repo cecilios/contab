@@ -26,7 +26,7 @@
 
     <h2>Propuestas de conciliación</h2>
 
-    {% if a_conciliar %}
+    {% if a_conciliar_exactos %}
         <table class="movimientos-bancarios">
             <thead>
                 <tr>
@@ -39,7 +39,7 @@
             </thead>
 
             <tbody>
-                {% for bancario, previsto in a_conciliar %}
+                {% for bancario, previsto in a_conciliar_exactos %}
                     <tr>
                         <td>
                             {{ bancario.fecha.strftime("%d/%m/%Y") }}
@@ -82,7 +82,76 @@
             </tbody>
         </table>
     {% else %}
-        <p>No hay propuestas de conciliación.</p>
+        <p>No hay propuestas con importe coincidente.</p>
+    {% endif %}
+
+    <h2>Propuestas con importes diferentes</h2>
+
+    <p>
+        Estas propuestas requieren revisión manual y no se
+        confirmarán automáticamente.
+    </p>
+
+    {% if a_conciliar_diferentes %}
+        <table class="movimientos-bancarios">
+            <thead>
+                <tr>
+                    <th>Fecha banco</th>
+                    <th>Movimiento bancario</th>
+                    <th>Importe banco</th>
+                    <th>Movimiento previsto</th>
+                    <th>Importe previsto</th>
+                    <th>Inmueble</th>
+                    <th>Acción</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for bancario, previsto in a_conciliar_diferentes %}
+                    <tr>
+                        <td>
+                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
+                        </td>
+
+                        <td>
+                            {{ bancario.descripcion_original }}
+                        </td>
+
+                        <td>
+                            {{ importe_a_texto(bancario.importe) }}
+                        </td>
+
+                        <td>
+                            {{ previsto.concepto }}
+                        </td>
+
+                        <td>
+                            {{ importe_a_texto(previsto.importe_esperado) }}
+                        </td>
+
+                        <td>
+                            {{ previsto.inmueble.referencia }}
+                        </td>
+
+                        <td>
+                            <form
+                                method="post"
+                                action="{{ url_for(
+                                    'conciliacion.dejar_movimiento_pendiente_revision',
+                                    movimiento_id=bancario.id
+                                ) }}"
+                            >
+                                <button type="submit">
+                                    Dejar pendiente
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No hay propuestas con importes diferentes.</p>
     {% endif %}
 
     <h2>Propuestas de descarte</h2>

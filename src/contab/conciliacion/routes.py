@@ -235,6 +235,18 @@ def revisar_conciliacion():
             if bancario.id not in rechazados
         ]
 
+        a_conciliar_exactos = [
+            (bancario, previsto)
+            for bancario, previsto in a_conciliar
+            if bancario.importe == previsto.importe_esperado
+        ]
+
+        a_conciliar_diferentes = [
+            (bancario, previsto)
+            for bancario, previsto in a_conciliar
+            if bancario.importe != previsto.importe_esperado
+        ]
+
         pendientes_ids = {
             movimiento.id
             for movimiento in pendientes
@@ -252,7 +264,8 @@ def revisar_conciliacion():
 
         return render_template(
             "conciliacion/revisar.html",
-            a_conciliar=a_conciliar,
+            a_conciliar_exactos=a_conciliar_exactos,
+            a_conciliar_diferentes=a_conciliar_diferentes,
             a_descartar=a_descartar,
             pendientes=pendientes,
             importe_a_texto=_importe_a_texto,

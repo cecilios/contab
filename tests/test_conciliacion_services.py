@@ -17,6 +17,7 @@ from contab.conciliacion.services import (
     cancelar_movimiento_previsto,
     clasificar_movimiento_bancario,
     clasificar_movimientos_bancarios,
+    confirmar_conciliacion,
     crear_movimiento_desde_apunte,
     crear_movimiento_previsto,
     descartar_movimiento_bancario,
@@ -1443,5 +1444,170 @@ def test_clasificar_movimientos_bancarios_agrupa_propuestas() -> None:
     assert pendientes == [
         pendiente,
     ]
+
+
+def test_confirmar_conciliacion_completa() -> None:
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=160000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="BARBARA BONITA BARCENAS",
+        referencia_bancaria="",
+        huella_importacion="a" * 64,
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="P1",
+            descripcion="Piso",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=160000,
+        contraparte="BARBARA BONITA BARCENAS",
+        estado="PENDIENTE",
+    )
+
+    conciliacion = confirmar_conciliacion(
+        bancario,
+        previsto,
+    )
+
+    assert conciliacion.movimiento_bancario is bancario
+    assert conciliacion.movimiento_previsto is previsto
+    assert conciliacion.importe_asociado == 160000
+
+    assert bancario.estado == "CONCILIADO"
+    assert previsto.estado == "CONCILIADO"
+
+
+def test_confirmar_conciliacion_rechaza_importe_diferente() -> None:
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=160000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="BARBARA BONITA BARCENAS",
+        referencia_bancaria="",
+        huella_importacion="a" * 64,
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="P1",
+            descripcion="Piso",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=160500,
+        contraparte="BARBARA BONITA BARCENAS",
+        estado="PENDIENTE",
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+    ):
+        confirmar_conciliacion(
+                bancario,
+                previsto,
+            )
+
+    assert bancario.estado == "PENDIENTE"
+    assert previsto.estado == "PENDIENTE"
+
+
+def test_confirmar_conciliacion_rechaza_bancario_no_pendiente() -> None:
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=160000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="BARBARA BONITA BARCENAS",
+        referencia_bancaria="",
+        huella_importacion="a" * 64,
+        estado="CONCILIADO",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="P1",
+            descripcion="Piso",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=160000,
+        contraparte="BARBARA BONITA BARCENAS",
+        estado="PENDIENTE",
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+    ):
+        confirmar_conciliacion(
+                bancario,
+                previsto,
+            )
+
+    assert bancario.estado == "CONCILIADO"
+    assert previsto.estado == "PENDIENTE"
+
+
+def test_confirmar_conciliacion_rechaza_previsto_no_pendiente() -> None:
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 3),
+        naturaleza="INGRESO",
+        importe=160000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="BARBARA BONITA BARCENAS",
+        referencia_bancaria="",
+        huella_importacion="a" * 64,
+        estado="PENDIENTE",
+    )
+
+    previsto = MovimientoPrevisto(
+        inmueble=Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="P1",
+            descripcion="Piso",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        ),
+        naturaleza="INGRESO",
+        concepto="Alquiler septiembre",
+        importe_esperado=160000,
+        contraparte="BARBARA BONITA BARCENAS",
+        estado="CONCILIADO",
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+    ):
+        confirmar_conciliacion(
+            bancario,
+            previsto,
+        )
+
+    assert bancario.estado == "PENDIENTE"
+    assert previsto.estado == "CONCILIADO"
 
 

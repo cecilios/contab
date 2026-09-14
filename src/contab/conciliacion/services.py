@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from contab.models import (
     ApunteContable,
+    Conciliacion,
     Contrato,
     Inmueble,
     MovimientoBancario,
@@ -539,5 +540,50 @@ def clasificar_movimientos_bancarios(
         a_descartar,
         pendientes,
     )
+
+
+def confirmar_conciliacion(
+    movimiento_bancario: MovimientoBancario,
+    movimiento_previsto: MovimientoPrevisto,
+) -> Conciliacion:
+    """Confirma una conciliación completa entre dos movimientos."""
+
+    if movimiento_bancario.estado != "PENDIENTE":
+        raise ConciliacionError(
+            "El movimiento bancario debe estar pendiente."
+        )
+
+    if movimiento_previsto.estado != "PENDIENTE":
+        raise ConciliacionError(
+            "El movimiento previsto debe estar pendiente."
+        )
+
+    if (
+        movimiento_bancario.naturaleza
+        != movimiento_previsto.naturaleza
+    ):
+        raise ConciliacionError(
+            "Los movimientos deben tener la misma naturaleza."
+        )
+
+    if (
+        movimiento_bancario.importe
+        != movimiento_previsto.importe_esperado
+    ):
+        raise ConciliacionError(
+            "La conciliación automática sólo puede confirmarse "
+            "cuando los importes coinciden."
+        )
+
+    conciliacion = Conciliacion(
+        movimiento_bancario=movimiento_bancario,
+        movimiento_previsto=movimiento_previsto,
+        importe_asociado=movimiento_bancario.importe,
+    )
+
+    movimiento_bancario.estado = "CONCILIADO"
+    movimiento_previsto.estado = "CONCILIADO"
+
+    return conciliacion
 
 

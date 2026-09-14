@@ -921,6 +921,13 @@ class MovimientoPrevisto(Base):
         back_populates="movimientos_previstos",
     )
 
+    conciliaciones: Mapped[
+        list["Conciliacion"]
+    ] = relationship(
+        back_populates="movimiento_previsto",
+        passive_deletes="all",
+    )
+
 
 class MovimientoBancario(Base):
     """Movimiento bancario importado para su conciliación."""
@@ -993,6 +1000,65 @@ class MovimientoBancario(Base):
         Text,
         nullable=False,
         default="PENDIENTE",
+    )
+
+    conciliaciones: Mapped[
+        list["Conciliacion"]
+    ] = relationship(
+        back_populates="movimiento_bancario",
+        passive_deletes="all",
+    )
+
+
+class Conciliacion(Base):
+    """Relaciona un movimiento bancario con un movimiento previsto."""
+
+    __tablename__ = "conciliacion"
+
+    __table_args__ = (
+        CheckConstraint(
+            "importe_asociado > 0",
+            name="ck_conciliacion_importe_positivo",
+        ),
+        UniqueConstraint(
+            "movimiento_bancario_id",
+            "movimiento_previsto_id",
+            name="uq_conciliacion_movimientos",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    movimiento_bancario_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "movimiento_bancario.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    movimiento_previsto_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "movimiento_previsto.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    importe_asociado: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    movimiento_bancario: Mapped["MovimientoBancario"] = relationship(
+        back_populates="conciliaciones",
+    )
+
+    movimiento_previsto: Mapped["MovimientoPrevisto"] = relationship(
+        back_populates="conciliaciones",
     )
 
 
