@@ -843,6 +843,13 @@ class MovimientoPrevisto(Base):
             """,
             name="ck_movimiento_previsto_fechas_orden",
         ),
+        CheckConstraint(
+            """
+            metodo_conciliacion IS NULL
+            OR metodo_conciliacion IN ('INDIVIDUAL', 'MANUAL')
+            """,
+            name="ck_movimiento_previsto_metodo_conciliacion",
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -906,6 +913,8 @@ class MovimientoPrevisto(Base):
         nullable=False,
         default="PENDIENTE",
     )
+
+    metodo_conciliacion: Mapped[str | None] = mapped_column(Text)
 
     notas: Mapped[str | None] = mapped_column(Text)
 

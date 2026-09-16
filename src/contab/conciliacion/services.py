@@ -583,6 +583,7 @@ def confirmar_conciliacion(
 
     movimiento_bancario.estado = "CONCILIADO"
     movimiento_previsto.estado = "CONCILIADO"
+    movimiento_previsto.metodo_conciliacion = "INDIVIDUAL"
 
     return conciliacion
 

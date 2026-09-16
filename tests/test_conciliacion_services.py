@@ -3,6 +3,7 @@
 import pytest
 
 from datetime import date
+from sqlalchemy.exc import IntegrityError
 
 from contab.config import CategoriaContable
 from contab.models import (
@@ -51,6 +52,25 @@ def test_crear_movimiento_previsto(inmueble) -> None:
     assert movimiento.notas == "Cargo domiciliado"
     assert movimiento.apunte is None
     assert movimiento.contrato is None
+
+
+def test_movimiento_previsto_rechaza_metodo_conciliacion_invalido(
+    session,
+    inmueble,
+) -> None:
+    movimiento = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Movimiento de prueba",
+        importe_esperado=10000,
+        estado="PENDIENTE",
+        metodo_conciliacion="OTRO",
+    )
+
+    session.add(movimiento)
+
+    with pytest.raises(IntegrityError):
+        session.commit()
 
 
 @pytest.mark.parametrize(
@@ -1486,6 +1506,7 @@ def test_confirmar_conciliacion_completa() -> None:
 
     assert bancario.estado == "CONCILIADO"
     assert previsto.estado == "CONCILIADO"
+    assert previsto.metodo_conciliacion == "INDIVIDUAL"
 
 
 def test_confirmar_conciliacion_rechaza_importe_diferente() -> None:
