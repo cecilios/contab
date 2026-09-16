@@ -141,3 +141,7 @@ button {
     margin-top: 1rem;
     text-align: center;
 }
+
+.estado-previsto {
+    min-width: 18rem;
+}

@@ -61,7 +61,7 @@
                     <th>Contraparte</th>
                     <th>Origen</th>
                     <th>Importe</th>
-                    <th>Estado</th>
+                    <th class="estado-previsto">Estado</th>
                     <th>Acciones</th>
                 </tr>
             </thead>
@@ -97,14 +97,49 @@
                                 movimiento.importe_esperado
                             ) }}
                         </td>
-                        <td>
+                        <td class="estado-previsto">
                             {{ estados.get(
                                 movimiento.estado,
                                 movimiento.estado
                             ) }}
+
+                            {% if movimiento.estado == "CONCILIADO" %}
+                                {% if movimiento.metodo_conciliacion == "MANUAL" %}
+                                    manual
+
+                                    {% if movimiento.notas %}
+                                        <br>
+                                        {{ movimiento.notas }}
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
                         </td>
                         <td>
+                            {% if (
+                                movimiento.estado == "CONCILIADO"
+                                and movimiento.metodo_conciliacion == "MANUAL"
+                            ) %}
+                                <form
+                                    method="post"
+                                    action="{{ url_for(
+                                        'conciliacion.deshacer_conciliacion_manual_desde_interfaz',
+                                        movimiento_id=movimiento.id
+                                    ) }}"
+                                >
+                                    <button type="submit">
+                                        Deshacer conciliación
+                                    </button>
+                                </form>
+                            {% endif %}
+
                             {% if movimiento.estado == "PENDIENTE" %}
+                                <a href="{{ url_for(
+                                    'conciliacion.conciliar_movimiento_previsto_manualmente_desde_interfaz',
+                                    movimiento_id=movimiento.id
+                                ) }}">
+                                    Conciliar manualmente
+                                </a>
+
                                 <form
                                     method="post"
                                     action="{{ url_for(

@@ -588,3 +588,44 @@ def confirmar_conciliacion(
     return conciliacion
 
 
+def conciliar_movimiento_previsto_manualmente(
+    movimiento: MovimientoPrevisto,
+    notas: str,
+) -> None:
+    """Marca un movimiento previsto como conciliado manualmente."""
+
+    if movimiento.estado != "PENDIENTE":
+        raise ConciliacionError(
+            "El movimiento previsto debe estar pendiente."
+        )
+
+    notas = notas.strip()
+
+    if not notas:
+        raise ConciliacionError(
+            "La conciliación manual requiere una explicación."
+        )
+
+    movimiento.estado = "CONCILIADO"
+    movimiento.metodo_conciliacion = "MANUAL"
+    movimiento.notas = notas
+
+
+def deshacer_conciliacion_manual(
+    movimiento: MovimientoPrevisto,
+) -> None:
+    """Devuelve a pendiente un movimiento conciliado manualmente."""
+
+    if (
+        movimiento.estado != "CONCILIADO"
+        or movimiento.metodo_conciliacion != "MANUAL"
+    ):
+        raise ConciliacionError(
+            "El movimiento debe estar conciliado manualmente."
+        )
+
+    movimiento.estado = "PENDIENTE"
+    movimiento.metodo_conciliacion = None
+    movimiento.notas = None
+
+

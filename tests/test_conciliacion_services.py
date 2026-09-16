@@ -18,10 +18,12 @@ from contab.conciliacion.services import (
     cancelar_movimiento_previsto,
     clasificar_movimiento_bancario,
     clasificar_movimientos_bancarios,
+    conciliar_movimiento_previsto_manualmente,
     confirmar_conciliacion,
     crear_movimiento_desde_apunte,
     crear_movimiento_previsto,
     descartar_movimiento_bancario,
+    deshacer_conciliacion_manual,
     proponer_conciliacion,
     puntuar_candidato_conciliacion,
     restaurar_movimiento_bancario,
@@ -1630,5 +1632,166 @@ def test_confirmar_conciliacion_rechaza_previsto_no_pendiente() -> None:
 
     assert bancario.estado == "PENDIENTE"
     assert previsto.estado == "CONCILIADO"
+
+
+def test_conciliar_movimiento_previsto_manualmente(
+    inmueble,
+) -> None:
+    movimiento = crear_movimiento_previsto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="IBI",
+        importe_esperado=25000,
+    )
+
+    conciliar_movimiento_previsto_manualmente(
+        movimiento,
+        "  Incluido en los cargos agrupados del Ayuntamiento.  ",
+    )
+
+    assert movimiento.estado == "CONCILIADO"
+    assert movimiento.metodo_conciliacion == "MANUAL"
+    assert (
+        movimiento.notas
+        == "Incluido en los cargos agrupados del Ayuntamiento."
+    )
+    assert movimiento.conciliaciones == []
+
+
+@pytest.mark.parametrize(
+    "notas",
+    [
+        "",
+        "   ",
+    ],
+)
+def test_conciliar_movimiento_previsto_manualmente_rechaza_notas_vacias(
+    inmueble,
+    notas: str,
+) -> None:
+    movimiento = crear_movimiento_previsto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="IBI",
+        importe_esperado=25000,
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+        match="requiere una explicación",
+    ):
+        conciliar_movimiento_previsto_manualmente(
+            movimiento,
+            notas,
+        )
+
+    assert movimiento.estado == "PENDIENTE"
+    assert movimiento.metodo_conciliacion is None
+
+
+@pytest.mark.parametrize(
+    "estado",
+    [
+        "PARCIAL",
+        "CONCILIADO",
+        "CANCELADO",
+    ],
+)
+def test_conciliar_movimiento_previsto_manualmente_requiere_pendiente(
+    inmueble,
+    estado: str,
+) -> None:
+    movimiento = crear_movimiento_previsto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="IBI",
+        importe_esperado=25000,
+    )
+    movimiento.estado = estado
+
+    with pytest.raises(
+        ConciliacionError,
+        match="debe estar pendiente",
+    ):
+        conciliar_movimiento_previsto_manualmente(
+            movimiento,
+            "Incluido en los cargos agrupados del Ayuntamiento.",
+        )
+
+    assert movimiento.estado == estado
+    assert movimiento.metodo_conciliacion is None
+
+
+def test_deshacer_conciliacion_manual(
+    inmueble,
+) -> None:
+    movimiento = crear_movimiento_previsto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="IBI",
+        importe_esperado=25000,
+    )
+
+    conciliar_movimiento_previsto_manualmente(
+        movimiento,
+        "Incluido en los cargos agrupados del Ayuntamiento.",
+    )
+
+    # El usuario deshace una conciliación manual realizada por error.
+    deshacer_conciliacion_manual(
+        movimiento,
+    )
+
+    assert movimiento.estado == "PENDIENTE"
+    assert movimiento.metodo_conciliacion is None
+    assert movimiento.notas is None
+    assert movimiento.conciliaciones == []
+
+
+def test_deshacer_conciliacion_manual_rechaza_individual(
+    inmueble,
+) -> None:
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 9, 5),
+        naturaleza="GASTO",
+        concepto="Comunidad",
+        importe_esperado=10000,
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 9, 5),
+        naturaleza="GASTO",
+        importe=10000,
+        tipo_original="RECIBO",
+        descripcion_original="Comunidad",
+        referencia_bancaria="",
+        huella_importacion="a" * 64,
+        estado="PENDIENTE",
+    )
+
+    confirmar_conciliacion(
+        bancario,
+        previsto,
+    )
+
+    # Una conciliación bancaria individual no se puede deshacer
+    # mediante la operación reservada a conciliaciones manuales.
+    with pytest.raises(
+        ConciliacionError,
+        match="debe estar conciliado manualmente",
+    ):
+        deshacer_conciliacion_manual(
+            previsto,
+        )
+
+    assert previsto.estado == "CONCILIADO"
+    assert previsto.metodo_conciliacion == "INDIVIDUAL"
+    assert bancario.estado == "CONCILIADO"
+    assert len(previsto.conciliaciones) == 1
 
 

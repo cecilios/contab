@@ -1131,3 +1131,379 @@ def test_confirmar_propuestas_respeta_movimiento_rechazado() -> None:
         assert conciliaciones == []
 
 
+def test_conciliar_movimiento_previsto_manualmente_desde_interfaz() -> None:
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+        bancos={
+            "test": "IBERCAJA",
+        },
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        movimiento = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 5),
+            naturaleza="GASTO",
+            concepto="IBI",
+            importe_esperado=25000,
+            estado="PENDIENTE",
+        )
+
+        session.add_all(
+            [
+                inmueble,
+                movimiento,
+            ]
+        )
+        session.commit()
+
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario confirma manualmente cómo se resolvió el movimiento.
+    response = client.post(
+        (
+            f"/conciliacion/previstos/{movimiento_id}"
+            "/conciliar-manualmente"
+        ),
+        data={
+            "notas": (
+                "  Incluido en los cargos agrupados "
+                "del Ayuntamiento.  "
+            ),
+        },
+    )
+
+    assert response.status_code == 302
+
+    # La resolución manual queda persistida sin asociación bancaria.
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "CONCILIADO"
+        assert movimiento.metodo_conciliacion == "MANUAL"
+        assert (
+            movimiento.notas
+            == "Incluido en los cargos agrupados del Ayuntamiento."
+        )
+        assert movimiento.conciliaciones == []
+
+    # El usuario consulta después los movimientos ya conciliados.
+    response = client.get(
+        "/conciliacion/previstos?estado=CONCILIADO"
+    )
+
+    assert response.status_code == 200
+    assert "Conciliado" in response.text
+    assert "Manual" in response.text
+    assert (
+        "Incluido en los cargos agrupados del Ayuntamiento."
+        in response.text
+    )
+
+
+def test_formulario_conciliacion_manual_muestra_movimiento() -> None:
+    # comprueba que el formulario muestra los datos relevantes y, especialmente,
+    # que una nota previa aparece en el textarea para que el usuario pueda
+    # conservarla o modificarla.
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+        bancos={
+            "test": "IBERCAJA",
+        },
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        movimiento = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 5),
+            naturaleza="GASTO",
+            concepto="IBI",
+            importe_esperado=25000,
+            estado="PENDIENTE",
+            notas="Revisar cargos del Ayuntamiento",
+        )
+
+        session.add_all(
+            [
+                inmueble,
+                movimiento,
+            ]
+        )
+        session.commit()
+
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario abre el formulario de conciliación manual.
+    response = client.get(
+        (
+            f"/conciliacion/previstos/{movimiento_id}"
+            "/conciliar-manualmente"
+        )
+    )
+
+    assert response.status_code == 200
+    assert "Conciliar movimiento manualmente" in response.text
+    assert "LOCAL-1" in response.text
+    assert "IBI" in response.text
+    assert "250,00" in response.text
+
+    # Las notas existentes aparecen para poder conservarlas o editarlas.
+    assert "Revisar cargos del Ayuntamiento" in response.text
+
+
+def test_conciliacion_manual_desde_interfaz_rechaza_notas_vacias() -> None:
+    # Aquí interesa comprobar dos cosas: obtenemos un 400 (ha llegado correctamente a
+    # Contab, pero los datos enviados no son válidos para realizar la operación) y,
+    # sobre todo, que el movimiento sigue intacto en la base de datos.
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+        bancos={
+            "test": "IBERCAJA",
+        },
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        movimiento = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 5),
+            naturaleza="GASTO",
+            concepto="IBI",
+            importe_esperado=25000,
+            estado="PENDIENTE",
+        )
+
+        session.add_all(
+            [
+                inmueble,
+                movimiento,
+            ]
+        )
+        session.commit()
+
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario intenta confirmar sin explicar la conciliación.
+    response = client.post(
+        (
+            f"/conciliacion/previstos/{movimiento_id}"
+            "/conciliar-manualmente"
+        ),
+        data={
+            "notas": "   ",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "requiere una explicación" in response.text
+
+    # El intento fallido no modifica el movimiento.
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "PENDIENTE"
+        assert movimiento.metodo_conciliacion is None
+        assert movimiento.notas is None
+
+
+def test_conciliacion_manual_movimiento_inexistente_devuelve_404() -> None:
+    # cuando se intenta conciliar con un movimiento inexistente devuelve 404 (Not Found:
+    # el recurso solicitado no existe)
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+        bancos={
+            "test": "IBERCAJA",
+        },
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario intenta abrir un movimiento previsto inexistente.
+    response = client.get(
+        "/conciliacion/previstos/9999/conciliar-manualmente"
+    )
+
+    assert response.status_code == 404
+    assert "Movimiento previsto no encontrado" in response.text
+
+
+def test_deshacer_conciliacion_manual_desde_interfaz() -> None:
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        movimiento = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 5),
+            naturaleza="GASTO",
+            concepto="IBI",
+            importe_esperado=25000,
+            estado="CONCILIADO",
+            metodo_conciliacion="MANUAL",
+            notas=(
+                "Incluido en los cargos agrupados "
+                "del Ayuntamiento."
+            ),
+        )
+
+        session.add_all(
+            [
+                inmueble,
+                movimiento,
+            ]
+        )
+        session.commit()
+
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario deshace desde el listado la conciliación manual.
+    response = client.post(
+        (
+            f"/conciliacion/previstos/{movimiento_id}"
+            "/deshacer-conciliacion-manual"
+        )
+    )
+
+    assert response.status_code == 302
+
+    # El movimiento vuelve a quedar disponible para conciliar.
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "PENDIENTE"
+        assert movimiento.metodo_conciliacion is None
+        assert movimiento.notas is None
+        assert movimiento.conciliaciones == []
+
+

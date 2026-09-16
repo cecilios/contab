@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Conciliar manualmente - Contab
+{% endblock %}
+
+{% block content %}
+    <h1>Conciliar movimiento manualmente</h1>
+
+    <p>
+        <strong>Inmueble:</strong>
+        {{ movimiento.inmueble.referencia }}
+    </p>
+
+    <p>
+        <strong>Fecha prevista:</strong>
+        {{ intervalo_a_texto(movimiento) }}
+    </p>
+
+    <p>
+        <strong>Concepto:</strong>
+        {{ movimiento.concepto }}
+    </p>
+
+    <p>
+        <strong>Importe:</strong>
+        {{ importe_a_texto(movimiento.importe_esperado) }} €
+    </p>
+
+    {% if error %}
+        <p>{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <p>
+            <label for="notas">
+                Explicación de la conciliación:
+            </label>
+        </p>
+
+        <p>
+            <textarea
+                id="notas"
+                name="notas"
+                rows="5"
+                cols="60"
+                required
+            >{{ movimiento.notas or "" }}</textarea>
+        </p>
+
+        <p>
+            <button type="submit">
+                Confirmar conciliación manual
+            </button>
+
+            <a href="{{ url_for(
+                'conciliacion.listar_movimientos_previstos',
+                estado='PENDIENTE'
+            ) }}">
+                Volver
+            </a>
+        </p>
+    </form>
+{% endblock %}

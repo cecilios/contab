@@ -25,8 +25,10 @@ from contab.conciliacion.services import (
     ConciliacionError,
     cancelar_movimiento_previsto,
     clasificar_movimientos_bancarios,
+    conciliar_movimiento_previsto_manualmente,
     confirmar_conciliacion,
     descartar_movimiento_bancario,
+    deshacer_conciliacion_manual,
     restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
 )
@@ -832,6 +834,108 @@ def confirmar_propuestas_revision():
     return redirect(
         url_for(
             "conciliacion.revisar_conciliacion"
+        )
+    )
+
+
+@bp.route(
+    "/previstos/<int:movimiento_id>/conciliar-manualmente",
+    methods=["GET", "POST"],
+)
+def conciliar_movimiento_previsto_manualmente_desde_interfaz(
+    movimiento_id: int,
+):
+    """Muestra y procesa la conciliación manual de un movimiento previsto."""
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        if movimiento is None:
+            return (
+                "Movimiento previsto no encontrado.",
+                404,
+            )
+
+        if request.method == "GET":
+            return render_template(
+                "conciliacion/conciliar_manualmente.html",
+                movimiento=movimiento,
+                importe_a_texto=_importe_a_texto,
+                intervalo_a_texto=_intervalo_a_texto,
+                database_name=get_database_name(),
+            )
+
+        try:
+            conciliar_movimiento_previsto_manualmente(
+                movimiento,
+                request.form.get("notas", ""),
+            )
+            session.commit()
+
+        except ConciliacionError as exc:
+            session.rollback()
+
+            return (
+                render_template(
+                    "conciliacion/conciliar_manualmente.html",
+                    movimiento=movimiento,
+                    importe_a_texto=_importe_a_texto,
+                    intervalo_a_texto=_intervalo_a_texto,
+                    database_name=get_database_name(),
+                    error=str(exc),
+                ),
+                400,
+            )
+
+    return redirect(
+        url_for(
+            "conciliacion.listar_movimientos_previstos",
+            estado="PENDIENTE",
+        )
+    )
+
+
+@bp.post(
+    "/previstos/<int:movimiento_id>/deshacer-conciliacion-manual"
+)
+def deshacer_conciliacion_manual_desde_interfaz(
+    movimiento_id: int,
+):
+    """Deshace una conciliación manual desde el listado."""
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        if movimiento is None:
+            return (
+                "Movimiento previsto no encontrado.",
+                404,
+            )
+
+        try:
+            deshacer_conciliacion_manual(
+                movimiento,
+            )
+            session.commit()
+
+        except ConciliacionError as exc:
+            session.rollback()
+            return str(exc), 400
+
+    return redirect(
+        url_for(
+            "conciliacion.listar_movimientos_previstos",
+            estado="CONCILIADO",
         )
     )
 
