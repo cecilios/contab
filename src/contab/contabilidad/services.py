@@ -402,6 +402,40 @@ def eliminar_apunte_contable(
     session.delete(apunte)
 
 
+def validar_modificacion_con_movimientos(
+    *,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+    naturaleza: str,
+    total: int,
+) -> None:
+    """Valida cambios incompatibles con movimientos ya conciliados."""
+
+    tiene_movimientos_protegidos = any(
+        movimiento.estado in {
+            "CONCILIADO",
+            "PARCIAL",
+        }
+        for movimiento in apunte.movimientos_previstos
+    )
+
+    cambia_datos_economicos = (
+        inmueble is not apunte.inmueble
+        or naturaleza != apunte.naturaleza
+        or total != apunte.total
+    )
+
+    if (
+        tiene_movimientos_protegidos
+        and cambia_datos_economicos
+    ):
+        raise ContabilidadError(
+            "No puede cambiarse el inmueble, la naturaleza "
+            "o el importe de un apunte con un movimiento "
+            "conciliado total o parcialmente."
+        )
+
+
 def modificar_apunte_contable(
     *,
     apunte: ApunteContable,
@@ -454,10 +488,24 @@ def modificar_apunte_contable(
         tratamiento=datos["tratamiento"],
     )
 
+    validar_modificacion_con_movimientos(
+        apunte=apunte,
+        inmueble=inmueble,
+        naturaleza=datos["naturaleza"],
+        total=datos["total"],
+    )
+
     apunte.inmueble = inmueble
 
     for campo, valor in datos.items():
         setattr(apunte, campo, valor)
+
+    for movimiento in apunte.movimientos_previstos:
+        movimiento.inmueble = apunte.inmueble
+        movimiento.naturaleza = apunte.naturaleza
+        movimiento.concepto = apunte.concepto
+        movimiento.importe_esperado = apunte.total
+        movimiento.contraparte = apunte.tercero_nombre
 
     return apunte
 

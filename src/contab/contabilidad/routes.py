@@ -36,6 +36,7 @@ from contab.contabilidad.services import (
     eliminar_apunte_contable,
     modificar_apunte_contable,
     proponer_nombre_documento,
+    validar_modificacion_con_movimientos,
 )
 from contab.conciliacion.services import (
     ConciliacionError,
@@ -1114,6 +1115,13 @@ def editar_apunte(apunte_id: int):
                 apunte_validado = crear_apunte_contable(
                     inmueble=inmueble,
                     **valores,
+                )
+
+                validar_modificacion_con_movimientos(
+                    apunte=apunte,
+                    inmueble=apunte_validado.inmueble,
+                    naturaleza=apunte_validado.naturaleza,
+                    total=apunte_validado.total,
                 )
 
                 aviso = _comprobar_documento_duplicado(

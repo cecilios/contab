@@ -1803,3 +1803,609 @@ GAS_COMUNIDAD = GASTO | Comunidad
         assert session.scalar(
             select(MovimientoPrevisto)
         ) is None
+
+
+def test_modificar_apunte_sincroniza_movimiento_pendiente(
+    session,
+    inmueble,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota antigua",
+        base=10000,
+        tercero_nombre="Comunidad antigua",
+    )
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 9, 5),
+        fecha_prevista_hasta=date(2026, 9, 10),
+        notas="Nota existente",
+    )
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    modificar_apunte_contable(
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 2),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota corregida",
+        base=12000,
+        tercero_nombre="Comunidad corregida",
+    )
+
+    assert movimiento.inmueble is inmueble
+    assert movimiento.naturaleza == "GASTO"
+    assert movimiento.concepto == "Cuota corregida"
+    assert movimiento.importe_esperado == 12000
+    assert movimiento.contraparte == "Comunidad corregida"
+
+    assert movimiento.fecha_prevista_desde == date(
+        2026, 9, 5
+    )
+    assert movimiento.fecha_prevista_hasta == date(
+        2026, 9, 10
+    )
+    assert movimiento.estado == "PENDIENTE"
+    assert movimiento.metodo_conciliacion is None
+    assert movimiento.notas == "Nota existente"
+
+
+def test_modificar_apunte_sincroniza_movimiento_cancelado(
+    session,
+    inmueble,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota antigua",
+        base=10000,
+    )
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 9, 5),
+    )
+    movimiento.estado = "CANCELADO"
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    modificar_apunte_contable(
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota corregida",
+        base=12000,
+        tercero_nombre="Comunidad López",
+    )
+
+    assert movimiento.concepto == "Cuota corregida"
+    assert movimiento.importe_esperado == 12000
+    assert movimiento.contraparte == "Comunidad López"
+    assert movimiento.estado == "CANCELADO"
+    assert movimiento.fecha_prevista_desde == date(
+        2026, 9, 5
+    )
+
+
+def test_modificar_apunte_conciliado_permite_datos_descriptivos(
+    session,
+    inmueble,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota antigua",
+        base=10000,
+        tercero_nombre="Comunidad antigua",
+    )
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 9, 5),
+    )
+    movimiento.estado = "CONCILIADO"
+    movimiento.metodo_conciliacion = "MANUAL"
+    movimiento.notas = "Pagado en efectivo"
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    modificar_apunte_contable(
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 2),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota corregida",
+        base=10000,
+        tercero_nombre="Comunidad corregida",
+    )
+
+    assert movimiento.concepto == "Cuota corregida"
+    assert movimiento.contraparte == "Comunidad corregida"
+
+    assert movimiento.estado == "CONCILIADO"
+    assert movimiento.metodo_conciliacion == "MANUAL"
+    assert movimiento.notas == "Pagado en efectivo"
+    assert movimiento.fecha_prevista_desde == date(
+        2026, 9, 5
+    )
+
+
+@pytest.mark.parametrize(
+    "cambio",
+    [
+        "importe",
+        "inmueble",
+        "naturaleza",
+    ],
+)
+def test_modificar_apunte_conciliado_rechaza_cambios_economicos(
+    session,
+    inmueble,
+    cambio,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+        "ING_OTROS": CategoriaContable(
+            codigo="ING_OTROS",
+            naturaleza="INGRESO",
+            nombre="Otros ingresos",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    otro_inmueble = Inmueble(
+        referencia="LOCAL-2",
+        tipo="L",
+        codigo_facturacion="A2",
+        descripcion="Segundo local",
+        direccion="Dirección 2",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+    session.add(otro_inmueble)
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+    )
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 9, 5),
+    )
+    movimiento.estado = "CONCILIADO"
+    movimiento.metodo_conciliacion = "MANUAL"
+    movimiento.notas = "Pagado en efectivo"
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    inmueble_nuevo = inmueble
+    naturaleza = "GASTO"
+    categoria = "GAS_COMUNIDAD"
+    base = 10000
+
+    if cambio == "importe":
+        base = 12000
+
+    elif cambio == "inmueble":
+        inmueble_nuevo = otro_inmueble
+
+    elif cambio == "naturaleza":
+        naturaleza = "INGRESO"
+        categoria = "ING_OTROS"
+
+    with pytest.raises(
+        ContabilidadError,
+        match="conciliado",
+    ):
+        modificar_apunte_contable(
+            apunte=apunte,
+            inmueble=inmueble_nuevo,
+            categorias=categorias,
+            fecha=date(2026, 9, 1),
+            naturaleza=naturaleza,
+            categoria=categoria,
+            concepto="Cuota de comunidad",
+            base=base,
+        )
+
+
+def test_modificar_apunte_parcial_rechaza_cambio_importe(
+    session,
+    inmueble,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+    )
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 9, 5),
+    )
+    movimiento.estado = "PARCIAL"
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    with pytest.raises(
+        ContabilidadError,
+        match="conciliado",
+    ):
+        modificar_apunte_contable(
+            apunte=apunte,
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=date(2026, 9, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Cuota de comunidad",
+            base=12000,
+        )
+
+
+def test_editar_apunte_conciliado_sincroniza_datos_descriptivos(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            subcategoria=None,
+            concepto="Cuota antigua",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tercero_nombre="Comunidad antigua",
+        )
+
+        movimiento = crear_movimiento_desde_apunte(
+            apunte=apunte,
+            fecha_prevista_desde=date(2026, 9, 20),
+            fecha_prevista_hasta=date(2026, 9, 25),
+        )
+        movimiento.estado = "CONCILIADO"
+        movimiento.metodo_conciliacion = "MANUAL"
+        movimiento.notas = "Pagado en efectivo"
+
+        session.add_all([
+            inmueble,
+            apunte,
+            movimiento,
+        ])
+        session.commit()
+
+        apunte_id = apunte.id
+        movimiento_id = movimiento.id
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Cuota corregida",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "100,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Comunidad corregida",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "accion": "validar",
+    }
+
+    # El usuario valida los cambios descriptivos.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["concepto"] = _valor_input(
+        response,
+        "concepto",
+    )
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+    datos["accion"] = "guardar"
+
+    # El usuario guarda el apunte ya validado.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert apunte is not None
+        assert movimiento is not None
+
+        assert apunte.concepto == "Cuota corregida"
+        assert apunte.tercero_nombre == (
+            "Comunidad corregida"
+        )
+
+        assert movimiento.concepto == "Cuota corregida"
+        assert movimiento.contraparte == (
+            "Comunidad corregida"
+        )
+
+        assert movimiento.importe_esperado == 10000
+        assert movimiento.estado == "CONCILIADO"
+        assert movimiento.metodo_conciliacion == "MANUAL"
+        assert movimiento.notas == "Pagado en efectivo"
+        assert movimiento.fecha_prevista_desde == date(
+            2026, 9, 20
+        )
+        assert movimiento.fecha_prevista_hasta == date(
+            2026, 9, 25
+        )
+
+
+def test_editar_apunte_conciliado_rechaza_cambio_importe(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            subcategoria=None,
+            concepto="Cuota de comunidad",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tercero_nombre="Comunidad López",
+        )
+
+        movimiento = crear_movimiento_desde_apunte(
+            apunte=apunte,
+            fecha_prevista_desde=date(2026, 9, 20),
+        )
+        movimiento.estado = "CONCILIADO"
+        movimiento.metodo_conciliacion = "MANUAL"
+        movimiento.notas = "Pagado en efectivo"
+
+        session.add_all([
+            inmueble,
+            apunte,
+            movimiento,
+        ])
+        session.commit()
+
+        inmueble_id = inmueble.id
+        apunte_id = apunte.id
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Cuota de comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "120,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Comunidad López",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "accion": "validar",
+    }
+
+    # El usuario intenta validar un cambio que altera
+    # el importe ya conciliado.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert (
+        "No puede cambiarse el inmueble, la naturaleza "
+        "o el importe"
+        in response.text
+    )
+
+    assert 'name="firma_validacion"' not in response.text
+    assert 'value="guardar"' not in response.text
+
+    # Ni el apunte ni su movimiento deben haber cambiado.
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert apunte is not None
+        assert movimiento is not None
+
+        assert apunte.total == 10000
+        assert movimiento.importe_esperado == 10000
+
+        assert movimiento.estado == "CONCILIADO"
+        assert movimiento.metodo_conciliacion == "MANUAL"
+        assert movimiento.notas == "Pagado en efectivo"
+
+
