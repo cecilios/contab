@@ -279,7 +279,7 @@
                 >
             </p>
         </fieldset>
-        
+
         {% if permitir_movimiento %}
             <fieldset>
                 <legend>Conciliación bancaria</legend>
@@ -288,25 +288,47 @@
                     <label>
                         <input
                             type="checkbox"
+                            id="crear_movimiento"
                             name="crear_movimiento"
                             {% if datos.get("crear_movimiento") %}
                                 checked
                             {% endif %}
                         >
-                        Crear movimiento previsto
+                        Generar movimiento previsto para conciliación
                     </label>
                 </p>
 
-                <p>
-                    <label for="fecha_prevista">
-                        Fecha prevista
-                    </label>
-                    <input
-                        id="fecha_prevista"
-                        name="fecha_prevista"
-                        value="{{ datos.get('fecha_prevista', '') }}"
-                    >
-                </p>
+                <div id="datos_movimiento_previsto">
+                    <p>
+                        <label for="fecha_prevista_desde">
+                            Fecha prevista desde
+                        </label>
+                        <input
+                            id="fecha_prevista_desde"
+                            name="fecha_prevista_desde"
+                            value="{{ datos.get(
+                                'fecha_prevista_desde',
+                                ''
+                            ) }}"
+                            placeholder="dd/mm/aaaa"
+                        >
+                    </p>
+
+                    <p>
+                        <label for="fecha_prevista_hasta">
+                            Fecha prevista hasta
+                        </label>
+                        <input
+                            id="fecha_prevista_hasta"
+                            name="fecha_prevista_hasta"
+                            value="{{ datos.get(
+                                'fecha_prevista_hasta',
+                                ''
+                            ) }}"
+                            placeholder="dd/mm/aaaa"
+                        >
+                    </p>
+                </div>
             </fieldset>
         {% endif %}
 
@@ -353,6 +375,21 @@
                 "concepto_automatico"
             );
 
+            const crearMovimiento = document.getElementById(
+                "crear_movimiento"
+            );
+            const datosMovimiento = document.getElementById(
+                "datos_movimiento_previsto"
+            );
+
+            function actualizarMovimientoPrevisto() {
+                if (!crearMovimiento || !datosMovimiento) {
+                    return;
+                }
+
+                datosMovimiento.hidden = !crearMovimiento.checked;
+            }
+
             function actualizarConcepto() {
                 const opcion = clasificacion.selectedOptions[0];
                 const propuesta = opcion?.dataset.concepto || "";
@@ -384,6 +421,15 @@
 
             if (!concepto.value.trim()) {
                 actualizarConcepto();
+            }
+
+            if (crearMovimiento) {
+                crearMovimiento.addEventListener(
+                    "change",
+                    actualizarMovimientoPrevisto
+                );
+
+                actualizarMovimientoPrevisto();
             }
         });
     </script>

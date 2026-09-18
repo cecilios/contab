@@ -258,6 +258,9 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
         "tercero_nif": "",
         "referencia_documento": "TRU-2026",
         "accion": "validar",
+        "crear_movimiento": "on",
+        "fecha_prevista_desde": "20/09/2026",
+        "fecha_prevista_hasta": "25/09/2026",
     }
 
     response = client.post(
@@ -396,6 +399,374 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
         assert apunte.base == 10000
         assert apunte.iva_importe == 2100
         assert apunte.total == 12100
+
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert movimiento is not None
+        assert movimiento.apunte_id == apunte.id
+        assert movimiento.inmueble_id == inmueble_id
+        assert movimiento.naturaleza == "GASTO"
+        assert movimiento.concepto == (
+            "Tasa de Residuos Urbanos 09/2026"
+        )
+        assert movimiento.importe_esperado == 12100
+        assert movimiento.contraparte == "Ayuntamiento"
+        assert movimiento.fecha_prevista_desde == date(
+            2026, 9, 20
+        )
+        assert movimiento.fecha_prevista_hasta == date(
+            2026, 9, 25
+        )
+        assert movimiento.estado == "PENDIENTE"
+        assert movimiento.metodo_conciliacion is None
+
+
+def test_crear_apunte_sin_movimiento_previsto(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Cuota de comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "100,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Comunidad López",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "accion": "validar",
+    }
+
+    # El usuario valida el apunte con la generación
+    # de movimiento previsto desactivada.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["concepto"] = _valor_input(
+        response,
+        "concepto",
+    )
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+    datos["accion"] = "guardar"
+
+    # El usuario guarda el apunte ya validado.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert apunte is not None
+        assert movimiento is None
+
+
+def test_nuevo_apunte_rechaza_fechas_previstas_invertidas(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "fecha": "15/09/2026",
+            "clasificacion": "GAS_COMUNIDAD",
+            "concepto": "Cuota de comunidad",
+            "periodo_desde": "",
+            "periodo_hasta": "",
+            "tratamiento": "CONTABILIZAR",
+            "base": "100,00",
+            "iva_importe": "0,00",
+            "retencion_importe": "0,00",
+            "nombre_documento": "",
+            "tercero_nombre": "Comunidad López",
+            "tercero_nif": "",
+            "referencia_documento": "",
+            "crear_movimiento": "on",
+            "fecha_prevista_desde": "20/09/2026",
+            "fecha_prevista_hasta": "19/09/2026",
+            "accion": "validar",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "La fecha prevista final no puede ser anterior"
+        in response.text
+    )
+
+
+def test_nuevo_apunte_ignora_fechas_previstas_si_no_crea_movimiento(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "fecha": "15/09/2026",
+            "clasificacion": "GAS_COMUNIDAD",
+            "concepto": "Cuota de comunidad",
+            "periodo_desde": "",
+            "periodo_hasta": "",
+            "tratamiento": "CONTABILIZAR",
+            "base": "100,00",
+            "iva_importe": "0,00",
+            "retencion_importe": "0,00",
+            "nombre_documento": "",
+            "tercero_nombre": "Comunidad López",
+            "tercero_nif": "",
+            "referencia_documento": "",
+            "fecha_prevista_desde": "fecha incorrecta",
+            "fecha_prevista_hasta": "otra fecha incorrecta",
+            "accion": "validar",
+        },
+    )
+
+    assert response.status_code == 200
+    assert _valor_input(
+        response,
+        "firma_validacion",
+    )
+
+
+def test_nuevo_apunte_exige_revalidar_si_cambian_fechas_previstas(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Cuota de comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "100,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Comunidad López",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "crear_movimiento": "on",
+        "fecha_prevista_desde": "20/09/2026",
+        "fecha_prevista_hasta": "",
+        "accion": "validar",
+    }
+
+    # El usuario valida el formulario.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+
+    # Cambia la fecha prevista después de validar.
+    datos["fecha_prevista_desde"] = "21/09/2026"
+    datos["accion"] = "guardar"
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert "han cambiado" in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(ApunteContable)
+        ) is None
 
 
 def test_crear_apunte_invalido_no_guarda_datos(
@@ -1035,3 +1406,400 @@ def test_eliminar_apunte_conciliado_desde_interfaz_muestra_error() -> None:
             apunte_id,
         ) is not None
 
+
+def test_crear_movimiento_previsto_sin_fechas_no_usa_fecha_apunte(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Cuota de comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "100,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Comunidad López",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "crear_movimiento": "on",
+        "fecha_prevista_desde": "",
+        "fecha_prevista_hasta": "",
+        "accion": "validar",
+    }
+
+    # El usuario valida el apunte sin indicar
+    # ninguna fecha prevista de pago.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["concepto"] = _valor_input(
+        response,
+        "concepto",
+    )
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+    datos["accion"] = "guardar"
+
+    # El usuario guarda el apunte ya validado.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert movimiento is not None
+        assert movimiento.fecha_prevista_desde is None
+        assert movimiento.fecha_prevista_hasta is None
+
+
+def test_crear_movimiento_previsto_con_solo_fecha_desde(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Cuota de comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "100,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Comunidad López",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "crear_movimiento": "on",
+        "fecha_prevista_desde": "20/09/2026",
+        "fecha_prevista_hasta": "",
+        "accion": "validar",
+    }
+
+    # El usuario valida el apunte sin indicar
+    # ninguna fecha prevista de pago.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["concepto"] = _valor_input(
+        response,
+        "concepto",
+    )
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+    datos["accion"] = "guardar"
+
+    # El usuario guarda el apunte ya validado.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert movimiento is not None
+        assert movimiento.fecha_prevista_desde == date(2026, 9, 20)
+        assert movimiento.fecha_prevista_hasta is None
+
+
+def test_nuevo_apunte_rechaza_fecha_prevista_hasta_sin_desde(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data={
+            "inmueble_id": str(inmueble_id),
+            "fecha": "15/09/2026",
+            "clasificacion": "GAS_COMUNIDAD",
+            "concepto": "Cuota de comunidad",
+            "periodo_desde": "",
+            "periodo_hasta": "",
+            "tratamiento": "CONTABILIZAR",
+            "base": "100,00",
+            "iva_importe": "0,00",
+            "retencion_importe": "0,00",
+            "nombre_documento": "",
+            "tercero_nombre": "Comunidad López",
+            "tercero_nif": "",
+            "referencia_documento": "",
+            "crear_movimiento": "on",
+            "fecha_prevista_desde": "",
+            "fecha_prevista_hasta": "25/09/2026",
+            "accion": "validar",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "La fecha prevista final requiere una fecha inicial."
+        in response.text
+    )
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(ApunteContable)
+        ) is None
+
+        assert session.scalar(
+            select(MovimientoPrevisto)
+        ) is None
+
+
+def test_nuevo_apunte_exige_revalidar_si_se_desactiva_movimiento(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Cuota de comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "100,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Comunidad López",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "crear_movimiento": "on",
+        "fecha_prevista_desde": "20/09/2026",
+        "fecha_prevista_hasta": "",
+        "accion": "validar",
+    }
+
+    # El usuario valida el apunte sin indicar
+    # ninguna fecha prevista de pago.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["concepto"] = _valor_input(
+        response,
+        "concepto",
+    )
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+
+    # Después de validar, el usuario desmarca
+    # la generación del movimiento previsto.
+    datos.pop("crear_movimiento")
+    datos["accion"] = "guardar"
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert "han cambiado" in response.text
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(ApunteContable)
+        ) is None
+
+        assert session.scalar(
+            select(MovimientoPrevisto)
+        ) is None

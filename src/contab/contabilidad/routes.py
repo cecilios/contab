@@ -37,6 +37,10 @@ from contab.contabilidad.services import (
     modificar_apunte_contable,
     proponer_nombre_documento,
 )
+from contab.conciliacion.services import (
+    ConciliacionError,
+    crear_movimiento_desde_apunte,
+)
 
 
 CAMPOS_VALIDACION = (
@@ -54,6 +58,9 @@ CAMPOS_VALIDACION = (
     "tercero_nombre",
     "tercero_nif",
     "referencia_documento",
+    "crear_movimiento",
+    "fecha_prevista_desde",
+    "fecha_prevista_hasta",
 )
 
 TRATAMIENTOS_APUNTE = {
@@ -186,6 +193,39 @@ def _fecha(texto: str) -> date:
             "La fecha indicada no es válida o no tiene "
             "el formato dd/mm/aaaa."
         ) from exc
+
+
+def _fechas_previstas(
+    desde_texto: str,
+    hasta_texto: str,
+) -> tuple[date | None, date | None]:
+    """Interpreta las fechas opcionales de un movimiento previsto."""
+
+    desde_texto = desde_texto.strip()
+    hasta_texto = hasta_texto.strip()
+
+    if not desde_texto and not hasta_texto:
+        return None, None
+
+    if not desde_texto:
+        raise ValueError(
+            "La fecha prevista final requiere una fecha inicial."
+        )
+
+    desde = _fecha(desde_texto)
+
+    if not hasta_texto:
+        return desde, None
+
+    hasta = _fecha(hasta_texto)
+
+    if hasta < desde:
+        raise ValueError(
+            "La fecha prevista final no puede ser anterior "
+            "a la fecha inicial."
+        )
+
+    return desde, hasta
 
 
 def _periodo(
@@ -561,7 +601,7 @@ def _comprobar_documento_duplicado(
 def _datos_apunte_formulario(
     datos,
     categorias,
-) -> tuple[int, dict]:
+) -> tuple[int, dict, dict]:
     """Interpreta y normaliza los datos enviados por el formulario."""
 
     inmueble_id = int(datos["inmueble_id"])
@@ -580,6 +620,28 @@ def _datos_apunte_formulario(
         datos.get("periodo_desde", ""),
         datos.get("periodo_hasta", ""),
     )
+
+    crear_movimiento = (
+        datos.get("crear_movimiento") == "on"
+    )
+
+    if crear_movimiento:
+        (
+            fecha_prevista_desde,
+            fecha_prevista_hasta,
+        ) = _fechas_previstas(
+            datos.get("fecha_prevista_desde", ""),
+            datos.get("fecha_prevista_hasta", ""),
+        )
+    else:
+        fecha_prevista_desde = None
+        fecha_prevista_hasta = None
+
+    movimiento = {
+        "crear": crear_movimiento,
+        "fecha_prevista_desde": fecha_prevista_desde,
+        "fecha_prevista_hasta": fecha_prevista_hasta,
+    }
 
     valores = {
         "categorias": categorias,
@@ -602,7 +664,7 @@ def _datos_apunte_formulario(
         "nombre_documento": datos.get("nombre_documento", "",),
     }
 
-    return inmueble_id, valores
+    return inmueble_id, valores, movimiento
 
 
 def _render_eliminar_apunte(
@@ -698,8 +760,10 @@ def nuevo_apunte():
             datos={
                 "fecha": date.today().strftime("%d/%m/%Y"),
                 "tratamiento": "CONTABILIZAR",
+                "crear_movimiento": "on",
             },
             error=None,
+            permitir_movimiento=True,
         )
 
         return contenido
@@ -708,9 +772,11 @@ def nuevo_apunte():
     datos_formulario = dict(request.form)
 
     try:
-        inmueble_id, valores = _datos_apunte_formulario(
-            request.form,
-            categorias,
+        inmueble_id, valores, movimiento = (
+            _datos_apunte_formulario(
+                request.form,
+                categorias,
+            )
         )
 
         accion = request.form.get("accion", "")
@@ -785,6 +851,7 @@ def nuevo_apunte():
                     titulo="Nuevo apunte contable",
                     datos=datos_formulario,
                     error=None,
+                    permitir_movimiento=True,
                     aviso=aviso,
                 )
 
@@ -813,10 +880,24 @@ def nuevo_apunte():
 
                 session.add(apunte)
 
+                if movimiento["crear"]:
+                    movimiento_previsto = crear_movimiento_desde_apunte(
+                        apunte=apunte,
+                        fecha_prevista_desde=movimiento[
+                            "fecha_prevista_desde"
+                        ],
+                        fecha_prevista_hasta=movimiento[
+                            "fecha_prevista_hasta"
+                        ],
+                    )
+
+                    session.add(movimiento_previsto)
+
     except (
         KeyError,
         ValueError,
         ContabilidadError,
+        ConciliacionError,
     ) as exc:
         datos_formulario.pop(
             "firma_validacion",
@@ -832,6 +913,7 @@ def nuevo_apunte():
             datos=datos_formulario,
             error=str(exc),
             status_code=400,
+            permitir_movimiento=True,
         )
 
     return redirect(
@@ -970,9 +1052,11 @@ def editar_apunte(apunte_id: int):
     datos_formulario = dict(request.form)
 
     try:
-        inmueble_id, valores = _datos_apunte_formulario(
-            request.form,
-            categorias,
+        inmueble_id, valores, _ = (
+            _datos_apunte_formulario(
+                request.form,
+                categorias,
+            )
         )
 
         accion = request.form.get("accion", "")
