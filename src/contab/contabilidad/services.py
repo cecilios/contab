@@ -386,7 +386,10 @@ def eliminar_apunte_contable(
     """Elimina un apunte y sus movimientos todavía pendientes."""
 
     if any(
-        movimiento.estado == "CONCILIADO"
+        movimiento.estado in {
+            "CONCILIADO",
+            "PARCIAL",
+        }
         for movimiento in apunte.movimientos_previstos
     ):
         raise ContabilidadError(

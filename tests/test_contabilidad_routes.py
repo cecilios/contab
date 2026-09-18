@@ -1141,6 +1141,64 @@ def test_eliminar_apunte_contable(
     ) is None
 
 
+def test_eliminar_apunte_con_movimiento_parcial_falla(
+    session,
+    inmueble,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+    )
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 9, 5),
+    )
+    movimiento.estado = "PARCIAL"
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    apunte_id = apunte.id
+    movimiento_id = movimiento.id
+
+    with pytest.raises(
+        ContabilidadError,
+        match="conciliados",
+    ):
+        eliminar_apunte_contable(
+            session,
+            apunte,
+        )
+
+    session.rollback()
+
+    assert session.get(
+        ApunteContable,
+        apunte_id,
+    ) is not None
+
+    assert session.get(
+        MovimientoPrevisto,
+        movimiento_id,
+    ) is not None
+
+
 def test_eliminar_apunte_desde_interfaz() -> None:
     app = crear_app_test()
 
