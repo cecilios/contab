@@ -297,6 +297,7 @@ def crear_factura(
         ruta_pdf=ruta_pdf,
         revision_renta=revision_renta,
         aviso_revision=aviso_revision,
+        estado="EMITIDA",
     )
 
     factura.lineas.extend(lineas)
@@ -459,5 +460,36 @@ def preparar_periodo_facturacion(
         locales=tuple(locales),
         otros=tuple(otros),
     )
+
+
+def emitir_factura(
+    *,
+    contrato: Contrato,
+    periodo: date,
+    fecha_emision: date,
+    categorias: dict[str, CategoriaContable],
+) -> tuple[Factura, ApunteContable, MovimientoPrevisto]:
+    """Prepara la emisión completa de una factura sin persistirla."""
+
+    if any(
+        factura.periodo == periodo
+        for factura in contrato.facturas
+    ):
+        raise FacturacionError(
+            "Ya existe una factura para este contrato y período."
+        )
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=periodo,
+        fecha_emision=fecha_emision,
+    )
+
+    apunte, movimiento = preparar_registro_contable_factura(
+        factura=factura,
+        categorias=categorias,
+    )
+
+    return factura, apunte, movimiento
 
 

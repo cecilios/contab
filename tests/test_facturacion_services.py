@@ -24,6 +24,7 @@ from contab.facturacion.services import (
     calcular_importes_factura,
     componer_destinatario,
     crear_factura,
+    emitir_factura,
     preparar_periodo_facturacion,
     preparar_registro_contable_factura,
     siguiente_numero_factura,
@@ -1383,5 +1384,122 @@ def test_preparar_periodo_facturacion_no_consume_numero_factura(
     assert segunda.locales[0].factura is None
 
     assert session.query(Factura).count() == facturas_antes
+
+
+def test_emitir_factura_prepara_operacion_completa(
+    session,
+    contrato,
+) -> None:
+    """Prepara factura, apunte y cobro previsto sin persistirlos."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+
+    contrato.genera_factura = True
+    contrato.iva_porcentaje = 2100
+    contrato.retencion_porcentaje = 1900
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    factura, apunte, movimiento = emitir_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        categorias=categorias,
+    )
+
+    assert factura.id is None
+    assert apunte.id is None
+    assert movimiento.id is None
+
+    assert factura.contrato is contrato
+    assert factura.periodo == date(2026, 10, 1)
+    assert factura.fecha_emision == date(2026, 10, 1)
+    assert factura.estado == "EMITIDA"
+
+    assert len(factura.lineas) == 1
+    assert factura.lineas[0].tipo == "RENTA"
+    assert factura.lineas[0].importe == 100000
+
+    assert factura.base == 100000
+    assert factura.iva_importe == 21000
+    assert factura.retencion_importe == 19000
+    assert factura.total == 102000
+
+    assert apunte.inmueble is contrato.inmueble
+    assert apunte.referencia_documento == factura.numero_factura
+    assert apunte.total == factura.total
+
+    assert movimiento.apunte is apunte
+    assert movimiento.contrato is contrato
+    assert movimiento.inmueble is contrato.inmueble
+    assert movimiento.importe_esperado == factura.total
+    assert movimiento.estado == "PENDIENTE"
+
+
+def test_emitir_factura_rechaza_periodo_ya_facturado(
+    session,
+    contrato,
+) -> None:
+    """No permite emitir dos facturas ordinarias del mismo período."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = True
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    session.add(factura)
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="Ya existe",
+    ):
+        emitir_factura(
+            contrato=contrato,
+            periodo=date(2026, 10, 1),
+            fecha_emision=date(2026, 10, 1),
+            categorias=categorias,
+        )
 
 
