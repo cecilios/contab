@@ -4,23 +4,54 @@ import pytest
 
 from datetime import date
 
+from contab.config import CategoriaContable
 from contab.models import (
     AjusteRenta,
+    ApunteContable,
     Contrato,
+    ContratoInquilino,
     Factura,
     FacturaLinea,
+    Inquilino,
+    MovimientoPrevisto,
     RentaContrato,
     RevisionRenta,
 )
-
 from contab.facturacion.services import (
     CalculoFacturaError,
     FacturacionError,
     RepercusionGasto,
     calcular_importes_factura,
+    componer_destinatario,
     crear_factura,
+    preparar_periodo_facturacion,
+    preparar_registro_contable_factura,
     siguiente_numero_factura,
 )
+
+
+def _anadir_titular(
+    contrato: Contrato,
+    *,
+    nombre: str = "Ana Pérez",
+    nif: str = "11111111A",
+    orden: int = 1,
+) -> Inquilino:
+    """Añade un titular al contrato para los tests de facturación."""
+
+    inquilino = Inquilino(
+        nombre=nombre,
+        nif=nif,
+    )
+
+    contrato.titulares.append(
+        ContratoInquilino(
+            inquilino=inquilino,
+            orden=orden,
+        )
+    )
+
+    return inquilino
 
 
 def test_primera_factura_del_ano_comienza_en_uno(contrato) -> None:
@@ -476,8 +507,8 @@ def test_crear_factura_ordinaria(session, contrato) -> None:
     assert factura.retencion_importe == 0
     assert factura.total == 100000
     assert factura.ruta_pdf == "facturas/01-2026A1.pdf"
-    
-    
+
+
 def test_factura_admite_ruta_pdf_vacia_por_defecto(session, contrato) -> None:
     contrato.rentas.append(
         RentaContrato(
@@ -853,5 +884,504 @@ def test_crear_factura_rechaza_gasto_repercutido_negativo(
                 )
             ],
         )
+
+
+def test_preparar_registro_contable_factura(
+    session,
+    contrato,
+) -> None:
+    """Comprueba los efectos contables de una factura emitida."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    contrato.iva_porcentaje = 2100
+    contrato.retencion_porcentaje = 1900
+
+    titular_1 = Inquilino(
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+    titular_2 = Inquilino(
+        nombre="Juan Pérez",
+        nif="22222222B",
+    )
+
+    contrato.titulares.extend(
+        [
+            ContratoInquilino(
+                inquilino=titular_1,
+                orden=1,
+            ),
+            ContratoInquilino(
+                inquilino=titular_2,
+                orden=2,
+            ),
+        ]
+    )
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    apunte, movimiento = preparar_registro_contable_factura(
+        factura=factura,
+        categorias=categorias,
+    )
+
+    assert isinstance(apunte, ApunteContable)
+    assert apunte.id is None
+
+    assert apunte.inmueble is contrato.inmueble
+    assert apunte.fecha == date(2026, 10, 1)
+    assert apunte.naturaleza == "INGRESO"
+    assert apunte.categoria == "ING_ALQUILERES"
+    assert apunte.subcategoria is None
+
+    assert apunte.periodo_desde == date(2026, 10, 1)
+    assert apunte.periodo_hasta == date(2026, 10, 31)
+
+    assert apunte.base == 100000
+    assert apunte.iva_importe == 21000
+    assert apunte.retencion_importe == 19000
+    assert apunte.total == 102000
+
+    assert apunte.tercero_nombre == "Ana Pérez / Juan Pérez"
+    assert apunte.tercero_nif == "11111111A / 22222222B"
+    assert apunte.referencia_documento == factura.numero_factura
+
+    assert isinstance(movimiento, MovimientoPrevisto)
+    assert movimiento.id is None
+
+    assert movimiento.apunte is apunte
+    assert movimiento.contrato is contrato
+    assert movimiento.inmueble is contrato.inmueble
+
+    assert movimiento.naturaleza == "INGRESO"
+    assert movimiento.importe_esperado == 102000
+
+    assert movimiento.fecha_prevista_desde == date(2026, 10, 1)
+    assert movimiento.fecha_prevista_hasta == date(2026, 10, 31)
+
+    assert movimiento.contraparte == "Ana Pérez / Juan Pérez"
+    assert movimiento.estado == "PENDIENTE"
+
+
+def test_preparar_registro_contable_factura_calcula_fin_de_febrero(
+    session,
+    contrato,
+) -> None:
+    """Usa todo el mes como ventana prevista de cobro."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2028, 2, 1),
+        fecha_emision=date(2028, 2, 1),
+    )
+
+    apunte, movimiento = preparar_registro_contable_factura(
+        factura=factura,
+        categorias=categorias,
+    )
+
+    assert apunte.periodo_desde == date(2028, 2, 1)
+    assert apunte.periodo_hasta == date(2028, 2, 29)
+    assert movimiento.fecha_prevista_desde == date(2028, 2, 1)
+    assert movimiento.fecha_prevista_hasta == date(2028, 2, 29)
+
+
+def test_preparar_registro_contable_factura_calcula_fin_de_diciembre(
+    session,
+    contrato,
+) -> None:
+    """Calcula correctamente el cambio de año."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 12, 1),
+        fecha_emision=date(2026, 12, 1),
+    )
+
+    apunte, movimiento = preparar_registro_contable_factura(
+        factura=factura,
+        categorias=categorias,
+    )
+
+    assert apunte.periodo_desde == date(2026, 12, 1)
+    assert apunte.periodo_hasta == date(2026, 12, 31)
+    assert movimiento.fecha_prevista_desde == date(2026, 12, 1)
+    assert movimiento.fecha_prevista_hasta == date(2026, 12, 31)
+
+
+def test_preparar_periodo_facturacion_separa_locales_y_otros(
+    session,
+    contrato,
+) -> None:
+    """Separa contratos con factura de otros ingresos del período."""
+
+    contrato.genera_factura = True
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    contrato.iva_porcentaje = 2100
+    contrato.retencion_porcentaje = 1900
+
+    contrato_sin_factura = Contrato(
+        inmueble=contrato.inmueble,
+        fecha_inicio=contrato.fecha_inicio,
+        fecha_vencimiento=contrato.fecha_vencimiento,
+        fecha_inicio_facturacion=contrato.fecha_inicio,
+        genera_factura=False,
+        fianza=contrato.fianza,
+        iva_porcentaje=0,
+        retencion_porcentaje=0,
+        direccion_facturacion="Calle Mayor, 1",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler vivienda",
+    )
+
+    _anadir_titular(
+        contrato_sin_factura,
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+    contrato_sin_factura.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=85000,
+        )
+    )
+
+    session.add(contrato_sin_factura)
+    _anadir_titular(
+        contrato,
+        nombre="Juan Pérez",
+        nif="22222222B",
+    )
+    session.commit()
+
+    facturas_antes = session.query(Factura).count()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato, contrato_sin_factura],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert preparacion.periodo == date(2026, 10, 1)
+    assert preparacion.fecha_emision == date(2026, 10, 1)
+
+    assert len(preparacion.locales) == 1
+    assert len(preparacion.otros) == 1
+
+    local = preparacion.locales[0]
+
+    assert local.destinatario_nombre == "Juan Pérez"
+    assert local.destinatario_nif == "22222222B"
+    assert local.factura is None
+
+    _, numero_esperado = siguiente_numero_factura(contrato,2026)
+    assert local.numero_factura == numero_esperado
+
+    assert local.direccion_facturacion == contrato.direccion_facturacion
+    assert local.codigo_postal_facturacion == contrato.codigo_postal_facturacion
+    assert local.poblacion_facturacion == contrato.poblacion_facturacion
+    assert local.provincia_facturacion == contrato.provincia_facturacion
+
+    assert local.contrato is contrato
+    assert local.inmueble is contrato.inmueble
+    assert local.base == 100000
+    assert local.iva_importe == 21000
+    assert local.retencion_importe == 19000
+    assert local.total == 102000
+
+    otro = preparacion.otros[0]
+
+    assert otro.contrato is contrato_sin_factura
+    assert otro.inmueble is contrato_sin_factura.inmueble
+    assert otro.importe == 85000
+
+    assert session.query(Factura).count() == facturas_antes
+
+
+def test_preparar_periodo_facturacion_filtra_contratos_por_vigencia(
+    session,
+    contrato,
+) -> None:
+    """Incluye sólo contratos vigentes en algún momento del período."""
+
+    contrato.genera_factura = False
+    contrato.fecha_inicio = date(2026, 10, 15)
+    contrato.fecha_vencimiento = date(2027, 10, 14)
+    contrato.fecha_inicio_facturacion = contrato.fecha_inicio
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=85000,
+        )
+    )
+
+    session.commit()
+
+    octubre = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    septiembre = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+    )
+
+    assert len(octubre.otros) == 1
+    assert len(septiembre.otros) == 0
+
+    contrato.fecha_inicio = date(2025, 10, 1)
+    contrato.fecha_inicio_facturacion = contrato.fecha_inicio
+    contrato.fecha_fin = date(2026, 9, 30)
+    session.commit()
+
+    octubre = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(octubre.otros) == 0
+
+
+def test_componer_destinatario_con_un_titular(
+    contrato,
+) -> None:
+    """Compone nombre y NIF de un único titular."""
+
+    titular = Inquilino(
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+    contrato.titulares.append(
+        ContratoInquilino(
+            inquilino=titular,
+            orden=1,
+        )
+    )
+
+    nombre, nif = componer_destinatario(contrato)
+
+    assert nombre == "Ana Pérez"
+    assert nif == "11111111A"
+
+
+def test_componer_destinatario_con_varios_titulares(
+    contrato,
+) -> None:
+    """Incluye todos los titulares respetando su orden."""
+
+    titular_1 = Inquilino(
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+    titular_2 = Inquilino(
+        nombre="Juan Pérez",
+        nif="22222222B",
+    )
+
+    contrato.titulares.extend(
+        [
+            ContratoInquilino(
+                inquilino=titular_2,
+                orden=2,
+            ),
+            ContratoInquilino(
+                inquilino=titular_1,
+                orden=1,
+            ),
+        ]
+    )
+
+    nombre, nif = componer_destinatario(contrato)
+
+    assert nombre == "Ana Pérez / Juan Pérez"
+    assert nif == "11111111A / 22222222B"
+
+
+def test_componer_destinatario_sin_titulares_falla(
+    contrato,
+) -> None:
+    """Una factura requiere al menos un destinatario."""
+
+    with pytest.raises(
+        FacturacionError,
+        match="titular",
+    ):
+        componer_destinatario(contrato)
+
+
+def test_preparar_periodo_facturacion_reconoce_factura_emitida(
+    session,
+    contrato,
+) -> None:
+    """Asocia a la preparación una factura ya emitida del período."""
+
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+
+    contrato.genera_factura = True
+    contrato.iva_porcentaje = 2100
+    contrato.retencion_porcentaje = 1900
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    session.add(factura)
+    session.commit()
+
+    # cambiamos los datos para comprobar que se muestran los datos de la factura ya
+    # emitida, no los nuevos datos calculados
+    contrato.iva_porcentaje = 1000
+    contrato.retencion_porcentaje = 0
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(preparacion.locales) == 1
+
+    local = preparacion.locales[0]
+
+    assert local.contrato is contrato
+    assert local.factura is factura
+    assert local.numero_factura == factura.numero_factura
+
+    assert local.base == factura.base
+    assert local.iva_importe == 21000
+    assert local.retencion_importe == 19000
+    assert local.total == 102000
+
+
+def test_preparar_periodo_facturacion_no_consume_numero_factura(
+    session,
+    contrato,
+) -> None:
+    """Preparar varias veces el período no consume números de factura."""
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = True
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    facturas_antes = session.query(Factura).count()
+
+    primera = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    segunda = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(primera.locales) == 1
+    assert len(segunda.locales) == 1
+
+    assert (
+        primera.locales[0].numero_factura
+        == segunda.locales[0].numero_factura
+    )
+
+    assert primera.locales[0].factura is None
+    assert segunda.locales[0].factura is None
+
+    assert session.query(Factura).count() == facturas_antes
 
 

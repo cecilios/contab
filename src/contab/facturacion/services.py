@@ -3,10 +3,21 @@
 from datetime import date
 from dataclasses import dataclass
 
-from contab.models import Contrato, Factura, FacturaLinea, RevisionRenta
-from contab.contratos.services import renta_facturable
-
 from contab.calculos import redondear_division
+from contab.config import CategoriaContable
+from contab.contabilidad.services import crear_apunte_contable
+from contab.conciliacion.services import crear_movimiento_desde_apunte
+from contab.models import (
+    ApunteContable,
+    Contrato,
+    Factura,
+    FacturaLinea,
+    MovimientoPrevisto,
+    RevisionRenta,
+)
+from contab.contratos.services import (
+    renta_facturable,
+)
 
 
 class CalculoFacturaError(Exception):
@@ -32,6 +43,61 @@ class RepercusionGasto:
 
     concepto: str
     importe: int
+
+@dataclass(frozen=True)
+class FacturaPreparada:
+    """Datos calculados de una factura pendiente de emisión."""
+
+    contrato: Contrato
+    inmueble: object
+    destinatario_nombre: str
+    destinatario_nif: str
+    direccion_facturacion: str
+    codigo_postal_facturacion: str | None
+    poblacion_facturacion: str
+    provincia_facturacion: str
+    base: int
+    iva_importe: int
+    retencion_importe: int
+    total: int
+    factura: Factura | None
+    numero_factura: str
+
+@dataclass(frozen=True)
+class IngresoPreparado:
+    """Datos calculados de un ingreso que no genera factura."""
+
+    contrato: Contrato
+    inmueble: object
+    importe: int
+
+
+@dataclass(frozen=True)
+class PreparacionPeriodo:
+    """Datos preparados para la facturación de un período."""
+
+    periodo: date
+    fecha_emision: date
+    locales: tuple[FacturaPreparada, ...]
+    otros: tuple[IngresoPreparado, ...]
+
+
+
+def _ultimo_dia_mes(periodo: date) -> date:
+    """Devuelve el último día del mes de un período."""
+
+    if periodo.month == 12:
+        siguiente_mes = date(periodo.year + 1, 1, 1)
+    else:
+        siguiente_mes = date(
+            periodo.year,
+            periodo.month + 1,
+            1,
+        )
+
+    return date.fromordinal(
+        siguiente_mes.toordinal() - 1
+    )
 
 
 def siguiente_numero_factura(
@@ -105,6 +171,33 @@ def calcular_importes_factura(
         retencion_importe=retencion_importe,
         total=total,
     )
+
+
+def componer_destinatario(
+    contrato: Contrato,
+) -> tuple[str, str]:
+    """Compone nombre y NIF de los titulares de un contrato."""
+
+    titulares = sorted(
+        contrato.titulares,
+        key=lambda titular: titular.orden,
+    )
+
+    if not titulares:
+        raise FacturacionError(
+            "El contrato debe tener al menos un titular."
+        )
+
+    nombre = " / ".join(
+        titular.inquilino.nombre
+        for titular in titulares
+    )
+    nif = " / ".join(
+        titular.inquilino.nif
+        for titular in titulares
+    )
+
+    return nombre, nif
 
 
 def crear_factura(
@@ -209,4 +302,162 @@ def crear_factura(
     factura.lineas.extend(lineas)
 
     return factura
+
+
+def preparar_registro_contable_factura(
+    *,
+    factura: Factura,
+    categorias: dict[str, CategoriaContable],
+) -> tuple[ApunteContable, MovimientoPrevisto]:
+    """Prepara el apunte y movimiento previsto de una factura."""
+
+    contrato = factura.contrato
+
+    tercero_nombre, tercero_nif = componer_destinatario(contrato)
+
+    periodo_desde = factura.periodo
+    periodo_hasta = _ultimo_dia_mes(periodo_desde)
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=factura.fecha_emision,
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto=contrato.concepto_factura,
+        base=factura.base,
+        iva_importe=factura.iva_importe,
+        retencion_importe=factura.retencion_importe,
+        tercero_nombre=tercero_nombre,
+        tercero_nif=tercero_nif,
+        referencia_documento=factura.numero_factura,
+        periodo_desde=periodo_desde,
+        periodo_hasta=periodo_hasta,
+    )
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        contrato=contrato,
+        fecha_prevista_desde=periodo_desde,
+        fecha_prevista_hasta=periodo_hasta,
+    )
+
+    return apunte, movimiento
+
+
+def preparar_periodo_facturacion(
+    *,
+    contratos: list[Contrato],
+    periodo: date,
+    fecha_emision: date,
+) -> PreparacionPeriodo:
+    """Prepara los ingresos de alquiler correspondientes a un período."""
+
+    if periodo.day != 1:
+        raise FacturacionError(
+            "El periodo debe corresponder al día 1 del mes."
+        )
+
+    ultimo_dia = _ultimo_dia_mes(periodo)
+
+    locales = []
+    otros = []
+
+    for contrato in contratos:
+        if contrato.fecha_inicio > ultimo_dia:
+            continue
+
+        if (
+            contrato.fecha_fin is not None
+            and contrato.fecha_fin < periodo
+        ):
+            continue
+
+        fecha_renta = max(
+            periodo,
+            contrato.fecha_inicio,
+        )
+
+        if contrato.genera_factura:
+            if periodo < contrato.fecha_inicio_facturacion:
+                continue
+
+            factura = next(
+                (
+                    factura
+                    for factura in contrato.facturas
+                    if factura.periodo == periodo
+                ),
+                None,
+            )
+
+            if factura is None:
+                _, numero_factura = siguiente_numero_factura(contrato, periodo.year)
+                importe_renta = renta_facturable(
+                    contrato,
+                    fecha_renta,
+                )
+
+                linea = FacturaLinea(
+                    orden=1,
+                    tipo="RENTA",
+                    concepto=contrato.concepto_factura,
+                    importe=importe_renta,
+                )
+
+                calculo = calcular_importes_factura(
+                    lineas=[linea],
+                    iva_porcentaje=contrato.iva_porcentaje,
+                    retencion_porcentaje=contrato.retencion_porcentaje,
+                )
+                base = calculo.base
+                iva_importe = calculo.iva_importe
+                retencion_importe = calculo.retencion_importe
+                total = calculo.total
+            else:
+                numero_factura = factura.numero_factura
+                base = factura.base
+                iva_importe = factura.iva_importe
+                retencion_importe = factura.retencion_importe
+                total = factura.total
+
+            destinatario_nombre, destinatario_nif = componer_destinatario(contrato)
+
+            locales.append(
+                FacturaPreparada(
+                    contrato=contrato,
+                    inmueble=contrato.inmueble,
+                    factura=factura,
+                    destinatario_nombre=destinatario_nombre,
+                    destinatario_nif=destinatario_nif,
+                    direccion_facturacion=contrato.direccion_facturacion,
+                    codigo_postal_facturacion=contrato.codigo_postal_facturacion,
+                    poblacion_facturacion=contrato.poblacion_facturacion,
+                    provincia_facturacion=contrato.provincia_facturacion,
+                    base=base,
+                    iva_importe=iva_importe,
+                    retencion_importe=retencion_importe,
+                    total=total,
+                    numero_factura=numero_factura,
+                )
+            )
+        else:
+            otros.append(
+                IngresoPreparado(
+                    contrato=contrato,
+                    inmueble=contrato.inmueble,
+                    importe=renta_facturable(
+                        contrato,
+                        fecha_renta,
+                    ),
+                )
+            )
+
+    return PreparacionPeriodo(
+        periodo=periodo,
+        fecha_emision=fecha_emision,
+        locales=tuple(locales),
+        otros=tuple(otros),
+    )
+
 
