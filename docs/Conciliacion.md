@@ -47,8 +47,7 @@ Puede estar:
 
 Descartar es reversible.
 
-Un **movimiento previsto** representa un cobro o pago que Contab espera encontrar o resolver. Puede proceder de una factura, un apunte contable, una previsión periódica o una entrada manual.
-
+Un **movimiento previsto** representa un cobro o pago que Contab espera encontrar o resolver. Actualmente, los movimientos previstos pueden crearse desde los apuntes contables. El modelo permite también movimientos sin apunte asociado, pero no se ha construido una operativa adicional mientras no exista un caso real que la justifique.
 Puede estar:
 
 * **Pendiente.**
@@ -59,6 +58,18 @@ Puede estar:
 La cancelación es reversible.
 
 El estado expresa si el movimiento está resuelto, no cómo se ha resuelto.
+
+### Relación con los apuntes contables
+
+Al crear manualmente un apunte contable, Contab propone generar también su movimiento previsto. La opción está activada por defecto y puede desactivarse expresamente.
+
+El movimiento reutiliza del apunte el inmueble, naturaleza, concepto, importe total y tercero. Las fechas previstas son independientes de la fecha contable y pueden dejarse vacías.
+
+Mientras el movimiento está pendiente o cancelado, las modificaciones del apunte se trasladan al movimiento previsto.
+
+Una vez conciliado total o parcialmente, el inmueble, la naturaleza y el importe del apunte quedan protegidos. Los cambios descriptivos siguen siendo posibles y se sincronizan sin alterar las fechas previstas, estado, método ni notas de conciliación.
+
+Esta relación permite introducir el hecho económico una sola vez y conservar después la separación entre información contable y resolución bancaria.
 
 ## Estado y método de conciliación
 

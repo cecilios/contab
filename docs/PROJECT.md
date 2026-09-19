@@ -11,7 +11,7 @@ Debe servir para comprobar si una decisión o funcionalidad encaja en el proyect
 No describe el estado de implementación ni la operativa detallada de los módulos. Esa información se mantiene en sus documentos específicos:
 
 - `Inmuebles, inquilinos y contratos.md`;
-- `Ajustes-contables.md`;
+- `Apuntes-contables.md`;
 - `Informes-contables.md`;
 - `Importacion-bancaria.md`;
 - `Conciliacion.md`;

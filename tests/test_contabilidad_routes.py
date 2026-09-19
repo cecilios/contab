@@ -24,7 +24,9 @@ from contab.conciliacion.services import (
 )
 from contab.models import (
     ApunteContable,
+    Conciliacion,
     Inmueble,
+    MovimientoBancario,
     MovimientoPrevisto,
 )
 from contab.config import (
@@ -2465,5 +2467,516 @@ GAS_COMUNIDAD = GASTO | Comunidad
         assert movimiento.estado == "CONCILIADO"
         assert movimiento.metodo_conciliacion == "MANUAL"
         assert movimiento.notas == "Pagado en efectivo"
+
+
+def test_flujo_apunte_conciliacion_automatica_protege_importe(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    # Test de integración. Comprueba una ruta completa y cada paso es una acción
+    # del usuario: alta contable → generación del previsto → propuesta automática →
+    # confirmación → conciliación persistente → protección posterior del apunte.
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+        bancos={
+            "test": "IBERCAJA",
+        },
+        aliases_conciliacion={
+            "test": [
+                (
+                    "COMUNIDAD",
+                    "LOCAL-1",
+                    "C.P. LOCAL PRUEBA",
+                ),
+            ],
+        },
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Comunidad septiembre",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "100,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "C.P. Local Prueba",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "crear_movimiento": "on",
+        "fecha_prevista_desde": "20/09/2026",
+        "fecha_prevista_hasta": "25/09/2026",
+        "accion": "validar",
+    }
+
+    # El usuario valida el apunte y su movimiento previsto.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["concepto"] = _valor_input(
+        response,
+        "concepto",
+    )
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+    datos["accion"] = "guardar"
+
+    # El usuario guarda el apunte ya validado.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+        movimiento_previsto = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert apunte is not None
+        assert movimiento_previsto is not None
+        assert movimiento_previsto.apunte_id == apunte.id
+        assert movimiento_previsto.estado == "PENDIENTE"
+
+        apunte_id = apunte.id
+        movimiento_previsto_id = movimiento_previsto.id
+
+        movimiento_bancario = MovimientoBancario(
+            fecha=date(2026, 9, 22),
+            naturaleza="GASTO",
+            importe=10000,
+            tipo_original="RECIBO",
+            descripcion_original="C.P. LOCAL PRUEBA",
+            referencia_bancaria="",
+            huella_importacion="a" * 64,
+            estado="PENDIENTE",
+        )
+
+        session.add(movimiento_bancario)
+        session.commit()
+
+        movimiento_bancario_id = movimiento_bancario.id
+
+    # El usuario revisa las propuestas automáticas.
+    response = client.get(
+        "/conciliacion/revisar"
+    )
+
+    assert response.status_code == 200
+    assert "Comunidad septiembre" in response.text
+    assert "C.P. LOCAL PRUEBA" in response.text
+
+    # El usuario confirma las propuestas exactas.
+    response = client.post(
+        "/conciliacion/revisar/confirmar"
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        movimiento_previsto = session.get(
+            MovimientoPrevisto,
+            movimiento_previsto_id,
+        )
+        movimiento_bancario = session.get(
+            MovimientoBancario,
+            movimiento_bancario_id,
+        )
+        conciliacion = session.scalar(
+            select(Conciliacion)
+        )
+
+        assert movimiento_previsto is not None
+        assert movimiento_bancario is not None
+        assert conciliacion is not None
+
+        assert movimiento_previsto.estado == "CONCILIADO"
+        assert (
+            movimiento_previsto.metodo_conciliacion
+            == "INDIVIDUAL"
+        )
+        assert movimiento_bancario.estado == "CONCILIADO"
+
+        assert (
+            conciliacion.movimiento_previsto_id
+            == movimiento_previsto_id
+        )
+        assert (
+            conciliacion.movimiento_bancario_id
+            == movimiento_bancario_id
+        )
+        assert conciliacion.importe_asociado == 10000
+
+    datos_edicion = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Comunidad septiembre",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "120,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "C.P. Local Prueba",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "accion": "validar",
+    }
+
+    # Tras conciliar, el usuario intenta cambiar el importe.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos_edicion,
+    )
+
+    assert response.status_code == 400
+    assert (
+        "No puede cambiarse el inmueble, la naturaleza "
+        "o el importe"
+        in response.text
+    )
+    assert 'value="guardar"' not in response.text
+
+    # El rechazo no altera ninguna parte de la conciliación.
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+        movimiento_previsto = session.get(
+            MovimientoPrevisto,
+            movimiento_previsto_id,
+        )
+        movimiento_bancario = session.get(
+            MovimientoBancario,
+            movimiento_bancario_id,
+        )
+        conciliacion = session.scalar(
+            select(Conciliacion)
+        )
+
+        assert apunte is not None
+        assert movimiento_previsto is not None
+        assert movimiento_bancario is not None
+        assert conciliacion is not None
+
+        assert apunte.total == 10000
+        assert movimiento_previsto.importe_esperado == 10000
+        assert movimiento_previsto.estado == "CONCILIADO"
+        assert (
+            movimiento_previsto.metodo_conciliacion
+            == "INDIVIDUAL"
+        )
+        assert movimiento_bancario.estado == "CONCILIADO"
+        assert conciliacion.importe_asociado == 10000
+
+
+def test_flujo_apunte_conciliacion_manual_sincroniza_descripcion(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    # Test de integración. Comprueba una ruta completa y cada paso es una acción
+    # del usuario: crear apunte → generar previsto → conciliar manualmente →
+    # editar datos descriptivos del apunte → sincronizar previsto conservando
+    # conciliación manual, notas y fechas.
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_TRIBUTOS = GASTO | Tributos
+
+[subcategorias_contables]
+GAS_TRIBUTOS.IBI = IBI
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_TRIBUTOS.IBI",
+        "concepto": "IBI local",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "250,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Ayuntamiento",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "crear_movimiento": "on",
+        "fecha_prevista_desde": "20/09/2026",
+        "fecha_prevista_hasta": "30/09/2026",
+        "accion": "validar",
+    }
+
+    # El usuario valida el apunte y su movimiento previsto.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["concepto"] = _valor_input(
+        response,
+        "concepto",
+    )
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+    datos["accion"] = "guardar"
+
+    # El usuario guarda el apunte.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert apunte is not None
+        assert movimiento is not None
+        assert movimiento.apunte_id == apunte.id
+
+        apunte_id = apunte.id
+        movimiento_id = movimiento.id
+
+    # El usuario resuelve manualmente el movimiento previsto.
+    response = client.post(
+        (
+            f"/conciliacion/previstos/{movimiento_id}"
+            "/conciliar-manualmente"
+        ),
+        data={
+            "notas": (
+                "Incluido en los cargos agrupados "
+                "del Ayuntamiento."
+            ),
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "CONCILIADO"
+        assert movimiento.metodo_conciliacion == "MANUAL"
+        assert movimiento.notas == (
+            "Incluido en los cargos agrupados "
+            "del Ayuntamiento."
+        )
+        assert movimiento.fecha_prevista_desde == date(
+            2026, 9, 20
+        )
+        assert movimiento.fecha_prevista_hasta == date(
+            2026, 9, 30
+        )
+
+    datos_edicion = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_TRIBUTOS.IBI",
+        "concepto": "IBI local corregido",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "250,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Concello de Pontevedra",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "accion": "validar",
+    }
+
+    # El usuario valida cambios puramente descriptivos.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos_edicion,
+    )
+
+    assert response.status_code == 200
+
+    datos_edicion["concepto"] = _valor_input(
+        response,
+        "concepto",
+    )
+    datos_edicion["concepto_automatico"] = _valor_input(
+        response,
+        "concepto_automatico",
+    )
+    datos_edicion["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    datos_edicion["nombre_documento_automatico"] = _valor_input(
+        response,
+        "nombre_documento_automatico",
+    )
+    datos_edicion["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+    datos_edicion["accion"] = "guardar"
+
+    # El usuario guarda los cambios ya validados.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos_edicion,
+    )
+
+    assert response.status_code == 302
+
+    # El previsto se sincroniza sin perder cómo fue resuelto.
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert apunte is not None
+        assert movimiento is not None
+
+        assert apunte.concepto == "IBI local corregido"
+        assert apunte.tercero_nombre == (
+            "Concello de Pontevedra"
+        )
+
+        assert movimiento.concepto == (
+            "IBI local corregido"
+        )
+        assert movimiento.contraparte == (
+            "Concello de Pontevedra"
+        )
+
+        assert movimiento.estado == "CONCILIADO"
+        assert movimiento.metodo_conciliacion == "MANUAL"
+        assert movimiento.notas == (
+            "Incluido en los cargos agrupados "
+            "del Ayuntamiento."
+        )
+        assert movimiento.fecha_prevista_desde == date(
+            2026, 9, 20
+        )
+        assert movimiento.fecha_prevista_hasta == date(
+            2026, 9, 30
+        )
 
 

@@ -28,8 +28,9 @@ Esta operativa obliga a registrar información varias veces y a rehacer agrupaci
 
 - La facturación creará automáticamente los apuntes de ingresos cuando se implemente su emisión completa.
 - Los gastos y otros ingresos se introducirán manualmente al recibir su documento soporte.
-- Los apuntes podrán corregirse o eliminarse mientras no estén conciliados.
-- Los informes sustituirán la transcripción trimestral y facilitarán las agrupaciones fiscales anuales.
+- Al crear manualmente un apunte se genera por defecto un movimiento previsto para conciliación; el usuario puede desactivar expresamente esta generación cuando no corresponda.
+- Los apuntes pueden corregirse mientras sus movimientos previstos no estén conciliados. Si existe una conciliación total o parcial, no pueden modificarse el inmueble, la naturaleza ni el importe, aunque sí los datos descriptivos.
+- Los apuntes pueden eliminarse mientras no tengan movimientos previstos conciliados total o parcialmente.- Los informes sustituirán la transcripción trimestral y facilitarán las agrupaciones fiscales anuales.
 - La conciliación bancaria permitirá concentrar la revisión en movimientos no conciliados, duplicados o ausencias esperadas.
 
 ## Entrada de un apunte
@@ -46,6 +47,40 @@ El período puede ser:
 - un intervalo entre dos fechas.
 
 Los períodos servirán más adelante para detectar recibos duplicados, huecos y solapamientos.
+
+## Integración con la conciliación
+----------------------------------
+
+Al crear un apunte, el formulario propone generar también un movimiento previsto para conciliación. Esta opción está activada por defecto, pero el usuario puede desactivarla cuando el apunte no deba producir una expectativa bancaria.
+
+Si se genera, el movimiento previsto reutiliza automáticamente:
+
+- el inmueble;
+- la naturaleza;
+- el concepto;
+- el importe total del apunte;
+- el nombre del tercero como contraparte.
+
+Las fechas previstas son datos propios de la conciliación y se introducen separadamente. Son opcionales y nunca se deducen de la fecha contable del apunte.
+
+El apunte y su movimiento previsto se crean dentro de la misma operación, evitando que un fallo deje sólo una de las dos partes.
+
+Cuando posteriormente se modifica el apunte, sus movimientos previstos vinculados se mantienen sincronizados en inmueble, naturaleza, concepto, importe esperado y contraparte.
+
+No se modifican durante esa sincronización:
+
+- las fechas previstas;
+- el estado del movimiento;
+- el método de conciliación;
+- las notas utilizadas para documentar una conciliación manual.
+
+Los movimientos pendientes y cancelados permiten modificar todos los datos del apunte.
+
+Si existe algún movimiento conciliado total o parcialmente, no pueden modificarse el inmueble, la naturaleza ni el importe. La validación del formulario detecta esta situación antes de guardar y no habilita el guardado.
+
+Los datos descriptivos sí pueden corregirse después de conciliar. El movimiento previsto se actualiza conservando intacta la conciliación existente.
+
+Un apunte tampoco puede eliminarse mientras tenga un movimiento previsto conciliado total o parcialmente. Los movimientos pendientes o cancelados se eliminan junto con el apunte.
 
 ## Ayudas para reducir la entrada manual
 ----------------------------------------
@@ -108,11 +143,8 @@ Se mantiene esta distinción terminológica:
 ## Trabajo pendiente relacionado
 ---------------------------------
 
-- Exportación CSV de los apuntes.
-- Informes contables básicos y fiscales.
 - Distribución de gastos comunes entre locales.
 - Gestión de gastos pendientes de trasladar o facturar.
-- Importación de movimientos bancarios y conciliación.
 - Avisos de duplicados probables, huecos y solapamientos de períodos.
 - Plantillas de conceptos habituales configurables en `contab.ini`.
 - Ajustes finales de presentación del formulario y del listado.

@@ -1,331 +1,521 @@
-CONTAB DEVELOPMENT HANDOFF
-==========================
+# CONTAB DEVELOPMENT HANDOFF
 
-Purpose
--------
+## Purpose
 
-Internal technical checkpoint for resuming Contab development in a fresh
-conversation. Read this file, inspect the current develop branch, and continue
-from CURRENT INCOMPLETE STEP. The user's local tree can be ahead of GitHub
-between commits.
+This is the technical handoff for resuming Contab development in a new conversation.
 
-Repository and workflow
------------------------
+It is written primarily for the development assistant. It should contain enough current context to avoid reconstructing previous design decisions from commit history.
 
-- Repository: https://github.com/cecilios/contab
-- Branch: develop
-- Development version: 0.2.0
-- Stack: LMDE 7, Python 3.13, Flask, SQLAlchemy, Alembic, SQLite,
-  Jinja2, pytest and Waitress.
-- The user edits locally following step-by-step guidance.
-- Inspect current code before proposing exact edits. Use rg to find callers.
-- Run focused tests and then the full suite.
-- Explicit unit tests are preferred even when integration tests cover the same
-  function indirectly.
-- In long multi-step tests, add a short comment before each user action.
-- Commit messages are Spanish infinitive phrases.
+Before proposing changes or code:
 
-Product priorities
-------------------
+1. inspect the latest `develop` branch;
+2. read completely:
 
-Contab is a small personal application for fewer than ten properties. Its two
-primary goals are:
+   * `docs/PROJECT.md`
+   * `docs/DEVELOPMENT.md`
+   * `docs/Inmuebles, inquilinos y contratos.md`
+   * `docs/Apuntes-contables.md`
+   * `docs/Informes-contables.md`
+   * `docs/Importacion-bancaria.md`
+   * `docs/Conciliacion.md`
+   * `docs/Facturacion.md`
+3. inspect the current project structure and the code relevant to the next change;
+4. briefly summarize:
 
-1. Reduce the work required to reconcile bank movements with expected income
-   and expenses.
-2. Preserve accounting detail so changing Spanish tax reports can be produced
-   without rebuilding the year's accounting manually.
+   * project purpose and principles;
+   * implemented state;
+   * exact stopping point;
+   * next proposed small change.
 
-Everything else is secondary. Prefer the smallest understandable solution to a
-real need. Keep code and UI minimal. Slightly forward-looking database fields
-are acceptable only when clearly predictable and cheap. Avoid hypothetical
-features. Tests are valuable, not unwanted code growth.
+The user's local tree can be ahead of GitHub between commits. When the user says a change has been committed and pushed, `develop` can be treated as current again.
 
-Architecture and conventions
-----------------------------
+Repository:
 
-- Modular Flask monolith.
-- Business rules in services, testable without Flask.
-- Routes own HTTP, sessions, transactions and templates.
-- Use a render helper when the same form is returned through several GET/error
-  paths. A listing with one render path does not need one.
-- Use SQLAlchemy select(), not legacy Session.query().
-- Money is positive integer cents; nature determines income or expense.
-- Percentage values with two decimals use hundredths of a percentage point.
-- Show human labels, not internal codes.
-- Avoid JavaScript unless a small interaction clearly improves usability.
-- Supporting PDFs live in the filesystem; do not build document-history UIs.
-- Preserve data in migrations. SQLite constraint changes normally require
-  Alembic batch_alter_table.
-- Back up databases before schema changes.
+```text
+cecilios/contab
+branch: develop
+```
 
-Implemented functional scope
-----------------------------
+## Development workflow
 
-- Multiple logical SQLite databases selected at application entry.
-- Properties, including type T subdivided parent properties and rentable child
-  units linked through inmueble_padre_id. Type T cannot have contracts.
-- Tenants and contracts with multiple holders, billing data, rents and rent
-  revisions.
-- Accounting categories/subcategories in contab.ini, including active states.
-- Accounting-entry CRUD, validation and human-oriented forms.
-- ApunteContable includes optional periodo_desde/periodo_hasta, tratamiento
-  (CONTABILIZAR, REPERCUTIR, FACTURAR), document name and issuer data.
-- Accounting CSV reports: individual annual VAT CSV, ZIP with all applicable
-  property CSVs, and annual VAT summary.
-- Demo database creation script.
-- Initial invoice models exist, but ODS/PDF generation is postponed.
-- Ibercaja and CaixaBank CSV importers.
-- Persisted bank movements, duplicate prevention, listing, state filters and
-  discard/restore operations.
-- Expected-movement model and services.
+The user is an experienced C++ developer but knows little Python/Flask. Instructions should therefore be technically precise and concrete without assuming familiarity with Flask idioms.
 
-Key business decisions
-----------------------
+Preferred workflow:
 
-Initial historical rent loading is intentionally simple: enter the current
-valid rent on the contract or last annex. There is no opening-rent workflow,
-historical closure flag or fictitious annex.
+```text
+agree on behavior
+    ↓
+write/adjust focused tests
+    ↓
+make smallest production change
+    ↓
+run focused tests
+    ↓
+run full pytest suite
+    ↓
+manual/visual test only when it adds real value
+    ↓
+update docs after a meaningful functional block
+    ↓
+commit
+```
 
-Automatic invoicing is postponed because accounting and reconciliation provide
-more value.
+TDD-style work is preferred when practical, but strict test-first development is not required.
 
-Accounting treatments:
+For long integration tests, add short comments describing the simulated user action.
 
-- CONTABILIZAR: included in accounting reports.
-- REPERCUTIR: passed to the tenant, not treated as owner expense/income.
-- FACTURAR: eventually included in a tenant invoice.
+Do not ask the user to search through the repository when the code can be inspected directly from GitHub.
 
-Common type-T expenses may later be distributed proportionally in IRPF reports.
-No DistribucionApunte table is currently needed. "Distribute" means accounting
-report allocation; "repercutir" means charging the tenant.
+At commit time, do not explain Git commands. Only propose one or more commit messages.
 
-Configuration
--------------
+Commit messages are Spanish infinitive phrases, for example:
 
-contab.ini includes [app], [databases], [bancos],
-[categorias_contables] and [subcategorias_contables]. Each logical database has
-one bank:
+```text
+Añadir conciliación manual de movimientos previstos
+Generar movimientos previstos desde apuntes contables
+Sincronizar apuntes con movimientos previstos
+Proteger apuntes con movimientos parcialmente conciliados
+```
 
-    [databases]
-    cliente = sqlite:///data/cliente.db
-    hermana = sqlite:///data/hermana.db
+Documentation is a state/handoff mechanism, not a changelog. Do not update it after every tiny change.
 
-    [bancos]
-    cliente = IBERCAJA
-    hermana = CAIXABANK
+## Product context
 
-config.py has cargar_bancos(), which requires one supported bank per database
-and rejects entries for nonexistent databases.
+Contab is a small personal application for managing the economic activity of fewer than ten rented properties.
 
-app.py stores app.extensions["contab_databases"] and
-app.extensions["contab_bancos"]. context.py has explicitly tested helpers:
-get_database_name(), get_session_factory() and get_bank_name(), including their
-error cases.
+It is not intended to become:
 
-Bank import
------------
+* a general accounting package;
+* a commercial property-management platform;
+* a banking application;
+* a complex multi-user or multi-company system;
+* a document-management system.
 
-src/contab/conciliacion/importacion.py owns bank-file parsing.
-src/contab/conciliacion/services.py owns reconciliation rules.
+The two primary goals are:
 
-MovimientoBancarioImportado is a frozen, slotted dataclass containing fecha,
-naturaleza, importe, tipo_original, descripcion_original,
-referencia_bancaria and huella_importacion.
+1. **Bank reconciliation**: reduce the work required to identify and reconcile real bank movements with expected income and expenses.
+2. **Flexible accounting/reporting**: record economic facts once and retain enough stable detail to regroup them later for changing fiscal/reporting requirements.
 
-Readers leer_csv_ibercaja(), leer_csv_caixabank() and dispatcher
-leer_csv_bancario():
+Billing, property management and other modules are auxiliary to those goals.
 
-- locate bank-specific headers after preambles;
-- use operation date, never value date;
-- parse Spanish amounts and store positive cents;
-- derive INGRESO/GASTO from source sign;
-- strip surrounding whitespace;
-- preserve type, description and optional reference;
-- reject zero values and malformed input;
-- produce stable SHA-256 fingerprints.
+Prefer real client value over feature count.
 
-An occurrence counter distinguishes legitimate identical rows in one CSV.
-Full anonymized CSV fixtures provide regression coverage.
+## Permanent design principles
 
-preparar_movimientos_bancarios() queries fingerprints and returns only new
-models. It neither adds nor commits; the route controls the transaction.
+### Keep the application small
 
-MovimientoBancario fields: id, fecha, naturaleza, importe, tipo_original,
-descripcion_original, referencia_bancaria, unique huella_importacion and estado
-(PENDIENTE, CONCILIADO, DESCARTADO). Do not add bank, account, value date,
-balance or apunte_id.
+Prefer:
 
-Bank UI
--------
+* direct code;
+* explicit services;
+* simple Flask routes;
+* understandable data models;
+* deterministic rules;
+* incremental changes.
 
-- /conciliacion/ lists bank movements.
-- /conciliacion/importar imports CSV via GET/POST.
-- POST routes discard and restore bank movements.
-- Main navigation has one Conciliacion link to the list.
-- The list links to import and expected movements.
-- Default filter: PENDIENTE. Other filters: TODOS, CONCILIADO, DESCARTADO.
-- Order: fecha DESC, id DESC. Page size: 25.
-- Pending can be discarded; discarded can be restored; reconciled has neither
-  action. Filters survive pagination and actions.
-- CSS classes include movimientos-bancarios, apuntes-contables and
-  movimientos-previstos. .enlaces-acciones uses flex gap instead of separator
-  characters.
+Avoid abstractions or workflows for hypothetical future cases.
 
-Reconciliation design
----------------------
+A slightly forward-looking database field is acceptable when the future need is stable, obvious and cheap to prepare. UI and operational workflows should wait for real use cases.
 
-Expected movements originate from:
+### User control
 
-1. Invoice generation: accounting entry plus expected income.
-2. Manual accounting entry: optional expected income/expense.
-3. Later periodic generation from per-property rules.
+Automation assists but does not make doubtful decisions for the user.
 
-An expectation linked to an accounting entry is documented and normally exact.
-A periodic expectation without an entry is approximate. When the real entry is
-created later, link or replace the periodic expectation; do not duplicate it.
+In reconciliation:
 
-Matching generates proposals and never silently confirms them. The user imports
-CSV, runs matching over new and old pending bank movements, confirms/rejects
-proposals, discards unrelated movements and can match unresolved items manually.
+```text
+Contab proposes
+User reviews
+User confirms
+```
 
-A confirmed association connects MovimientoBancario to MovimientoPrevisto and,
-indirectly through apunte_id, to ApunteContable. A matched periodic expectation
-without apunte_id must warn that the accounting entry/supporting document is
-missing. Never auto-create that accounting entry because classification, period,
-VAT and document information may be unknown.
+Exceptional situations must remain manually resolvable.
 
-Keep reconciled expected movements. States are PENDIENTE, PARCIAL, CONCILIADO
-and CANCELADO. Do not add UTILIZADO.
+### Enter data once
 
-Future associations must support one bank movement to several expectations,
-several bank movements to one expectation, and partial matching. Therefore do
-not put a single direct foreign key between MovimientoBancario and
-MovimientoPrevisto. A later association table will contain importe_asociado.
+A real economic fact should be entered once and reused for:
 
-Dates and approximate amounts are scoring signals, not hard exclusion rules. A
-movement expected from day 15 may arrive on day 14. Do not ask the user for a
-tolerance percentage; tolerance belongs to the algorithm.
+* accounting;
+* reconciliation;
+* reports;
+* eventually billing when applicable.
 
+### Preserve source evidence
+
+Do not overwrite or normalize away source information needed for later verification.
+
+Examples:
+
+* bank movements retain original bank text;
+* accounting entries retain document references;
+* supporting documents remain in the filesystem.
+
+### Atomic operations
+
+Operations producing several related records should succeed or fail together.
+
+Current important example:
+
+```text
+ApunteContable
+      +
 MovimientoPrevisto
-------------------
+```
 
-Fields: id, required inmueble_id, optional contrato_id, optional apunte_id,
-optional fecha_prevista_desde, optional fecha_prevista_hasta, naturaleza,
-concepto, strictly positive importe_esperado, contraparte, estado and notes.
+They are created in the same transaction.
 
-Date rules:
+Future invoice generation should eventually coordinate:
 
-- both dates may be empty;
-- desde may exist without hasta;
-- hasta cannot exist without desde;
-- if both exist, hasta >= desde.
+```text
+Factura
+ + líneas
+ + ApunteContable
+ + MovimientoPrevisto
+```
 
-The former required fecha_prevista was migrated. Existing values were copied to
-both new date columns. The migration used batch mode, updated amount/state/date
-checks, and blocks incompatible downgrade rather than inventing dates.
+### Tests are intentional complexity
 
-No tolerance, expected bank text, recurring-rule reference or reconciled amount
-is stored yet.
+Test code is not considered unnecessary complexity.
 
-Expected-movement list and services completed locally
-------------------------------------------------------
+Protect:
 
-GET /conciliacion/previstos and template
-conciliacion/movimientos_previstos.html exist locally. The list defaults to
-PENDIENTE; filters TODOS/PENDIENTE/PARCIAL/CONCILIADO/CANCELADO; paginates; and
-shows interval, property, nature, concept, counterparty, derived origin, amount
-and state.
+* domain rules;
+* complete form flows;
+* error presentation;
+* multi-record operations;
+* migrations;
+* important module boundaries.
 
-Interval display:
+Automated integration tests are preferred over long artificial visual tests when they verify the same behavior.
 
-- no date: "Sin fecha prevista"
-- from only: "Desde dd/mm/yyyy"
-- equal dates: one date
-- range: "dd/mm/yyyy a dd/mm/yyyy"
+Manual end-to-end testing should concentrate on real client data, where it can reveal workflow problems that synthetic browser tests cannot.
 
-Origin is derived: apunte_id -> "Apunte contable"; otherwise contrato_id ->
-"Contrato"; otherwise "Previsión independiente".
+## Technical architecture
 
-Services cancelar_movimiento_previsto() and
-restaurar_movimiento_previsto() have direct passing tests:
+Current stack:
 
-- only PENDIENTE can become CANCELADO;
-- PARCIAL/CONCILIADO cannot be cancelled;
-- only CANCELADO can be restored to PENDIENTE;
-- errors do not change the original state.
+```text
+Python 3.13
+Flask
+SQLAlchemy
+Alembic
+SQLite
+Jinja2
+pytest
+Waitress
+LMDE 7
+```
 
-CURRENT INCOMPLETE STEP
------------------------
+Architecture:
 
-A local route test named approximately
-test_cancelar_movimiento_previsto_desde_interfaz POSTs to:
+```text
+Flask modular monolith
 
-    /conciliacion/previstos/<movimiento_id>/cancelar
+routes
+  ↓ HTTP / forms / sessions / transactions
+services
+  ↓ business rules
+SQLAlchemy models
+  ↓
+SQLite
+```
 
-It currently fails with HTTP 404 because the route is not implemented. The full
-suite was green before this deliberately failing test. Do not recreate the model,
-list or service tests above.
+Business rules belong in services whenever practical.
 
-Resume steps
-------------
+Routes own:
 
-1. In conciliacion/routes.py import redirect/url_for and the expected-movement
-   cancel/restore services plus ConciliacionError.
+* HTTP behavior;
+* selected logical database;
+* transactions;
+* redirects;
+* templates;
+* user-facing validation/error handling.
 
-2. Add _estado_previsto_retorno(): read request.form["estado"] with PENDIENTE
-   default; allow TODOS and keys of ESTADOS_MOVIMIENTO_PREVISTO; otherwise return
-   PENDIENTE.
+Use SQLAlchemy `select()`, not legacy `Session.query()`.
 
-3. Implement POST /conciliacion/previstos/<int:id>/cancelar:
+Money is stored as positive integer cents. Nature determines direction:
 
-    open selected DB session and transaction
-    session.get(MovimientoPrevisto, id)
-    missing -> 404
-    call cancelar_movimiento_previsto()
-    ConciliacionError -> 400, never 500
-    redirect to listar_movimientos_previstos preserving filter
+```text
+INGRESO
+GASTO
+```
 
-4. Add one route test and route for:
+Percentage values requiring two decimal places use hundredths of a percentage point.
 
-    POST /conciliacion/previstos/<int:id>/restaurar
+Supporting PDFs and invoices remain in the filesystem. Do not build document-history interfaces without a real requirement.
 
-Use the same transaction/error/redirect pattern.
+For SQLite constraint changes, Alembic `batch_alter_table` is normally required.
 
-5. Add Acciones to movimientos_previstos.html:
+Back up real databases before schema migrations.
 
-- PENDIENTE -> POST "Cancelar"
-- CANCELADO -> POST "Restaurar"
-- PARCIAL/CONCILIADO -> blank
-- hidden estado=estado_seleccionado preserves the filter.
+## Multiple databases and banks
 
-6. Test persistence, missing id -> 404, invalid transition -> 400, and absence
-   of buttons for PARCIAL/CONCILIADO. Run focused tests, full suite and visual
-   checks.
+Each logical database represents one accounting context and corresponds to one bank account for reconciliation.
 
-After completing that block
----------------------------
+Example configuration:
 
-Build the first pure matching-proposal algorithm before periodic rules:
+```ini
+[databases]
+cliente = sqlite:///data/cliente.db
+hermana = sqlite:///data/hermana.db
 
-- pending bank movements only;
-- pending/partial expected movements only;
-- nature compatibility mandatory;
-- amount and date proximity contribute to scoring;
-- dates are soft and cannot eliminate near candidates;
-- return proposals without changing database state.
+[bancos]
+cliente = IBERCAJA
+hermana = CAIXABANK
+```
 
-Do not create the many-to-many reconciliation table until confirmation and
-partial-allocation behavior is concrete.
+Currently supported importers:
 
-Documentation roles
--------------------
+```text
+IBERCAJA
+CAIXABANK
+```
 
-- docs/PROJECT.md: user-facing scope and principles.
-- docs/Apuntes-contables.md: accounting-entry behavior.
-- docs/Conciliacion.md: Reconciliation design and behavior.
-- docs/Importacion-bancaria.md: Bank data import and behavior.
-- docs/Informes-contables.md: accounting-reporting behavior and situation.
-- docs/Inmuebles, inquilinos y contratos.md: Properties, tenants and contracts, principles and behaviour.
-- docs/Facturacion.md: billing behavior and situation.
-- docs/DEVELOPMENT.md: internal technical handoff.
+`config.py` validates that every logical database has one supported bank.
+
+Application context helpers resolve the selected database and bank.
+
+## Implemented property/accounting scope
+
+Implemented:
+
+* properties;
+* subdivided type-T parent properties;
+* rentable child units;
+* tenants;
+* contracts with multiple holders;
+* rents and rent revisions;
+* accounting categories/subcategories from `contab.ini`;
+* accounting-entry CRUD;
+* accounting validation forms;
+* accounting periods;
+* treatments;
+* document metadata;
+* accounting CSV reports;
+* annual VAT summary;
+* demo database generation.
+
+Important accounting treatments:
+
+```text
+CONTABILIZAR
+REPERCUTIR
+FACTURAR
+```
+
+`CONTABILIZAR` participates in accounting reports.
+
+`REPERCUTIR` means passing a cost to a tenant; it is not the same as allocating a common expense among child properties.
+
+`FACTURAR` is intended for later inclusion in an invoice.
+
+Terminology:
+
+```text
+distribuir = analytical allocation among properties for reporting
+repercutir = charge a cost to the tenant
+```
+
+Do not confuse them.
+
+## Accounting-entry form behavior
+
+The form follows:
+
+```text
+Validar
+   ↓
+Guardar
+```
+
+Validation computes automatic fields and a signature representing the validated form state.
+
+If any protected form data changes after validation, saving fails and the user must validate again.
+
+Blocking business validation should happen on **Validar**, not only on **Guardar**.
+
+If validation is blocking:
+
+```text
+no firma_validacion
+no Guardar button
+```
+
+The save path must still recheck domain rules defensively.
+
+This distinction is intentional: do not give the user the expectation that a form can be saved if a known blocking condition already exists.
+
+## Accounting entry → expected movement
+
+Manual accounting-entry creation currently offers:
+
+```text
+☑ Generar movimiento previsto para conciliación
+```
+
+Default: checked.
+
+The user may explicitly uncheck it.
+
+When checked, the expected movement is created from the accounting entry in the same transaction.
+
+Derived fields:
+
+```python
+MovimientoPrevisto.inmueble = ApunteContable.inmueble
+MovimientoPrevisto.naturaleza = ApunteContable.naturaleza
+MovimientoPrevisto.concepto = ApunteContable.concepto
+MovimientoPrevisto.importe_esperado = ApunteContable.total
+MovimientoPrevisto.contraparte = ApunteContable.tercero_nombre
+```
+
+Expected dates are independent reconciliation data:
+
+```text
+fecha_prevista_desde: optional
+fecha_prevista_hasta: optional
+```
+
+Rules:
+
+```text
+both empty       -> valid
+desde only       -> valid
+hasta only       -> invalid
+hasta < desde    -> invalid
+```
+
+Never use `ApunteContable.fecha` as an invented expected bank date.
+
+If expected-movement generation is unchecked, invalid text in the expected-date controls is irrelevant and must not block creation.
+
+`MovimientoPrevisto.apunte_id` remains nullable for now. Do not make it required until real usage demonstrates that independent expectations are unnecessary.
+
+## Editing accounting entries with linked expected movements
+
+The accounting entry is the source for the derived economic/descriptive fields of its linked expected movements.
+
+Whenever an entry is successfully edited, synchronize:
+
+```text
+inmueble
+naturaleza
+concepto
+importe_esperado
+contraparte
+```
+
+Do **not** synchronize or reset:
+
+```text
+fecha_prevista_desde
+fecha_prevista_hasta
+estado
+metodo_conciliacion
+notas
+```
+
+Protection depends on expected-movement state.
+
+### PENDIENTE / CANCELADO
+
+All accounting fields may be changed.
+
+The linked expected movement is synchronized afterward.
+
+### CONCILIADO / PARCIAL
+
+The following accounting properties are protected:
+
+```text
+inmueble
+naturaleza
+total
+```
+
+The amount rule compares accounting **total**, not its internal composition.
+
+Therefore an accounting composition change is conceptually allowed if the resulting total remains unchanged.
+
+Descriptive changes remain allowed and are synchronized.
+
+Current service rule is conceptually:
+
+```python
+protected = any(
+    movimiento.estado in {"CONCILIADO", "PARCIAL"}
+    for movimiento in apunte.movimientos_previstos
+)
+
+economic_change = (
+    inmueble is not apunte.inmueble
+    or naturaleza != apunte.naturaleza
+    or total != apunte.total
+)
+
+if protected and economic_change:
+    raise ContabilidadError(...)
+```
+
+The route invokes the same protection during `Validar` so a blocked edit never receives a validation signature.
+
+## Deleting accounting entries
+
+Deletion is forbidden if any linked expected movement is:
+
+```text
+CONCILIADO
+PARCIAL
+```
+
+Deletion remains allowed when linked movements are:
+
+```text
+PENDIENTE
+CANCELADO
+```
+
+Allowed linked expected movements are deleted together with the accounting entry.
+
+This rule intentionally matches the economic protection used during editing.
+
+## Bank import
+
+`src/contab/conciliacion/importacion.py` owns bank-file parsing.
+
+Bank movement parsing:
+
+* uses operation date, not value date;
+* parses Spanish monetary formats;
+* stores positive cents;
+* derives nature from source sign;
+* preserves original type and description;
+* preserves optional bank reference;
+* rejects zero/malformed values;
+* produces stable SHA-256 import fingerprints.
+
+An occurrence counter distinguishes legitimate identical rows in the same CSV.
+
+`preparar_movimientos_bancarios()` filters already imported fingerprints and returns new model objects. It does not add or commit them.
+
+`MovimientoBancario` currently contains:
+
+```text
+id
+fecha
+naturaleza
+importe
+tipo_original
+descripcion_original
+referencia_bancaria
+huella_importacion
+estado
+```
+
+Do not add bank/account/value-date/balance/apunte foreign keys without a real requirement.
+
+Bank movement states:
+
+```text
+PEN
+```
