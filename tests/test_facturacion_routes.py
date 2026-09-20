@@ -16,6 +16,10 @@ from contab.models import (
     MovimientoPrevisto,
     RentaContrato,
 )
+from contab.facturacion.routes import (
+    _valores_iniciales_facturacion,
+)
+
 
 
 def crear_app_test():
@@ -260,5 +264,215 @@ ING_ALQUILERES = INGRESO | Alquileres
         assert session.scalar(
             select(MovimientoPrevisto)
         ) is None
+
+
+def test_listar_facturacion_muestra_datos_del_periodo() -> None:
+    """Muestra los ingresos preparados de un período sin modificarlos."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble_local = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección del local",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato_local = Contrato(
+            inmueble=inmueble_local,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle Facturación 1",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato_local.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato_local.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato_local.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        inmueble_otro = Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="B1",
+            descripcion="Vivienda",
+            direccion="Dirección del piso",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato_otro = Contrato(
+            inmueble=inmueble_otro,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=False,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=80000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler vivienda",
+        )
+
+        contrato_otro.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato_otro.fecha_inicio,
+                importe=80000,
+            )
+        )
+
+        contrato_otro.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Luis García",
+                    nif="22222222B",
+                ),
+                orden=1,
+            )
+        )
+
+        session.add_all([
+            contrato_local,
+            contrato_otro,
+        ])
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario consulta la preparación de octubre.
+    response = client.get(
+        "/facturacion/"
+        "?periodo=10-2026"
+        "&fecha_emision=01-10-2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert 'value="10-2026"' in texto
+    assert 'value="01-10-2026"' in texto
+
+    assert "Locales" in texto
+    assert "LOCAL-1" in texto
+    assert "Ana Pérez" in texto
+    assert "11111111A" in texto
+    assert "Calle Facturación 1" in texto
+    assert "36001" in texto
+    assert "1.000,00" in texto
+    assert "210,00" in texto
+    assert "190,00" in texto
+    assert "1.020,00" in texto
+    assert "Pendiente" in texto
+
+    assert "Otros" in texto
+    assert "PISO-1" in texto
+    assert "Luis García" in texto
+    assert "800,00" in texto
+
+
+def test_valores_iniciales_facturacion_proponen_mes_siguiente() -> None:
+    """Propone el mes siguiente y su primer día."""
+
+    periodo, fecha_emision = _valores_iniciales_facturacion(
+        date(2026, 9, 29)
+    )
+
+    assert periodo == date(2026, 10, 1)
+    assert fecha_emision == date(2026, 10, 1)
+
+
+def test_valores_iniciales_facturacion_cambian_de_anio() -> None:
+    """Propone enero del año siguiente al preparar en diciembre."""
+
+    periodo, fecha_emision = _valores_iniciales_facturacion(
+        date(2026, 12, 31)
+    )
+
+    assert periodo == date(2027, 1, 1)
+    assert fecha_emision == date(2027, 1, 1)
+
+
+def test_listar_facturacion_rechaza_periodo_invalido() -> None:
+    """Rechaza un período con formato inválido."""
+
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/"
+        "?periodo=2026-10"
+        "&fecha_emision=01-10-2026"
+    )
+
+    texto = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert "El período no es válido" in texto
+    assert 'value="2026-10"' in texto
+    assert 'value="01-10-2026"' in texto
+
+
+def test_listar_facturacion_rechaza_fecha_emision_invalida() -> None:
+    """Rechaza una fecha de emisión inválida."""
+
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/"
+        "?periodo=10-2026"
+        "&fecha_emision=30-02-2026"
+    )
+
+    texto = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert "La fecha indicada no es válida" in texto
+    assert 'value="10-2026"' in texto
+    assert 'value="30-02-2026"' in texto
 
 

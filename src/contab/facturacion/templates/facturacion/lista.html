@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Facturación - Contab{% endblock %}
+
+{% block content %}
+    {% set meses = (
+        "",
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Abril",
+        "Mayo",
+        "Junio",
+        "Julio",
+        "Agosto",
+        "Septiembre",
+        "Octubre",
+        "Noviembre",
+        "Diciembre"
+    ) %}
+
+    <h1>Facturación</h1>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="get">
+        <label for="periodo">Período</label>
+        <input
+            id="periodo"
+            name="periodo"
+            value="{{ periodo_texto }}"
+            placeholder="mm-aaaa"
+            required
+        >
+
+        <label for="fecha_emision">Fecha de emisión</label>
+        <input
+            id="fecha_emision"
+            name="fecha_emision"
+            value="{{ fecha_emision_texto }}"
+            placeholder="dd-mm-aaaa"
+            required
+        >
+
+        <button type="submit">
+            Preparar
+        </button>
+    </form>
+
+    {% if preparacion %}
+        <h2>Locales</h2>
+
+        {% if preparacion.locales %}
+            <table class="facturacion-locales">
+                <thead>
+                    <tr>
+                        <th>Inmueble</th>
+                        <th>Nº factura</th>
+                        <th>Destinatario</th>
+                        <th>Base</th>
+                        <th>IVA</th>
+                        <th>Retención</th>
+                        <th>Total</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for local in preparacion.locales %}
+                        <tr>
+                            <td>
+                                {{ local.inmueble.referencia }}
+                            </td>
+
+                            <td>
+                                {{ local.numero_factura }}
+                            </td>
+
+                            <td>
+                                <div>
+                                    {{ local.destinatario_nombre }}
+                                </div>
+                                <div>
+                                    NIF: {{ local.destinatario_nif }}
+                                </div>
+                                <div>
+                                    {{ local.direccion_facturacion }}
+                                </div>
+                                <div>
+                                    {% if local.codigo_postal_facturacion %}
+                                        {{ local.codigo_postal_facturacion }}
+                                    {% endif %}
+                                    {{ local.poblacion_facturacion }}
+                                    ({{ local.provincia_facturacion }})
+                                </div>
+                            </td>
+
+                            <td>
+                                {{ importe_a_texto(local.base) }}
+                            </td>
+
+                            <td>
+                                {{ importe_a_texto(local.iva_importe) }}
+                            </td>
+
+                            <td>
+                                {{ importe_a_texto(local.retencion_importe) }}
+                            </td>
+
+                            <td>
+                                {{ importe_a_texto(local.total) }}
+                            </td>
+                            <td>
+                                {% if local.factura %}
+                                    Emitida
+                                {% else %}
+                                    Pendiente
+                                {% endif %}
+                            </td>
+
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No hay facturas preparadas para este período.</p>
+        {% endif %}
+
+        <h2>Otros</h2>
+
+        {% if preparacion.otros %}
+            <table class="facturacion-otros">
+                <thead>
+                    <tr>
+                        <th>Inmueble</th>
+                        <th>Destinatario</th>
+                        <th>Importe</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for ingreso in preparacion.otros %}
+                        <tr>
+                            <td>
+                                {{ ingreso.inmueble.referencia }}
+                            </td>
+                            <td>
+                                {{ ingreso.destinatario_nombre }}
+                            </td>
+                            <td>
+                                {{ importe_a_texto(ingreso.importe) }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No hay otros ingresos preparados para este período.</p>
+        {% endif %}
+    {% endif %}
+
+{% endblock %}

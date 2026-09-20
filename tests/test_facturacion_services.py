@@ -1134,6 +1134,7 @@ def test_preparar_periodo_facturacion_separa_locales_y_otros(
 
     assert preparacion.periodo == date(2026, 10, 1)
     assert preparacion.fecha_emision == date(2026, 10, 1)
+    assert preparacion.otros[0].destinatario_nombre == "Ana Pérez"
 
     assert len(preparacion.locales) == 1
     assert len(preparacion.otros) == 1
@@ -1183,6 +1184,11 @@ def test_preparar_periodo_facturacion_filtra_contratos_por_vigencia(
             fecha_desde=contrato.fecha_inicio,
             importe=85000,
         )
+    )
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
     )
 
     session.commit()

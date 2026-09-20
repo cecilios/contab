@@ -22,7 +22,7 @@ body {
 }
 
 .content {
-    max-width: 900px;
+    max-width: 1400px;
     margin: 2rem auto;
     padding: 0 1.5rem;
 }
@@ -108,6 +108,8 @@ button {
 
 .movimientos-bancarios,
 .movimientos-previstos,
+.facturacion-locales,
+.facturacion-otros,
 .apuntes-contables {
     width: 100%;
     border-collapse: collapse;
@@ -117,6 +119,10 @@ button {
 .movimientos-bancarios td,
 .movimientos-previstos th,
 .movimientos-previstos td,
+.facturacion-locales th,
+.facturacion-locales td,
+.facturacion-otros th,
+.facturacion-otros td,
 .apuntes-contables th,
 .apuntes-contables td {
     border: 1px solid #999;
@@ -127,12 +133,16 @@ button {
 
 .movimientos-bancarios th,
 .movimientos-previstos th,
+.facturacion-locales th,
+.facturacion-otros th,
 .apuntes-contables th {
     background-color: #eeeeee;
 }
 
 .movimientos-bancarios tbody tr:nth-child(even),
 .movimientos-previstos tbody tr:nth-child(even),
+.facturacion-locales tbody tr:nth-child(even),
+.facturacion-otros tbody tr:nth-child(even),
 .apuntes-contables tbody tr:nth-child(even) {
     background-color: #f8f8f8;
 }

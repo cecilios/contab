@@ -69,6 +69,7 @@ class IngresoPreparado:
 
     contrato: Contrato
     inmueble: object
+    destinatario_nombre: str
     importe: int
 
 
@@ -443,10 +444,13 @@ def preparar_periodo_facturacion(
                 )
             )
         else:
+            destinatario_nombre, _ = componer_destinatario(contrato)
+
             otros.append(
                 IngresoPreparado(
                     contrato=contrato,
                     inmueble=contrato.inmueble,
+                    destinatario_nombre=destinatario_nombre,
                     importe=renta_facturable(
                         contrato,
                         fecha_renta,
