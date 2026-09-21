@@ -15,6 +15,7 @@ from contab.models import (
     Inquilino,
     MovimientoPrevisto,
     RentaContrato,
+    RevisionRenta,
 )
 from contab.facturacion.routes import (
     _valores_iniciales_facturacion,
@@ -132,8 +133,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     response = client.post(
         f"/facturacion/emitir/{contrato_id}",
         data={
-            "periodo": "2026-10-01",
-            "fecha_emision": "2026-10-01",
+            "periodo": "10-2026",
+            "fecha_emision": "01-10-2026",
         },
     )
 
@@ -396,7 +397,7 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     assert "210,00" in texto
     assert "190,00" in texto
     assert "1.020,00" in texto
-    assert "Pendiente" in texto
+    assert "Emitir" in texto
 
     assert "Otros" in texto
     assert "PISO-1" in texto
@@ -474,5 +475,122 @@ def test_listar_facturacion_rechaza_fecha_emision_invalida() -> None:
     assert "La fecha indicada no es válida" in texto
     assert 'value="10-2026"' in texto
     assert 'value="30-02-2026"' in texto
+
+
+def test_emitir_factura_desde_lista_conserva_aviso_revision(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Emite desde la lista y conserva el aviso de revisión."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 11, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario emite desde la preparación de octubre.
+    response = client.post(
+        f"/facturacion/emitir/{contrato_id}",
+        data={
+            "periodo": "10-2026",
+            "fecha_emision": "01-10-2026",
+        },
+    )
+
+    assert response.status_code == 302
+    assert (
+        response.headers["Location"]
+        == "/facturacion/"
+        "?periodo=10-2026"
+        "&fecha_emision=01-10-2026"
+    )
+
+    with session_factory() as session:
+        factura = session.scalar(
+            select(Factura)
+        )
+
+        assert factura is not None
+        assert factura.revision_renta_id == revision_id
+        assert factura.aviso_revision == "AVISO"
 
 

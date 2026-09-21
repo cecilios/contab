@@ -200,12 +200,14 @@ def listar():
 def emitir(contrato_id: int):
     """Emite y registra contablemente una factura."""
 
-    periodo = date.fromisoformat(
-        request.form["periodo"]
-    )
-    fecha_emision = date.fromisoformat(
-        request.form["fecha_emision"]
-    )
+    periodo_texto = request.form["periodo"]
+    fecha_emision_texto = request.form["fecha_emision"]
+
+    try:
+        periodo = _periodo(periodo_texto)
+        fecha_emision = _fecha(fecha_emision_texto)
+    except ValueError as exc:
+        return str(exc), 400
 
     categorias = cargar_categorias_contables()
     session_factory = get_session_factory()
@@ -236,7 +238,11 @@ def emitir(contrato_id: int):
         return str(exc), 400
 
     return redirect(
-        url_for("contabilidad.listar_apuntes")
+        url_for(
+            "facturacion.listar",
+            periodo=periodo_texto,
+            fecha_emision=fecha_emision_texto,
+        )
     )
 
 

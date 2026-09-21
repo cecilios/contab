@@ -62,6 +62,8 @@ class FacturaPreparada:
     total: int
     factura: Factura | None
     numero_factura: str
+    revision: RevisionRenta | None
+    revision_estado: str | None
 
 @dataclass(frozen=True)
 class IngresoPreparado:
@@ -99,6 +101,43 @@ def _ultimo_dia_mes(periodo: date) -> date:
     return date.fromordinal(
         siguiente_mes.toordinal() - 1
     )
+
+
+def situacion_revision(
+    contrato: Contrato,
+    periodo: date,
+) -> tuple[RevisionRenta | None, str | None]:
+    """Obtiene la revisión pendiente y su situación en el período."""
+
+    if periodo.month == 12:
+        siguiente_mes = date(
+            periodo.year + 1,
+            1,
+            1,
+        )
+    else:
+        siguiente_mes = date(
+            periodo.year,
+            periodo.month + 1,
+            1,
+        )
+
+    for revision in contrato.revisiones_renta:
+        if revision.estado != "PENDIENTE":
+            continue
+
+        if (revision.fecha_prevista.year == periodo.year
+            and revision.fecha_prevista.month == periodo.month
+        ):
+            return revision, "ESPERANDO_INDICE"
+
+        if (
+            revision.fecha_prevista.year == siguiente_mes.year
+            and revision.fecha_prevista.month == siguiente_mes.month
+        ):
+            return revision, "AVISO"
+
+    return None, None
 
 
 def siguiente_numero_factura(
@@ -384,6 +423,11 @@ def preparar_periodo_facturacion(
             if periodo < contrato.fecha_inicio_facturacion:
                 continue
 
+            revision, revision_estado = situacion_revision(
+                contrato,
+                periodo,
+            )
+
             factura = next(
                 (
                     factura
@@ -441,6 +485,8 @@ def preparar_periodo_facturacion(
                     retencion_importe=retencion_importe,
                     total=total,
                     numero_factura=numero_factura,
+                    revision=revision,
+                    revision_estado=revision_estado,
                 )
             )
         else:
@@ -483,10 +529,17 @@ def emitir_factura(
             "Ya existe una factura para este contrato y período."
         )
 
+    revision, revision_estado = situacion_revision(
+        contrato,
+        periodo,
+    )
+
     factura = crear_factura(
         contrato=contrato,
         periodo=periodo,
         fecha_emision=fecha_emision,
+        revision_renta=revision,
+        aviso_revision=revision_estado,
     )
 
     apunte, movimiento = preparar_registro_contable_factura(

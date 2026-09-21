@@ -63,6 +63,7 @@
                         <th>IVA</th>
                         <th>Retención</th>
                         <th>Total</th>
+                        <th>Revisión</th>
                         <th>Estado</th>
                     </tr>
                 </thead>
@@ -113,13 +114,39 @@
                                 {{ importe_a_texto(local.total) }}
                             </td>
                             <td>
+                                {% if local.revision_estado == "AVISO" %}
+                                    Aviso
+                                {% elif local.revision_estado == "ESPERANDO_INDICE" %}
+                                    En espera del índice
+                                {% endif %}
+                            </td>
+                            <td>
                                 {% if local.factura %}
                                     Emitida
                                 {% else %}
-                                    Pendiente
+                                    <form
+                                        method="post"
+                                        action="{{ url_for(
+                                            'facturacion.emitir',
+                                            contrato_id=local.contrato.id
+                                        ) }}"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="periodo"
+                                            value="{{ periodo_texto }}"
+                                        >
+                                        <input
+                                            type="hidden"
+                                            name="fecha_emision"
+                                            value="{{ fecha_emision_texto }}"
+                                        >
+                                        <button type="submit">
+                                            Emitir
+                                        </button>
+                                    </form>
                                 {% endif %}
                             </td>
-
                         </tr>
                     {% endfor %}
                 </tbody>

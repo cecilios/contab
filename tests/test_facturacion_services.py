@@ -1509,3 +1509,111 @@ def test_emitir_factura_rechaza_periodo_ya_facturado(
         )
 
 
+def test_preparar_periodo_facturacion_avisa_revision_del_mes_siguiente(
+    session,
+    contrato,
+) -> None:
+    """Muestra aviso cuando hay una revisión pendiente el mes siguiente."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 11, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(preparacion.locales) == 1
+    assert preparacion.locales[0].revision is revision
+    assert preparacion.locales[0].revision_estado == "AVISO"
+
+
+def test_preparar_periodo_facturacion_no_avisa_revision_resuelta(
+    session,
+    contrato,
+) -> None:
+    """No muestra aviso para una revisión que ya no está pendiente."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    contrato.revisiones_renta.append(
+        RevisionRenta(
+            fecha_prevista=date(2026, 11, 1),
+            metodo="IPC_NACIONAL",
+            estado="NO_APLICADA",
+        )
+    )
+
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert preparacion.locales[0].revision is None
+    assert preparacion.locales[0].revision_estado is None
+
+
+def test_preparar_periodo_facturacion_indica_espera_del_indice(
+    session,
+    contrato,
+) -> None:
+    """Indica espera cuando la revisión pendiente corresponde al período."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    local = preparacion.locales[0]
+
+    assert local.revision is revision
+    assert local.revision_estado == "ESPERANDO_INDICE"
+
+
