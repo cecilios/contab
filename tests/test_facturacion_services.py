@@ -23,6 +23,7 @@ from contab.facturacion.services import (
     RepercusionGasto,
     calcular_importes_factura,
     componer_destinatario,
+    contabilizar_ingreso_sin_factura,
     crear_factura,
     emitir_factura,
     preparar_periodo_facturacion,
@@ -1615,5 +1616,286 @@ def test_preparar_periodo_facturacion_indica_espera_del_indice(
 
     assert local.revision is revision
     assert local.revision_estado == "ESPERANDO_INDICE"
+
+
+def test_preparar_periodo_facturacion_otro_no_contabilizado(
+    session,
+    contrato,
+) -> None:
+    """Un ingreso sin apunte asociado sigue pendiente de contabilizar."""
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = False
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=80000,
+        )
+    )
+
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(preparacion.otros) == 1
+
+    ingreso = preparacion.otros[0]
+
+    assert ingreso.contrato is contrato
+    assert ingreso.movimiento is None
+
+
+def test_preparar_periodo_facturacion_reconoce_otro_contabilizado(
+    session,
+    contrato,
+) -> None:
+    """Reconoce un ingreso ya contabilizado del contrato y período."""
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = False
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=80000,
+        )
+    )
+
+    apunte = ApunteContable(
+        inmueble=contrato.inmueble,
+        fecha=date(2026, 10, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler",
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 31),
+        tratamiento="CONTABILIZAR",
+        base=80000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=80000,
+    )
+
+    movimiento = MovimientoPrevisto(
+        inmueble=contrato.inmueble,
+        contrato=contrato,
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 31),
+        naturaleza="INGRESO",
+        concepto="Alquiler",
+        importe_esperado=80000,
+        estado="PENDIENTE",
+    )
+
+    session.add(movimiento)
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(preparacion.otros) == 1
+    assert preparacion.otros[0].movimiento is movimiento
+
+
+def test_preparar_periodo_facturacion_no_confunde_otro_de_otro_mes(
+    session,
+    contrato,
+) -> None:
+    """Un ingreso contabilizado de septiembre no resuelve octubre."""
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = False
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=80000,
+        )
+    )
+
+    apunte = ApunteContable(
+        inmueble=contrato.inmueble,
+        fecha=date(2026, 9, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler",
+        periodo_desde=date(2026, 9, 1),
+        periodo_hasta=date(2026, 9, 30),
+        tratamiento="CONTABILIZAR",
+        base=80000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=80000,
+    )
+
+    movimiento = MovimientoPrevisto(
+        inmueble=contrato.inmueble,
+        contrato=contrato,
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 9, 1),
+        fecha_prevista_hasta=date(2026, 9, 30),
+        naturaleza="INGRESO",
+        concepto="Alquiler",
+        importe_esperado=80000,
+        estado="PENDIENTE",
+    )
+
+    session.add(movimiento)
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(preparacion.otros) == 1
+    assert preparacion.otros[0].movimiento is None
+
+
+def test_contabilizar_ingreso_sin_factura_prepara_operacion_completa(
+    session,
+    contrato,
+) -> None:
+    """Prepara apunte y cobro previsto de un alquiler sin factura."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+
+    contrato.genera_factura = False
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=80000,
+        )
+    )
+
+    session.commit()
+
+    apunte, movimiento = contabilizar_ingreso_sin_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha=date(2026, 10, 1),
+        categorias=categorias,
+    )
+
+    assert apunte.id is None
+    assert apunte.inmueble is contrato.inmueble
+    assert apunte.fecha == date(2026, 10, 1)
+    assert apunte.naturaleza == "INGRESO"
+    assert apunte.categoria == "ING_ALQUILERES"
+    assert apunte.concepto == contrato.concepto_factura
+
+    assert apunte.periodo_desde == date(2026, 10, 1)
+    assert apunte.periodo_hasta == date(2026, 10, 31)
+
+    assert apunte.base == 80000
+    assert apunte.iva_importe == 0
+    assert apunte.retencion_importe == 0
+    assert apunte.total == 80000
+
+    assert apunte.tercero_nombre == "Ana Pérez"
+    assert apunte.tercero_nif == "11111111A"
+    assert apunte.referencia_documento == ""
+
+    assert movimiento.id is None
+    assert movimiento.apunte is apunte
+    assert movimiento.contrato is contrato
+    assert movimiento.inmueble is contrato.inmueble
+
+    assert movimiento.naturaleza == "INGRESO"
+    assert movimiento.importe_esperado == 80000
+    assert movimiento.fecha_prevista_desde == date(2026, 10, 1)
+    assert movimiento.fecha_prevista_hasta == date(2026, 10, 31)
+
+
+def test_contabilizar_ingreso_sin_factura_rechaza_duplicado(
+    session,
+    contrato,
+) -> None:
+    """Impide contabilizar dos veces el mismo contrato y período."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = False
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=80000,
+        )
+    )
+
+    apunte = ApunteContable(
+        inmueble=contrato.inmueble,
+        fecha=date(2026, 10, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler",
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 31),
+        tratamiento="CONTABILIZAR",
+        base=80000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=80000,
+    )
+
+    movimiento = MovimientoPrevisto(
+        inmueble=contrato.inmueble,
+        contrato=contrato,
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 31),
+        naturaleza="INGRESO",
+        concepto="Alquiler",
+        importe_esperado=80000,
+        estado="PENDIENTE",
+    )
+
+    session.add(movimiento)
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="contabilizado",
+    ):
+        contabilizar_ingreso_sin_factura(
+            contrato=contrato,
+            periodo=date(2026, 10, 1),
+            fecha=date(2026, 10, 1),
+            categorias=categorias,
+        )
 
 

@@ -403,6 +403,7 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     assert "PISO-1" in texto
     assert "Luis García" in texto
     assert "800,00" in texto
+    assert "Contabilizar" in texto
 
 
 def test_valores_iniciales_facturacion_proponen_mes_siguiente() -> None:
@@ -592,5 +593,130 @@ ING_ALQUILERES = INGRESO | Alquileres
         assert factura is not None
         assert factura.revision_renta_id == revision_id
         assert factura.aviso_revision == "AVISO"
+
+
+def test_contabilizar_ingreso_sin_factura_persiste_operacion_completa(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Contabiliza un alquiler sin factura y vuelve al mismo período."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="B1",
+            descripcion="Vivienda",
+            direccion="Dirección del piso",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=False,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=80000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler vivienda",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Luis García",
+                    nif="22222222B",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=80000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario contabiliza el ingreso desde la preparación de octubre.
+    response = client.post(
+        f"/facturacion/contabilizar/{contrato_id}",
+        data={
+            "periodo": "10-2026",
+            "fecha_emision": "01-10-2026",
+        },
+    )
+
+    assert response.status_code == 302
+    assert (
+        response.headers["Location"]
+        == "/facturacion/"
+        "?periodo=10-2026"
+        "&fecha_emision=01-10-2026"
+    )
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Factura)
+        ) is None
+
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert apunte is not None
+        assert apunte.categoria == "ING_ALQUILERES"
+        assert apunte.periodo_desde == date(2026, 10, 1)
+        assert apunte.periodo_hasta == date(2026, 10, 31)
+        assert apunte.total == 80000
+        assert apunte.tercero_nombre == "Luis García"
+        assert apunte.tercero_nif == "22222222B"
+
+        assert movimiento is not None
+        assert movimiento.apunte_id == apunte.id
+        assert movimiento.contrato_id == contrato_id
+        assert movimiento.importe_esperado == 80000
+        assert movimiento.estado == "PENDIENTE"
 
 

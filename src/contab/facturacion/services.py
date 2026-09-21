@@ -73,7 +73,7 @@ class IngresoPreparado:
     inmueble: object
     destinatario_nombre: str
     importe: int
-
+    movimiento: MovimientoPrevisto | None
 
 @dataclass(frozen=True)
 class PreparacionPeriodo:
@@ -100,6 +100,28 @@ def _ultimo_dia_mes(periodo: date) -> date:
 
     return date.fromordinal(
         siguiente_mes.toordinal() - 1
+    )
+
+
+def _movimiento_ingreso_periodo(
+    contrato: Contrato,
+    periodo: date,
+) -> MovimientoPrevisto | None:
+    """Busca el movimiento de un alquiler ya contabilizado en el período."""
+
+    ultimo_dia = _ultimo_dia_mes(periodo)
+
+    return next(
+        (
+            movimiento
+            for movimiento in contrato.movimientos_previstos
+            if movimiento.apunte is not None
+            and movimiento.apunte.naturaleza == "INGRESO"
+            and movimiento.apunte.categoria == "ING_ALQUILERES"
+            and movimiento.apunte.periodo_desde == periodo
+            and movimiento.apunte.periodo_hasta == ultimo_dia
+        ),
+        None,
     )
 
 
@@ -386,6 +408,63 @@ def preparar_registro_contable_factura(
     return apunte, movimiento
 
 
+def contabilizar_ingreso_sin_factura(
+    *,
+    contrato: Contrato,
+    periodo: date,
+    fecha: date,
+    categorias: dict[str, CategoriaContable],
+) -> tuple[ApunteContable, MovimientoPrevisto]:
+    """Prepara el apunte y cobro previsto de un alquiler sin factura."""
+
+    if periodo.day != 1:
+        raise FacturacionError(
+            "El periodo debe corresponder al día 1 del mes."
+        )
+
+    if _movimiento_ingreso_periodo(contrato, periodo) is not None:
+        raise FacturacionError(
+            "El ingreso de este contrato y período ya está contabilizado."
+        )
+
+    importe = renta_facturable(
+        contrato,
+        max(periodo, contrato.fecha_inicio),
+    )
+
+    tercero_nombre, tercero_nif = componer_destinatario(
+        contrato
+    )
+
+    periodo_hasta = _ultimo_dia_mes(periodo)
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=fecha,
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto=contrato.concepto_factura,
+        base=importe,
+        iva_importe=0,
+        retencion_importe=0,
+        tercero_nombre=tercero_nombre,
+        tercero_nif=tercero_nif,
+        referencia_documento="",
+        periodo_desde=periodo,
+        periodo_hasta=periodo_hasta,
+    )
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        contrato=contrato,
+        fecha_prevista_desde=periodo,
+        fecha_prevista_hasta=periodo_hasta,
+    )
+
+    return apunte, movimiento
+
+
 def preparar_periodo_facturacion(
     *,
     contratos: list[Contrato],
@@ -490,7 +569,14 @@ def preparar_periodo_facturacion(
                 )
             )
         else:
-            destinatario_nombre, _ = componer_destinatario(contrato)
+            destinatario_nombre, _ = componer_destinatario(
+                contrato
+            )
+
+            movimiento = _movimiento_ingreso_periodo(
+                contrato,
+                periodo,
+            )
 
             otros.append(
                 IngresoPreparado(
@@ -501,6 +587,7 @@ def preparar_periodo_facturacion(
                         contrato,
                         fecha_renta,
                     ),
+                    movimiento=movimiento,
                 )
             )
 

@@ -18,6 +18,7 @@ from contab.context import (
 )
 from contab.facturacion.services import (
     FacturacionError,
+    contabilizar_ingreso_sin_factura,
     emitir_factura,
     preparar_periodo_facturacion,
 )
@@ -231,6 +232,57 @@ def emitir(contrato_id: int):
                 )
 
                 session.add(factura)
+                session.add(apunte)
+                session.add(movimiento)
+
+    except FacturacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "facturacion.listar",
+            periodo=periodo_texto,
+            fecha_emision=fecha_emision_texto,
+        )
+    )
+
+
+@bp.post("/contabilizar/<int:contrato_id>")
+def contabilizar(contrato_id: int):
+    """Contabiliza un ingreso de alquiler que no genera factura."""
+
+    periodo_texto = request.form["periodo"]
+    fecha_emision_texto = request.form["fecha_emision"]
+
+    try:
+        periodo = _periodo(periodo_texto)
+        fecha = _fecha(fecha_emision_texto)
+    except ValueError as exc:
+        return str(exc), 400
+
+    categorias = cargar_categorias_contables()
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                contrato = session.get(
+                    Contrato,
+                    contrato_id,
+                )
+
+                if contrato is None:
+                    return "Contrato no encontrado.", 404
+
+                apunte, movimiento = (
+                    contabilizar_ingreso_sin_factura(
+                        contrato=contrato,
+                        periodo=periodo,
+                        fecha=fecha,
+                        categorias=categorias,
+                    )
+                )
+
                 session.add(apunte)
                 session.add(movimiento)
 

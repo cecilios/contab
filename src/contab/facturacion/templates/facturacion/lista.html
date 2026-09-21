@@ -164,6 +164,7 @@
                         <th>Inmueble</th>
                         <th>Destinatario</th>
                         <th>Importe</th>
+                        <th>Estado/Acción</th>
                     </tr>
                 </thead>
 
@@ -178,6 +179,33 @@
                             </td>
                             <td>
                                 {{ importe_a_texto(ingreso.importe) }}
+                            </td>
+                            <td>
+                                {% if ingreso.movimiento %}
+                                    Contabilizado
+                                {% else %}
+                                    <form
+                                        method="post"
+                                        action="{{ url_for(
+                                            'facturacion.contabilizar',
+                                            contrato_id=ingreso.contrato.id
+                                        ) }}"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="periodo"
+                                            value="{{ periodo_texto }}"
+                                        >
+                                        <input
+                                            type="hidden"
+                                            name="fecha_emision"
+                                            value="{{ fecha_emision_texto }}"
+                                        >
+                                        <button type="submit">
+                                            Contabilizar
+                                        </button>
+                                    </form>
+                                {% endif %}
                             </td>
                         </tr>
                     {% endfor %}
