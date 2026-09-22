@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+#
+# Uso: python scripts/cargar-facturas-septiembre-2026.py NOMBRE_BASE
+#
 """Carga las facturas históricas de septiembre de 2026."""
 
 import argparse

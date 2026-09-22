@@ -11,6 +11,45 @@
         </a>
     </p>
 
+    <form method="get">
+        <p>
+            <label for="inmueble_id">Inmueble:</label>
+            <select
+                id="inmueble_id"
+                name="inmueble_id"
+            >
+                <option value="">Todos los inmuebles</option>
+                {% for inmueble in inmuebles %}
+                    <option
+                        value="{{ inmueble.id }}"
+                        {% if inmueble.id == inmueble_id %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ inmueble.referencia }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <label for="fecha_desde">Desde:</label>
+            <input
+                id="fecha_desde"
+                name="fecha_desde"
+                type="text"
+                value="{{ fecha_desde }}"
+                placeholder="dd/mm/aaaa"
+            >
+
+            <button type="submit">Filtrar</button>
+
+            <a href="{{ url_for(
+                'contabilidad.listar_apuntes'
+            ) }}">
+                Limpiar
+            </a>
+        </p>
+    </form>
+
     {% if apuntes %}
         <table class="apuntes-contables">
             <thead>
@@ -81,7 +120,9 @@
             {% if pagina > 1 %}
                 <a href="{{ url_for(
                     'contabilidad.listar_apuntes',
-                    pagina=pagina - 1
+                    pagina=pagina - 1,
+                    inmueble_id=inmueble_id,
+                    fecha_desde=fecha_desde
                 ) }}">
                     Página anterior
                 </a>
@@ -94,7 +135,9 @@
             {% if pagina < total_paginas %}
                 <a href="{{ url_for(
                     'contabilidad.listar_apuntes',
-                    pagina=pagina + 1
+                    pagina=pagina + 1,
+                    inmueble_id=inmueble_id,
+                    fecha_desde=fecha_desde
                 ) }}">
                     Página siguiente
                 </a>

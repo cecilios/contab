@@ -685,7 +685,7 @@ def _render_eliminar_apunte(
 
 @bp.get("/")
 def listar_apuntes():
-    """Muestra los apuntes ordenados y paginados."""
+    """Muestra los apuntes ordenados, filtrados y paginados."""
 
     pagina = request.args.get(
         "pagina",
@@ -696,14 +696,59 @@ def listar_apuntes():
     pagina = max(pagina, 1)
     por_pagina = 25
 
+    inmueble_id = request.args.get(
+        "inmueble_id",
+        default=None,
+        type=int,
+    )
+    fecha_desde_texto = request.args.get(
+        "fecha_desde",
+        "",
+    ).strip()
+
+    try:
+        fecha_desde = (
+            _fecha(fecha_desde_texto)
+            if fecha_desde_texto
+            else None
+        )
+    except ValueError as exc:
+        return str(exc), 400
+
+    condiciones = []
+
+    if inmueble_id is not None:
+        condiciones.append(
+            ApunteContable.inmueble_id
+            == inmueble_id
+        )
+
+    if fecha_desde is not None:
+        condiciones.append(
+            ApunteContable.fecha
+            >= fecha_desde
+        )
+
     categorias = cargar_categorias_contables()
     session_factory = get_session_factory()
 
     with session_factory() as session:
-        total = session.scalar(
-            select(
-                func.count(ApunteContable.id)
+        inmuebles = session.scalars(
+            select(Inmueble)
+            .order_by(Inmueble.referencia)
+        ).all()
+
+        consulta_total = select(
+            func.count(ApunteContable.id)
+        )
+
+        if condiciones:
+            consulta_total = consulta_total.where(
+                *condiciones
             )
+
+        total = session.scalar(
+            consulta_total
         ) or 0
 
         total_paginas = max(
@@ -720,11 +765,22 @@ def listar_apuntes():
             total_paginas,
         )
 
-        apuntes = session.scalars(
+        consulta_apuntes = (
             select(ApunteContable)
             .options(
                 joinedload(ApunteContable.inmueble)
             )
+        )
+
+        if condiciones:
+            consulta_apuntes = (
+                consulta_apuntes.where(
+                    *condiciones
+                )
+            )
+
+        apuntes = session.scalars(
+            consulta_apuntes
             .order_by(
                 ApunteContable.fecha.desc(),
                 ApunteContable.id.desc(),
@@ -748,6 +804,9 @@ def listar_apuntes():
             ),
             importe_a_texto=_importe_a_texto,
             database_name=get_database_name(),
+            inmuebles=inmuebles,
+            inmueble_id=inmueble_id,
+            fecha_desde=fecha_desde_texto,
         )
 
 

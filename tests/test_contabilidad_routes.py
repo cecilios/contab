@@ -161,6 +161,128 @@ def test_listado_muestra_apuntes_ordenados() -> None:
     assert posicion_reciente < posicion_antiguo
 
 
+def test_listado_filtra_por_inmueble_y_fecha_desde() -> None:
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        local_1 = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial 1",
+            direccion="Dirección 1",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        local_2 = Inmueble(
+            referencia="LOCAL-2",
+            tipo="L",
+            codigo_facturacion="A2",
+            descripcion="Local comercial 2",
+            direccion="Dirección 2",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        antiguo = ApunteContable(
+            inmueble=local_1,
+            fecha=date(2026, 6, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            subcategoria=None,
+            concepto="Comunidad antigua",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+        )
+
+        incluido = ApunteContable(
+            inmueble=local_1,
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            subcategoria=None,
+            concepto="Comunidad incluida",
+            base=11000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=11000,
+        )
+
+        otro_inmueble = ApunteContable(
+            inmueble=local_2,
+            fecha=date(2026, 10, 20),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            subcategoria=None,
+            concepto="Comunidad otro inmueble",
+            base=12000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=12000,
+        )
+
+        session.add_all([
+            local_1,
+            local_2,
+            antiguo,
+            incluido,
+            otro_inmueble,
+        ])
+        session.commit()
+
+        local_1_id = local_1.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/contabilidad/",
+        query_string={
+            "inmueble_id": local_1_id,
+            "fecha_desde": "01/10/2026",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Comunidad incluida" in response.text
+    assert "Comunidad antigua" not in response.text
+    assert "Comunidad otro inmueble" not in response.text
+
+    assert 'value="01/10/2026"' in response.text
+    assert "LOCAL-1" in response.text
+    assert "LOCAL-2" in response.text
+
+
+def test_listado_rechaza_fecha_desde_invalida() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/contabilidad/",
+        query_string={
+            "fecha_desde": "31/02/2026",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "La fecha indicada no es válida"
+        in response.text
+    )
+
+
 def test_formulario_nuevo_apunte_responde(
     tmp_path,
     monkeypatch,
