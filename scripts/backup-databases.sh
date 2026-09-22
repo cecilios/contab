@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# Script para backups de las bases de datos que haya en data/.
+# Script para backups de las bases de datos de Contab.
+# - En desarrollo usa data/ y backups/ dentro del proyecto.
+# - En producción usa /datos/inmuebles/contab y /datos/inmuebles/contab/backups.
 # - copias coherentes aunque SQLite esté abierto
 # - nombres fechados automáticamente
 # - copia de todas las bases en data/
@@ -41,8 +43,15 @@ if [[ ! "$message" =~ ^[[:alnum:]_.-]+$ ]]; then
     exit 2
 fi
 
-data_dir="$project_dir/data"
-backup_dir="$project_dir/backups"
+if [[ -d "$project_dir/data" ]]; then
+    # Desarrollo: datos y backups dentro del proyecto.
+    data_dir="$project_dir/data"
+    backup_dir="$project_dir/backups"
+else
+    # Producción: datos persistentes fuera de /opt/contab.
+    data_dir="/datos/casa/inmuebles/contab"
+    backup_dir="/datos/casa/inmuebles/contab/backups"
+fi
 
 if ! command -v sqlite3 >/dev/null 2>&1; then
     echo "Error: no se encuentra el programa sqlite3." >&2
