@@ -406,6 +406,53 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     assert "Contabilizar" in texto
 
 
+def test_listar_facturacion_respeta_fecha_emision(
+    monkeypatch,
+) -> None:
+    """Prepara la facturación con la fecha de emisión indicada."""
+
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    fecha_recibida = None
+
+    def preparar_periodo_facturacion_falso(
+        *,
+        contratos,
+        periodo,
+        fecha_emision,
+    ):
+        nonlocal fecha_recibida
+        fecha_recibida = fecha_emision
+
+        class Preparacion:
+            locales = []
+            otros = []
+
+        return Preparacion()
+
+    monkeypatch.setattr(
+        "contab.facturacion.routes.preparar_periodo_facturacion",
+        preparar_periodo_facturacion_falso,
+    )
+
+    # El usuario prepara octubre con una fecha de emisión
+    # distinta del primer día del período.
+    response = client.get(
+        "/facturacion/"
+        "?periodo=10-2026"
+        "&fecha_emision=15-10-2026"
+    )
+
+    assert response.status_code == 200
+    assert fecha_recibida == date(2026, 10, 15)
+
+
 def test_valores_iniciales_facturacion_proponen_mes_siguiente() -> None:
     """Propone el mes siguiente y su primer día."""
 

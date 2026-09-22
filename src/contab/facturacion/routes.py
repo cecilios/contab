@@ -168,8 +168,6 @@ def listar():
                 400,
             )
 
-    fecha_emision = periodo
-
     session_factory = get_session_factory()
 
     try:
