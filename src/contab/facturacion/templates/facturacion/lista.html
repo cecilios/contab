@@ -162,10 +162,13 @@
 
                                         <div data-lineas-adicionales></div>
 
-                                        <button type="submit">
+                                        <a
+                                            href="#"
+                                            onclick="this.closest('form').requestSubmit(); return false;"
+                                        >
                                             Emitir
-                                        </button>
-
+                                        </a>
+                                        <br/>
                                         <a
                                             class="no-imprimir"
                                             href="#"
@@ -242,9 +245,12 @@
                                             name="fecha_emision"
                                             value="{{ fecha_emision_texto }}"
                                         >
-                                        <button type="submit">
+                                        <a
+                                            href="#"
+                                            onclick="this.closest('form').requestSubmit(); return false;"
+                                        >
                                             Contabilizar
-                                        </button>
+                                        </a>
                                     </form>
                                 {% endif %}
                             </td>
