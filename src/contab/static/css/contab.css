@@ -7,6 +7,12 @@ body {
     background: #f7f7f7;
 }
 
+@media print {
+    .no-imprimir {
+        display: none;
+    }
+}
+
 .site-header {
     padding: 1rem 2rem;
     background: #ffffff;
