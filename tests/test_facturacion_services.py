@@ -511,6 +511,111 @@ def test_crear_factura_ordinaria(session, contrato) -> None:
     assert factura.ruta_pdf == "facturas/01-2026A1.pdf"
 
 
+def test_crear_factura_con_lineas_adicionales(
+    session,
+    contrato,
+) -> None:
+    """Añade líneas manuales después de la renta y recalcula la factura."""
+
+    contrato.iva_porcentaje = 2100
+    contrato.retencion_porcentaje = 1900
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=94500,
+        )
+    )
+    session.commit()
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 9, 1),
+        fecha_emision=date(2026, 9, 1),
+        lineas_adicionales=[
+            ("Consumo de agua", 3500),
+            ("Reparación repercutida", 2000),
+        ],
+    )
+
+    assert len(factura.lineas) == 3
+
+    assert factura.lineas[0].orden == 1
+    assert factura.lineas[0].tipo == "RENTA"
+    assert factura.lineas[0].concepto == contrato.concepto_factura
+    assert factura.lineas[0].importe == 94500
+
+    assert factura.lineas[1].orden == 2
+    assert factura.lineas[1].tipo == "OTRO"
+    assert factura.lineas[1].concepto == "Consumo de agua"
+    assert factura.lineas[1].importe == 3500
+
+    assert factura.lineas[2].orden == 3
+    assert factura.lineas[2].tipo == "OTRO"
+    assert factura.lineas[2].concepto == "Reparación repercutida"
+    assert factura.lineas[2].importe == 2000
+
+    assert factura.base == 100000
+    assert factura.iva_importe == 21000
+    assert factura.retencion_importe == 19000
+    assert factura.total == 102000
+
+
+def test_crear_factura_rechaza_linea_adicional_sin_concepto(
+    session,
+    contrato,
+) -> None:
+    """Una línea manual debe tener un concepto no vacío."""
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="concepto",
+    ):
+        crear_factura(
+            contrato=contrato,
+            periodo=date(2026, 9, 1),
+            fecha_emision=date(2026, 9, 1),
+            lineas_adicionales=[
+                ("   ", 3500),
+            ],
+        )
+
+
+def test_crear_factura_rechaza_linea_adicional_sin_importe(
+    session,
+    contrato,
+) -> None:
+    """Una línea manual debe tener un importe distinto de cero."""
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="importe",
+    ):
+        crear_factura(
+            contrato=contrato,
+            periodo=date(2026, 9, 1),
+            fecha_emision=date(2026, 9, 1),
+            lineas_adicionales=[
+                ("Consumo de agua", 0),
+            ],
+        )
+
+
 def test_factura_admite_ruta_pdf_vacia_por_defecto(session, contrato) -> None:
     contrato.rentas.append(
         RentaContrato(

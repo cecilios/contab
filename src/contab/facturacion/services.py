@@ -271,6 +271,7 @@ def crear_factura(
     diferencia_revision: int = 0,
     aviso_revision: str | None = None,
     repercusiones: list[RepercusionGasto] | None = None,
+    lineas_adicionales: list[tuple[str, int]] | None = None,
 ) -> Factura:
     """Prepara una factura ordinaria mensual sin persistirla."""
     if periodo.day != 1:
@@ -334,6 +335,29 @@ def crear_factura(
                     tipo="REPERCUSION_GASTO",
                     concepto=repercusion.concepto,
                     importe=repercusion.importe,
+                )
+            )
+
+    if lineas_adicionales:
+        for concepto, importe in lineas_adicionales:
+            concepto = concepto.strip()
+
+            if not concepto:
+                raise FacturacionError(
+                    "Toda línea adicional debe tener un concepto."
+                )
+
+            if importe == 0:
+                raise FacturacionError(
+                    "El importe de una línea adicional no puede ser cero."
+                )
+
+            lineas.append(
+                FacturaLinea(
+                    orden=len(lineas) + 1,
+                    tipo="OTRO",
+                    concepto=concepto,
+                    importe=importe,
                 )
             )
 
@@ -605,6 +629,7 @@ def emitir_factura(
     periodo: date,
     fecha_emision: date,
     categorias: dict[str, CategoriaContable],
+    lineas_adicionales: list[tuple[str, int]] | None = None,
 ) -> tuple[Factura, ApunteContable, MovimientoPrevisto]:
     """Prepara la emisión completa de una factura sin persistirla."""
 
@@ -627,6 +652,7 @@ def emitir_factura(
         fecha_emision=fecha_emision,
         revision_renta=revision,
         aviso_revision=revision_estado,
+        lineas_adicionales=lineas_adicionales,
     )
 
     apunte, movimiento = preparar_registro_contable_factura(

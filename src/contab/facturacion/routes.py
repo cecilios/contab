@@ -1,6 +1,7 @@
 """Define las rutas web del módulo de facturación."""
 
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from flask import (
     Blueprint,
@@ -61,6 +62,21 @@ def _importe_a_texto(importe: int) -> str:
     euros_texto = f"{euros:,}".replace(",", ".")
 
     return f"{euros_texto},{centimos:02d} €"
+
+
+def _texto_a_importe(texto: str) -> int:
+    """Convierte un importe en euros con coma decimal a céntimos."""
+    texto = texto.strip()
+
+    if not texto:
+        raise ValueError("El importe no puede estar vacío.")
+
+    try:
+        euros = Decimal(texto.replace(",", "."))
+    except InvalidOperation as exc:
+        raise ValueError("El importe no es válido.") from exc
+
+    return int(euros * 100)
 
 
 def _valores_iniciales_facturacion(
@@ -201,10 +217,22 @@ def emitir(contrato_id: int):
 
     periodo_texto = request.form["periodo"]
     fecha_emision_texto = request.form["fecha_emision"]
+    conceptos = request.form.getlist("linea_concepto")
+    importes = request.form.getlist("linea_importe")
+    if len(conceptos) != len(importes):
+        return "Las líneas adicionales de la factura no son válidas.", 400
 
     try:
         periodo = _periodo(periodo_texto)
         fecha_emision = _fecha(fecha_emision_texto)
+        lineas_adicionales = [
+            (concepto, _texto_a_importe(importe))
+            for concepto, importe in zip(
+                conceptos,
+                importes,
+                strict=True,
+            )
+        ]
     except ValueError as exc:
         return str(exc), 400
 
@@ -227,6 +255,7 @@ def emitir(contrato_id: int):
                     periodo=periodo,
                     fecha_emision=fecha_emision,
                     categorias=categorias,
+                    lineas_adicionales=lineas_adicionales,
                 )
 
                 session.add(factura)

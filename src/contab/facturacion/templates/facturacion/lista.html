@@ -77,7 +77,15 @@
 
                 <tbody>
                     {% for local in preparacion.locales %}
-                        <tr>
+                        <tr
+                            {% if not local.factura %}
+                                data-factura="{{ local.contrato.id }}"
+                                data-base="{{ local.base }}"
+                                data-iva-porcentaje="{{ local.contrato.iva_porcentaje }}"
+                                data-retencion-porcentaje="{{ local.contrato.retencion_porcentaje }}"
+                                data-concepto-renta="{{ local.contrato.concepto_factura }}"
+                            {% endif %}
+                        >
                             <td>
                                 {{ local.inmueble.referencia }}
                             </td>
@@ -105,21 +113,22 @@
                                 </div>
                             </td>
 
-                            <td>
+                            <td data-importe="base">
                                 {{ importe_a_texto(local.base) }}
                             </td>
 
-                            <td>
+                            <td data-importe="iva">
                                 {{ importe_a_texto(local.iva_importe) }}
                             </td>
 
-                            <td>
+                            <td data-importe="retencion">
                                 {{ importe_a_texto(local.retencion_importe) }}
                             </td>
 
-                            <td>
+                            <td data-importe="total">
                                 {{ importe_a_texto(local.total) }}
                             </td>
+
                             <td>
                                 {% if local.revision_estado == "AVISO" %}
                                     Aviso
@@ -127,6 +136,7 @@
                                     En espera del índice
                                 {% endif %}
                             </td>
+
                             <td>
                                 {% if local.factura %}
                                     Emitida
@@ -137,6 +147,7 @@
                                             'facturacion.emitir',
                                             contrato_id=local.contrato.id
                                         ) }}"
+                                        data-formulario-factura
                                     >
                                         <input
                                             type="hidden"
@@ -148,13 +159,36 @@
                                             name="fecha_emision"
                                             value="{{ fecha_emision_texto }}"
                                         >
+
+                                        <div data-lineas-adicionales></div>
+
                                         <button type="submit">
                                             Emitir
                                         </button>
+
+                                        <a
+                                            class="no-imprimir"
+                                            href="#"
+                                            data-anadir-linea
+                                        >
+                                            Añadir línea
+                                        </a>
                                     </form>
                                 {% endif %}
                             </td>
                         </tr>
+                        {% if not local.factura %}
+                            <tr
+                                data-desglose="{{ local.contrato.id }}"
+                                class="no-imprimir"
+                                style="display: none;"
+                            >
+                                <td></td>
+                                <td colspan="8">
+                                    <div data-detalle-lineas></div>
+                                </td>
+                            </tr>
+                        {% endif %}
                     {% endfor %}
                 </tbody>
             </table>
@@ -222,5 +256,187 @@
             <p>No hay otros ingresos preparados para este período.</p>
         {% endif %}
     {% endif %}
+
+<script>
+    function textoImporte(centimos) {
+        return (centimos / 100).toLocaleString(
+            "es-ES",
+            {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }
+        );
+    }
+
+    function textoACentimos(texto) {
+        const normalizado = texto.trim().replace(",", ".");
+        const importe = Number(normalizado);
+
+        if (!Number.isFinite(importe)) {
+            return null;
+        }
+
+        return Math.round(importe * 100);
+    }
+
+    function actualizarFactura(fila) {
+        const id = fila.dataset.factura;
+        const desglose = document.querySelector(
+            `[data-desglose="${id}"]`
+        );
+        const detalle = desglose.querySelector(
+            "[data-detalle-lineas]"
+        );
+        const formulario = fila.querySelector(
+            "[data-formulario-factura]"
+        );
+        const contenedor = formulario.querySelector(
+            "[data-lineas-adicionales]"
+        );
+        const lineas = Array.from(
+            contenedor.querySelectorAll("[data-linea]")
+        );
+
+        const baseOriginal = Number(fila.dataset.base);
+        const ivaPorcentaje = Number(
+            fila.dataset.ivaPorcentaje
+        );
+        const retencionPorcentaje = Number(
+            fila.dataset.retencionPorcentaje
+        );
+
+        let base = baseOriginal;
+
+        for (const linea of lineas) {
+            base += Number(linea.dataset.importe);
+        }
+
+        const iva = Math.round(
+            base * ivaPorcentaje / 10000
+        );
+        const retencion = Math.round(
+            base * retencionPorcentaje / 10000
+        );
+        const total = base + iva - retencion;
+
+        fila.querySelector(
+            '[data-importe="base"]'
+        ).textContent = textoImporte(base);
+
+        fila.querySelector(
+            '[data-importe="iva"]'
+        ).textContent = textoImporte(iva);
+
+        fila.querySelector(
+            '[data-importe="retencion"]'
+        ).textContent = textoImporte(retencion);
+
+        fila.querySelector(
+            '[data-importe="total"]'
+        ).textContent = textoImporte(total);
+
+        if (lineas.length === 0) {
+            desglose.style.display = "none";
+            detalle.replaceChildren();
+            return;
+        }
+
+        desglose.style.display = "";
+        detalle.replaceChildren();
+
+        const renta = document.createElement("div");
+        renta.textContent =
+            fila.dataset.conceptoRenta +
+            ": " + textoImporte(baseOriginal);
+        detalle.appendChild(renta);
+
+        for (const linea of lineas) {
+            const elemento = document.createElement("div");
+
+            const texto = document.createElement("span");
+            texto.textContent =
+                linea.dataset.concepto +
+                ": " +
+                textoImporte(Number(linea.dataset.importe)) +
+                " ";
+
+            const eliminar = document.createElement("a");
+            eliminar.href = "#";
+            eliminar.textContent = "Eliminar";
+
+            eliminar.addEventListener("click", function (event) {
+                event.preventDefault();
+                linea.remove();
+                actualizarFactura(fila);
+            });
+
+            elemento.appendChild(texto);
+            elemento.appendChild(eliminar);
+            detalle.appendChild(elemento);
+        }
+    }
+
+    document.querySelectorAll(
+        "[data-anadir-linea]"
+    ).forEach(function (enlace) {
+        enlace.addEventListener("click", function (event) {
+            event.preventDefault();
+
+            const fila = enlace.closest("[data-factura]");
+            const formulario = enlace.closest("form");
+
+            const concepto = window.prompt("Concepto:");
+
+            if (concepto === null) {
+                return;
+            }
+
+            if (!concepto.trim()) {
+                window.alert("El concepto no puede estar vacío.");
+                return;
+            }
+
+            const importeTexto = window.prompt(
+                "Importe en euros:"
+            );
+
+            if (importeTexto === null) {
+                return;
+            }
+
+            const importe = textoACentimos(importeTexto);
+
+            if (importe === null || importe === 0) {
+                window.alert("El importe no es válido.");
+                return;
+            }
+
+            const linea = document.createElement("div");
+            linea.dataset.linea = "";
+            linea.dataset.concepto = concepto.trim();
+            linea.dataset.importe = importe;
+            linea.style.display = "none";
+
+            const inputConcepto = document.createElement("input");
+            inputConcepto.type = "hidden";
+            inputConcepto.name = "linea_concepto";
+            inputConcepto.value = concepto.trim();
+
+            const inputImporte = document.createElement("input");
+            inputImporte.type = "hidden";
+            inputImporte.name = "linea_importe";
+            inputImporte.value = textoImporte(importe);
+
+            linea.appendChild(inputConcepto);
+            linea.appendChild(inputImporte);
+
+            formulario.querySelector(
+                "[data-lineas-adicionales]"
+            ).appendChild(linea);
+
+            actualizarFactura(fila);
+        });
+    });
+</script>
 
 {% endblock %}
