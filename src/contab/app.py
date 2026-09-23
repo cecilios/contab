@@ -1,6 +1,7 @@
 """Crea y configura la aplicación web Flask de Contab."""
 
 from flask import Flask, redirect, render_template, request, session, url_for
+from importlib.metadata import version
 
 from contab.database import create_session_factory, create_sqlite_engine
 from contab.inmuebles.routes import bp as inmuebles_bp
@@ -28,6 +29,7 @@ def create_app(
 ) -> Flask:
     """Crea la aplicación Flask y configura las bases de datos disponibles."""
     app = Flask(__name__)
+    app.jinja_env.globals["contab_version"] = version("contab")
 
     if secret_key is None:
         secret_key = cargar_secret_key()

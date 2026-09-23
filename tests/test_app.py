@@ -1,6 +1,9 @@
 """Pruebas básicas de funcionamiento de la aplicación web."""
 
+from importlib.metadata import version
+
 from contab.app import create_app
+from contab.models import Base
 
 
 def test_index() -> None:
@@ -133,5 +136,34 @@ def test_create_app_acepta_alias_conciliacion_inyectados() -> None:
     )
 
     assert app.extensions["contab_alias_conciliacion"] == aliases
+
+
+def test_muestra_version_instalada_en_cabecera() -> None:
+    """Muestra en la cabecera la versión instalada de Contab."""
+
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    client = app.test_client()
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert (
+        f"v{version('contab')}".encode()
+        in response.data
+    )
 
 
