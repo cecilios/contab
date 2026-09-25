@@ -11,7 +11,10 @@ from flask import (
     url_for,
 )
 
-from contab.models import Contrato
+from contab.models import (
+    Contrato,
+    RevisionRenta,
+)
 from contab.config import cargar_categorias_contables
 from contab.context import (
     get_database_name,
@@ -23,6 +26,9 @@ from contab.facturacion.services import (
     emitir_factura,
     preparar_periodo_facturacion,
     situacion_revision,
+)
+from contab.contratos.services import (
+    renta_vigente,
 )
 
 
@@ -336,5 +342,41 @@ def contabilizar(contrato_id: int):
             fecha_emision=fecha_emision_texto,
         )
     )
+
+
+@bp.get("/revisiones/<int:revision_id>/resolver")
+def resolver_revision(revision_id: int):
+    """Muestra el formulario para resolver una revisión de renta."""
+
+    periodo_texto = request.args.get("periodo", "")
+    fecha_emision_texto = request.args.get("fecha_emision", "")
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+
+        if revision is None:
+            return "Revisión de renta no encontrada.", 404
+
+        if revision.estado != "PENDIENTE":
+            return "La revisión de renta ya está resuelta.", 400
+
+        renta = renta_vigente(
+            revision.contrato,
+            revision.fecha_prevista,
+        )
+
+        return render_template(
+            "facturacion/resolver_revision.html",
+            revision=revision,
+            renta=renta,
+            periodo_texto=periodo_texto,
+            fecha_emision_texto=fecha_emision_texto,
+            importe_a_texto=_importe_a_texto,
+        )
 
 

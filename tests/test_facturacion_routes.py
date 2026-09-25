@@ -1225,7 +1225,7 @@ ING_ALQUILERES = INGRESO | Alquileres
     texto = response.get_data(as_text=True)
 
     assert "Revisión pendiente" in texto
-    assert "Pendiente de revisión" in texto
+    assert "Resolver revisión" in texto
     assert "Emitir" not in texto
 
 
@@ -1344,3 +1344,103 @@ ING_ALQUILERES = INGRESO | Alquileres
         assert session.scalar(
             select(MovimientoPrevisto)
         ) is None
+
+
+def test_resolver_revision_muestra_formulario() -> None:
+    """Muestra el formulario para resolver una revisión pendiente."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario abre la revisión pendiente desde
+    # la preparación de noviembre.
+    response = client.get(
+        f"/facturacion/revisiones/{revision_id}/resolver"
+        "?periodo=11-2026"
+        "&fecha_emision=01-11-2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Revisión de renta" in texto
+    assert "LOCAL-1" in texto
+    assert "IPC_NACIONAL" in texto
+    assert "01/10/2026" in texto
+    assert "1.000,00" in texto
+    assert "Índice aplicable (%)" in texto
+    assert "Aplicar revisión" in texto
+    assert "Cancelar" in texto
+    assert (
+        "/facturacion/"
+        "?periodo=11-2026"
+        "&amp;fecha_emision=01-11-2026"
+        in texto
+    )
+
+

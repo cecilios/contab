@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Resolver revisión - Contab{% endblock %}
+
+{% block content %}
+    <h1>Revisión de renta</h1>
+
+    <p>
+        <strong>Inmueble:</strong>
+        {{ revision.contrato.inmueble.referencia }}
+    </p>
+
+    <p>
+        <strong>Método:</strong>
+        {{ revision.metodo }}
+    </p>
+
+    <p>
+        <strong>Fecha prevista:</strong>
+        {{ revision.fecha_prevista.strftime("%d/%m/%Y") }}
+    </p>
+
+    <p>
+        <strong>Renta actual:</strong>
+        {{ importe_a_texto(renta.importe) }}
+    </p>
+
+    <form method="post">
+        <label for="porcentaje">Índice aplicable (%)</label>
+        <input
+            id="porcentaje"
+            name="porcentaje"
+            required
+        >
+
+        <button type="submit">
+            Aplicar revisión
+        </button>
+
+        <a href="{{ url_for(
+            'facturacion.listar',
+            periodo=periodo_texto,
+            fecha_emision=fecha_emision_texto
+        ) }}">
+            Cancelar
+        </a>
+    </form>
+{% endblock %}

@@ -143,7 +143,14 @@
                                 {% if local.factura %}
                                     Emitida
                                 {% elif local.revision_estado == "PENDIENTE" %}
-                                    Pendiente de revisión
+                                    <a href="{{ url_for(
+                                        'facturacion.resolver_revision',
+                                        revision_id=local.revision.id,
+                                        periodo=periodo_texto,
+                                        fecha_emision=fecha_emision_texto
+                                    ) }}">
+                                        Resolver revisión
+                                    </a>
                                 {% else %}
                                     <form
                                         method="post"
