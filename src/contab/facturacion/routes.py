@@ -28,9 +28,10 @@ from contab.facturacion.services import (
     situacion_revision,
 )
 from contab.contratos.services import (
+    RevisionRentaError,
     renta_vigente,
+    resolver_revision_renta,
 )
-
 
 
 bp = Blueprint(
@@ -39,6 +40,22 @@ bp = Blueprint(
     url_prefix="/facturacion",
     template_folder="templates",
 )
+
+
+def _texto_a_porcentaje(texto: str) -> int:
+    """Convierte un porcentaje decimal a centésimas."""
+
+    texto = texto.strip()
+
+    if not texto:
+        raise ValueError("El porcentaje no puede estar vacío.")
+
+    try:
+        porcentaje = Decimal(texto.replace(",", "."))
+    except InvalidOperation as exc:
+        raise ValueError("El porcentaje no es válido.") from exc
+
+    return int(porcentaje * 100)
 
 
 def _render_lista(
@@ -378,5 +395,68 @@ def resolver_revision(revision_id: int):
             fecha_emision_texto=fecha_emision_texto,
             importe_a_texto=_importe_a_texto,
         )
+
+
+@bp.post("/revisiones/<int:revision_id>/resolver")
+def aplicar_revision(revision_id: int):
+    """Aplica una revisión de renta pendiente."""
+
+    periodo_texto = request.args.get("periodo", "")
+    fecha_emision_texto = request.args.get(
+        "fecha_emision",
+        "",
+    )
+
+    try:
+        porcentaje_aplicado = _texto_a_porcentaje(
+            request.form["porcentaje"]
+        )
+    except (KeyError, ValueError) as exc:
+        return str(exc), 400
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                revision = session.get(
+                    RevisionRenta,
+                    revision_id,
+                )
+
+                if revision is None:
+                    return "Revisión de renta no encontrada.", 404
+
+                if revision.metodo == "FIJO":
+                    return (
+                        "Las revisiones de tipo FIJO todavía "
+                        "no pueden resolverse desde facturación.",
+                        400,
+                    )
+
+                nueva_renta, siguiente_revision = (
+                    resolver_revision_renta(
+                        revision=revision,
+                        fecha_resolucion=date.today(),
+                        aplicar=True,
+                        porcentaje_aplicado=porcentaje_aplicado,
+                    )
+                )
+
+                if nueva_renta is not None:
+                    session.add(nueva_renta)
+
+                session.add(siguiente_revision)
+
+    except RevisionRentaError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "facturacion.listar",
+            periodo=periodo_texto,
+            fecha_emision=fecha_emision_texto,
+        )
+    )
 
 

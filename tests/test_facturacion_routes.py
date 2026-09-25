@@ -1444,3 +1444,157 @@ def test_resolver_revision_muestra_formulario() -> None:
     )
 
 
+def test_aplicar_revision_actualiza_renta_y_facturacion() -> None:
+    """Aplica una revisión pendiente y usa la nueva renta al facturar."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario aplica un IPC del 2,5 % a la revisión pendiente.
+    response = client.post(
+        f"/facturacion/revisiones/{revision_id}/resolver"
+        "?periodo=11-2026"
+        "&fecha_emision=01-11-2026",
+        data={
+            "porcentaje": "2,5",
+        },
+    )
+
+    assert response.status_code == 302
+    assert (
+        response.headers["Location"]
+        .endswith(
+            "/facturacion/"
+            "?periodo=11-2026"
+            "&fecha_emision=01-11-2026"
+        )
+    )
+
+    # La revisión queda aplicada, se crea la nueva renta
+    # y se prepara la revisión del año siguiente.
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+
+        assert revision.estado == "APLICADA"
+        assert revision.porcentaje_aplicado == 250
+        assert revision.fecha_resolucion is not None
+
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        rentas = sorted(
+            contrato.rentas,
+            key=lambda renta: renta.fecha_desde,
+        )
+
+        assert len(rentas) == 2
+        assert rentas[-1].fecha_desde == date(2026, 10, 1)
+        assert rentas[-1].importe == 102500
+
+        revisiones = sorted(
+            contrato.revisiones_renta,
+            key=lambda revision: revision.fecha_prevista,
+        )
+
+        assert len(revisiones) == 2
+
+        siguiente_revision = revisiones[-1]
+
+        assert siguiente_revision.fecha_prevista == date(
+            2027,
+            10,
+            1,
+        )
+        assert siguiente_revision.metodo == "IPC_NACIONAL"
+        assert siguiente_revision.estado == "PENDIENTE"
+
+    # Al volver a preparar noviembre, Contab usa ya la nueva
+    # renta y la factura deja de estar bloqueada.
+    response = client.get(
+        "/facturacion/"
+        "?periodo=11-2026"
+        "&fecha_emision=01-11-2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "1.025,00" in texto
+    assert "Pendiente de revisión" not in texto
+    assert "Resolver revisión" not in texto
+    assert "Emitir" in texto
+
+
