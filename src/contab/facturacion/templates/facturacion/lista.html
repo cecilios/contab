@@ -134,12 +134,16 @@
                                     Aviso
                                 {% elif local.revision_estado == "ESPERANDO_INDICE" %}
                                     En espera del índice
+                                {% elif local.revision_estado == "PENDIENTE" %}
+                                    Revisión pendiente
                                 {% endif %}
                             </td>
 
                             <td>
                                 {% if local.factura %}
                                     Emitida
+                                {% elif local.revision_estado == "PENDIENTE" %}
+                                    Pendiente de revisión
                                 {% else %}
                                     <form
                                         method="post"

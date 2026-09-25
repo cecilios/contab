@@ -1124,3 +1124,223 @@ ING_ALQUILERES = INGRESO | Alquileres
         assert movimiento.estado == "PENDIENTE"
 
 
+def test_listar_facturacion_bloquea_revision_pendiente(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Comprueba que impide emitir si la revisión está pendiente."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario prepara noviembre con la revisión de octubre todavía pendiente.
+    response = client.get(
+        "/facturacion/"
+        "?periodo=11-2026"
+        "&fecha_emision=01-11-2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Revisión pendiente" in texto
+    assert "Pendiente de revisión" in texto
+    assert "Emitir" not in texto
+
+
+def test_emitir_factura_rechaza_revision_pendiente(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Comprueba que impide emitir si la revisión está pendiente."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+        revision_id = revision.id
+
+    client = app.test_client()
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/emitir/{contrato_id}",
+        data={
+            "periodo": "11-2026",
+            "fecha_emision": "01-11-2026",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "revisión de renta pendiente"
+        in response.get_data(as_text=True)
+    )
+
+    with session_factory() as session:
+        assert session.scalar(
+            select(Factura)
+        ) is None
+
+        assert session.scalar(
+            select(ApunteContable)
+        ) is None
+
+        assert session.scalar(
+            select(MovimientoPrevisto)
+        ) is None

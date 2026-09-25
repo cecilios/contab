@@ -22,6 +22,7 @@ from contab.facturacion.services import (
     contabilizar_ingreso_sin_factura,
     emitir_factura,
     preparar_periodo_facturacion,
+    situacion_revision,
 )
 
 
@@ -249,6 +250,18 @@ def emitir(contrato_id: int):
 
                 if contrato is None:
                     return "Contrato no encontrado.", 404
+
+                revision, revision_estado = situacion_revision(
+                    contrato,
+                    periodo,
+                )
+
+                if revision_estado == "PENDIENTE":
+                    return (
+                        "La factura no puede emitirse hasta resolver "
+                        "la revisión de renta pendiente.",
+                        400,
+                    )
 
                 factura, apunte, movimiento = emitir_factura(
                     contrato=contrato,
