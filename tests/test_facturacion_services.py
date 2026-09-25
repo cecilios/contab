@@ -1328,6 +1328,43 @@ def test_preparar_periodo_facturacion_filtra_contratos_por_vigencia(
     assert len(octubre.otros) == 0
 
 
+def test_preparar_periodo_facturacion_indica_revision_pendiente(
+    session,
+    contrato,
+) -> None:
+    """Indica pendiente cuando ya ha pasado el mes previsto de revisión."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 11, 1),
+        fecha_emision=date(2026, 11, 1),
+    )
+
+    local = preparacion.locales[0]
+
+    assert local.revision is revision
+    assert local.revision_estado == "PENDIENTE"
+
+
 def test_componer_destinatario_con_un_titular(
     contrato,
 ) -> None:

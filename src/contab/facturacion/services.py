@@ -148,7 +148,11 @@ def situacion_revision(
         if revision.estado != "PENDIENTE":
             continue
 
-        if (revision.fecha_prevista.year == periodo.year
+        if revision.fecha_prevista < periodo:
+            return revision, "PENDIENTE"
+
+        if (
+            revision.fecha_prevista.year == periodo.year
             and revision.fecha_prevista.month == periodo.month
         ):
             return revision, "ESPERANDO_INDICE"
