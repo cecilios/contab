@@ -23,6 +23,12 @@ from contab.context import (
     get_database_name,
     get_session_factory,
 )
+from contab.formato import (
+    fecha_a_texto,
+    importe_a_texto,
+    periodo_a_texto,
+    texto_a_fecha,
+)
 from contab.models import ApunteContable, Inmueble
 
 from contab.config import (
@@ -173,29 +179,6 @@ def _validar_nombre_documento(nombre: str) -> str:
     return nombre
 
 
-def _importe_a_texto(importe: int) -> str:
-    """Convierte un importe en céntimos a texto."""
-
-    euros, centimos = divmod(importe, 100)
-
-    return f"{euros},{centimos:02d} €"
-
-
-def _fecha(texto: str) -> date:
-    """Convierte una fecha dd/mm/aaaa."""
-
-    try:
-        return datetime.strptime(
-            texto.strip(),
-            "%d/%m/%Y",
-        ).date()
-    except ValueError as exc:
-        raise ValueError(
-            "La fecha indicada no es válida o no tiene "
-            "el formato dd/mm/aaaa."
-        ) from exc
-
-
 def _fechas_previstas(
     desde_texto: str,
     hasta_texto: str,
@@ -213,12 +196,12 @@ def _fechas_previstas(
             "La fecha prevista final requiere una fecha inicial."
         )
 
-    desde = _fecha(desde_texto)
+    desde = texto_a_fecha(desde_texto)
 
     if not hasta_texto:
         return desde, None
 
-    hasta = _fecha(hasta_texto)
+    hasta = texto_a_fecha(hasta_texto)
 
     if hasta < desde:
         raise ValueError(
@@ -269,8 +252,8 @@ def _periodo(
         )
 
     return (
-        _fecha(desde_texto),
-        _fecha(hasta_texto),
+        texto_a_fecha(desde_texto),
+        texto_a_fecha(hasta_texto),
     )
 
 
@@ -298,13 +281,13 @@ def _periodo_para_formulario(
         )
     ):
         return (
-            periodo_desde.strftime("%m/%Y"),
+            periodo_a_texto(periodo_desde),
             "",
         )
 
     return (
-        periodo_desde.strftime("%d/%m/%Y"),
-        periodo_hasta.strftime("%d/%m/%Y"),
+        fecha_a_texto(periodo_desde),
+        fecha_a_texto(periodo_hasta),
     )
 
 
@@ -606,7 +589,7 @@ def _datos_apunte_formulario(
     """Interpreta y normaliza los datos enviados por el formulario."""
 
     inmueble_id = int(datos["inmueble_id"])
-    fecha = _fecha(datos["fecha"])
+    fecha = texto_a_fecha(datos["fecha"])
 
     (
         naturaleza,
@@ -708,7 +691,7 @@ def listar_apuntes():
 
     try:
         fecha_desde = (
-            _fecha(fecha_desde_texto)
+            texto_a_fecha(fecha_desde_texto)
             if fecha_desde_texto
             else None
         )
@@ -802,7 +785,7 @@ def listar_apuntes():
             clasificacion_a_texto=(
                 _clasificacion_a_texto
             ),
-            importe_a_texto=_importe_a_texto,
+            importe_a_texto=importe_a_texto,
             database_name=get_database_name(),
             inmuebles=inmuebles,
             inmueble_id=inmueble_id,
@@ -818,7 +801,7 @@ def nuevo_apunte():
         contenido, _ = _mostrar_formulario_apunte(
             titulo="Nuevo apunte contable",
             datos={
-                "fecha": date.today().strftime("%d/%m/%Y"),
+                "fecha": fecha_a_texto(date.today()),
                 "tratamiento": "CONTABILIZAR",
                 "crear_movimiento": "on",
             },
@@ -1057,12 +1040,8 @@ def editar_apunte(apunte_id: int):
             )
 
             datos = {
-                "inmueble_id": str(
-                    apunte.inmueble_id
-                ),
-                "fecha": apunte.fecha.strftime(
-                    "%d/%m/%Y"
-                ),
+                "inmueble_id": str(apunte.inmueble_id),
+                "fecha": fecha_a_texto(apunte.fecha),
                 "clasificacion": clasificacion,
                 "concepto": apunte.concepto,
                 "periodo_desde": periodo_desde,

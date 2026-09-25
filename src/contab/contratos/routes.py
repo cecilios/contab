@@ -7,6 +7,10 @@ from flask import Blueprint, redirect, render_template, request, url_for
 from sqlalchemy import select
 
 from contab.context import get_database_name, get_session_factory
+from contab.formato import (
+    fecha_a_texto,
+    texto_a_fecha,
+)
 
 from contab.contratos.services import (
     ContratoError,
@@ -68,19 +72,6 @@ def _porcentaje_a_entero(valor: str) -> int:
     )
 
 
-def _fecha(valor: str) -> date:
-    """Convierte una fecha dd/mm/aaaa recibida desde un formulario."""
-    try:
-        return datetime.strptime(
-            valor.strip(),
-            "%d/%m/%Y",
-        ).date()
-    except ValueError as exc:
-        raise ValueError(
-            "La fecha indicada no es válida o no tiene el formato dd/mm/aaaa."
-        ) from exc
-
-
 def _inmuebles_formulario(session):
     """Obtiene las unidades arrendables activas."""
     return session.scalars(
@@ -134,7 +125,7 @@ def _primera_revision(contrato: Contrato) -> RevisionRenta:
 
 def _fecha_a_texto(valor: date) -> str:
     """Convierte una fecha al formato visual dd/mm/aaaa."""
-    return valor.strftime("%d/%m/%Y")
+    return fecha_a_texto(valor)
 
 
 def _centimos_a_texto(valor: int) -> str:
@@ -523,10 +514,10 @@ def nuevo_contrato():
             request.form
         )
 
-        fecha_inicio = _fecha(
+        fecha_inicio = texto_a_fecha(
             request.form["fecha_inicio"]
         )
-        fecha_vencimiento = _fecha(
+        fecha_vencimiento = texto_a_fecha(
             request.form["fecha_vencimiento"]
         )
 
@@ -585,10 +576,10 @@ def nuevo_contrato():
             provincia_facturacion = ""
             concepto_factura = ""
 
-        fecha_inicio_facturacion = _fecha(request.form["fecha_inicio_facturacion"])
+        fecha_inicio_facturacion = texto_a_fecha(request.form["fecha_inicio_facturacion"])
         fianza = _importe_a_centimos(request.form["fianza"])
         renta_inicial = _importe_a_centimos(request.form["renta_inicial"])
-        fecha_primera_revision = _fecha(request.form["fecha_primera_revision"])
+        fecha_primera_revision = texto_a_fecha(request.form["fecha_primera_revision"])
         metodo_revision=(request.form["metodo_revision"].strip())
 
     except (KeyError, ValueError) as exc:
@@ -699,11 +690,11 @@ def editar_contrato(contrato_id: int):
     try:
         inmueble_id = int(request.form["inmueble_id"])
         titulares_formulario = _titulares_formulario(request.form)
-        fecha_inicio = _fecha(request.form["fecha_inicio"])
-        fecha_vencimiento = _fecha(request.form["fecha_vencimiento"])
+        fecha_inicio = texto_a_fecha(request.form["fecha_inicio"])
+        fecha_vencimiento = texto_a_fecha(request.form["fecha_vencimiento"])
         genera_factura = "genera_factura" in request.form
-        fecha_inicio_facturacion = _fecha(request.form["fecha_inicio_facturacion"])
-        fecha_primera_revision = _fecha(request.form["fecha_primera_revision"])
+        fecha_inicio_facturacion = texto_a_fecha(request.form["fecha_inicio_facturacion"])
+        fecha_primera_revision = texto_a_fecha(request.form["fecha_primera_revision"])
         fianza = _importe_a_centimos(request.form["fianza"])
         renta_inicial = _importe_a_centimos(request.form["renta_inicial"])
         fecha_fin_texto = request.form.get("fecha_fin", "").strip()
@@ -753,7 +744,7 @@ def editar_contrato(contrato_id: int):
             )
 
         fecha_fin = (
-            _fecha(fecha_fin_texto)
+            texto_a_fecha(fecha_fin_texto)
             if fecha_fin_texto
             else None
         )
@@ -951,7 +942,7 @@ def finalizar_contrato(contrato_id: int):
             )
 
     try:
-        fecha_fin = _fecha(request.form["fecha_fin"])
+        fecha_fin = texto_a_fecha(request.form["fecha_fin"])
     except (KeyError, ValueError) as exc:
         with session_factory() as session:
             contrato = session.get(Contrato, contrato_id)
@@ -1043,8 +1034,8 @@ def formulario_anexo_prorroga(contrato_id: int):
             )
 
     try:
-        fecha = _fecha(request.form["fecha"])
-        nueva_fecha_vencimiento = _fecha(
+        fecha = texto_a_fecha(request.form["fecha"])
+        nueva_fecha_vencimiento = texto_a_fecha(
             request.form["nueva_fecha_vencimiento"]
         )
     except (KeyError, ValueError) as exc:
@@ -1126,8 +1117,8 @@ def formulario_anexo_renta_permanente(contrato_id: int):
             )
 
     try:
-        fecha = _fecha(request.form["fecha"])
-        fecha_desde = _fecha(request.form["fecha_desde"])
+        fecha = texto_a_fecha(request.form["fecha"])
+        fecha_desde = texto_a_fecha(request.form["fecha_desde"])
         importe = _importe_a_centimos(
             request.form["importe"]
         )
@@ -1214,9 +1205,9 @@ def formulario_anexo_renta_temporal(contrato_id: int):
             )
 
     try:
-        fecha = _fecha(request.form["fecha"])
-        fecha_desde = _fecha(request.form["fecha_desde"])
-        fecha_hasta = _fecha(request.form["fecha_hasta"])
+        fecha = texto_a_fecha(request.form["fecha"])
+        fecha_desde = texto_a_fecha(request.form["fecha_desde"])
+        fecha_hasta = texto_a_fecha(request.form["fecha_hasta"])
 
         tipo = request.form["tipo"]
 

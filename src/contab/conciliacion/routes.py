@@ -12,6 +12,11 @@ from flask import (
 from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 
+from contab.formato import (
+    fecha_a_texto,
+    importe_a_texto,
+    texto_a_fecha,
+)
 from contab.models import (
     MovimientoBancario,
     MovimientoPrevisto,
@@ -78,7 +83,7 @@ def _intervalo_a_texto(
     if desde is None:
         return "Sin fecha prevista"
 
-    desde_texto = desde.strftime("%d/%m/%Y")
+    desde_texto = fecha_a_texto(desde)
 
     if hasta is None:
         return f"Desde {desde_texto}"
@@ -88,7 +93,7 @@ def _intervalo_a_texto(
 
     return (
         f"{desde_texto} a "
-        f"{hasta.strftime('%d/%m/%Y')}"
+        f"{fecha_a_texto(hasta)}"
     )
 
 
@@ -125,15 +130,6 @@ def _estado_previsto_retorno() -> str:
 
     return estado
 
-
-def _importe_a_texto(importe: int) -> str:
-    """Convierte un importe en céntimos a texto en euros."""
-
-    euros, centimos = divmod(importe, 100)
-
-    euros_texto = f"{euros:,}".replace(",", ".")
-
-    return f"{euros_texto},{centimos:02d}"
 
 
 def _render_formulario_importacion(
@@ -271,7 +267,7 @@ def revisar_conciliacion():
             a_conciliar_diferentes=a_conciliar_diferentes,
             a_descartar=a_descartar,
             pendientes=pendientes,
-            importe_a_texto=_importe_a_texto,
+            importe_a_texto=importe_a_texto,
             intervalo_a_texto=_intervalo_a_texto,
             database_name=database_name,
         )
@@ -360,7 +356,7 @@ def listar_movimientos_bancarios():
             total_paginas=total_paginas,
             estados=ESTADOS_MOVIMIENTO,
             naturalezas=NATURALEZAS_MOVIMIENTO,
-            importe_a_texto=_importe_a_texto,
+            importe_a_texto=importe_a_texto,
             database_name=get_database_name(),
             estado_seleccionado=estado,
         )
@@ -591,7 +587,7 @@ def listar_movimientos_previstos():
             estado_seleccionado=estado,
             estados=ESTADOS_MOVIMIENTO_PREVISTO,
             naturalezas=NATURALEZAS_MOVIMIENTO,
-            importe_a_texto=_importe_a_texto,
+            importe_a_texto=importe_a_texto,
             intervalo_a_texto=_intervalo_a_texto,
             database_name=get_database_name(),
         )
@@ -865,7 +861,7 @@ def conciliar_movimiento_previsto_manualmente_desde_interfaz(
             return render_template(
                 "conciliacion/conciliar_manualmente.html",
                 movimiento=movimiento,
-                importe_a_texto=_importe_a_texto,
+                importe_a_texto=importe_a_texto,
                 intervalo_a_texto=_intervalo_a_texto,
                 database_name=get_database_name(),
             )
@@ -884,7 +880,7 @@ def conciliar_movimiento_previsto_manualmente_desde_interfaz(
                 render_template(
                     "conciliacion/conciliar_manualmente.html",
                     movimiento=movimiento,
-                    importe_a_texto=_importe_a_texto,
+                    importe_a_texto=importe_a_texto,
                     intervalo_a_texto=_intervalo_a_texto,
                     database_name=get_database_name(),
                     error=str(exc),

@@ -149,7 +149,7 @@ def test_listado_muestra_apuntes_ordenados() -> None:
     assert response.status_code == 200
     assert "LOCAL-1" in response.text
     assert "Tasa de residuos" in response.text
-    assert "125,00 €" in response.text
+    assert "125,00" in response.text
 
     posicion_reciente = response.text.index(
         "Tasa de residuos"

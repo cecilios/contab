@@ -133,8 +133,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     response = client.post(
         f"/facturacion/emitir/{contrato_id}",
         data={
-            "periodo": "10-2026",
-            "fecha_emision": "01-10-2026",
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
         },
     )
 
@@ -259,8 +259,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     response = client.post(
         f"/facturacion/emitir/{contrato_id}",
         data={
-            "periodo": "10-2026",
-            "fecha_emision": "01-10-2026",
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
             "linea_concepto": [
                 "Consumo de agua",
                 "Reparación repercutida",
@@ -402,8 +402,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     response = client.post(
         f"/facturacion/emitir/{contrato_id}",
         data={
-            "periodo": "10-2026",
-            "fecha_emision": "01-10-2026",
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
             "linea_concepto": [
                 "Consumo de agua",
                 "Reparación repercutida",
@@ -509,8 +509,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     response = client.post(
         f"/facturacion/emitir/{contrato_id}",
         data={
-            "periodo": "10-2026",
-            "fecha_emision": "01-10-2026",
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
             "linea_concepto": [
                 "Consumo de agua",
             ],
@@ -733,16 +733,16 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     # El usuario consulta la preparación de octubre.
     response = client.get(
         "/facturacion/"
-        "?periodo=10-2026"
-        "&fecha_emision=01-10-2026"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
     )
 
     assert response.status_code == 200
 
     texto = response.get_data(as_text=True)
 
-    assert 'value="10-2026"' in texto
-    assert 'value="01-10-2026"' in texto
+    assert 'value="10/2026"' in texto
+    assert 'value="01/10/2026"' in texto
 
     assert "Locales" in texto
     assert "LOCAL-1" in texto
@@ -802,8 +802,8 @@ def test_listar_facturacion_respeta_fecha_emision(
     # distinta del primer día del período.
     response = client.get(
         "/facturacion/"
-        "?periodo=10-2026"
-        "&fecha_emision=15-10-2026"
+        "?periodo=10/2026"
+        "&fecha_emision=15/10/2026"
     )
 
     assert response.status_code == 200
@@ -846,7 +846,7 @@ def test_listar_facturacion_rechaza_periodo_invalido() -> None:
     response = client.get(
         "/facturacion/"
         "?periodo=2026-10"
-        "&fecha_emision=01-10-2026"
+        "&fecha_emision=01/10/2026"
     )
 
     texto = response.get_data(as_text=True)
@@ -854,7 +854,7 @@ def test_listar_facturacion_rechaza_periodo_invalido() -> None:
     assert response.status_code == 400
     assert "El período no es válido" in texto
     assert 'value="2026-10"' in texto
-    assert 'value="01-10-2026"' in texto
+    assert 'value="01/10/2026"' in texto
 
 
 def test_listar_facturacion_rechaza_fecha_emision_invalida() -> None:
@@ -870,16 +870,16 @@ def test_listar_facturacion_rechaza_fecha_emision_invalida() -> None:
 
     response = client.get(
         "/facturacion/"
-        "?periodo=10-2026"
-        "&fecha_emision=30-02-2026"
+        "?periodo=10/2026"
+        "&fecha_emision=30/02/2026"
     )
 
     texto = response.get_data(as_text=True)
 
     assert response.status_code == 400
     assert "La fecha indicada no es válida" in texto
-    assert 'value="10-2026"' in texto
-    assert 'value="30-02-2026"' in texto
+    assert 'value="10/2026"' in texto
+    assert 'value="30/02/2026"' in texto
 
 
 def test_emitir_factura_desde_lista_conserva_aviso_revision(
@@ -976,8 +976,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     response = client.post(
         f"/facturacion/emitir/{contrato_id}",
         data={
-            "periodo": "10-2026",
-            "fecha_emision": "01-10-2026",
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
         },
     )
 
@@ -985,8 +985,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     assert (
         response.headers["Location"]
         == "/facturacion/"
-        "?periodo=10-2026"
-        "&fecha_emision=01-10-2026"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
     )
 
     with session_factory() as session:
@@ -1084,8 +1084,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     response = client.post(
         f"/facturacion/contabilizar/{contrato_id}",
         data={
-            "periodo": "10-2026",
-            "fecha_emision": "01-10-2026",
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
         },
     )
 
@@ -1093,8 +1093,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     assert (
         response.headers["Location"]
         == "/facturacion/"
-        "?periodo=10-2026"
-        "&fecha_emision=01-10-2026"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
     )
 
     with session_factory() as session:
@@ -1216,8 +1216,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     # El usuario prepara noviembre con la revisión de octubre todavía pendiente.
     response = client.get(
         "/facturacion/"
-        "?periodo=11-2026"
-        "&fecha_emision=01-11-2026"
+        "?periodo=11/2026"
+        "&fecha_emision=01/11/2026"
     )
 
     assert response.status_code == 200
@@ -1321,8 +1321,8 @@ ING_ALQUILERES = INGRESO | Alquileres
     response = client.post(
         f"/facturacion/emitir/{contrato_id}",
         data={
-            "periodo": "11-2026",
-            "fecha_emision": "01-11-2026",
+            "periodo": "11/2026",
+            "fecha_emision": "01/11/2026",
         },
     )
 
@@ -1421,7 +1421,7 @@ def test_resolver_revision_muestra_formulario() -> None:
     response = client.get(
         f"/facturacion/revisiones/{revision_id}/resolver"
         "?periodo=11-2026"
-        "&fecha_emision=01-11-2026"
+        "&fecha_emision=01/11/2026"
     )
 
     assert response.status_code == 200
@@ -1439,7 +1439,7 @@ def test_resolver_revision_muestra_formulario() -> None:
     assert (
         "/facturacion/"
         "?periodo=11-2026"
-        "&amp;fecha_emision=01-11-2026"
+        "&amp;fecha_emision=01/11/2026"
         in texto
     )
 
@@ -1520,8 +1520,8 @@ def test_aplicar_revision_actualiza_renta_y_facturacion() -> None:
     # El usuario aplica un IPC del 2,5 % a la revisión pendiente.
     response = client.post(
         f"/facturacion/revisiones/{revision_id}/resolver"
-        "?periodo=11-2026"
-        "&fecha_emision=01-11-2026",
+        "?periodo=11/2026"
+        "&fecha_emision=01/11/2026",
         data={
             "porcentaje": "2,5",
         },
@@ -1532,8 +1532,8 @@ def test_aplicar_revision_actualiza_renta_y_facturacion() -> None:
         response.headers["Location"]
         .endswith(
             "/facturacion/"
-            "?periodo=11-2026"
-            "&fecha_emision=01-11-2026"
+            "?periodo=11/2026"
+            "&fecha_emision=01/11/2026"
         )
     )
 
@@ -1584,8 +1584,8 @@ def test_aplicar_revision_actualiza_renta_y_facturacion() -> None:
     # renta y la factura deja de estar bloqueada.
     response = client.get(
         "/facturacion/"
-        "?periodo=11-2026"
-        "&fecha_emision=01-11-2026"
+        "?periodo=11/2026"
+        "&fecha_emision=01/11/2026"
     )
 
     assert response.status_code == 200

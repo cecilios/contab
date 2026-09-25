@@ -11,6 +11,15 @@ from flask import (
     url_for,
 )
 
+from contab.formato import (
+    fecha_a_texto,
+    importe_a_texto,
+    periodo_a_texto,
+    texto_a_fecha,
+    texto_a_importe,
+    texto_a_periodo,
+    texto_a_porcentaje,
+)
 from contab.models import (
     Contrato,
     RevisionRenta,
@@ -42,22 +51,6 @@ bp = Blueprint(
 )
 
 
-def _texto_a_porcentaje(texto: str) -> int:
-    """Convierte un porcentaje decimal a centésimas."""
-
-    texto = texto.strip()
-
-    if not texto:
-        raise ValueError("El porcentaje no puede estar vacío.")
-
-    try:
-        porcentaje = Decimal(texto.replace(",", "."))
-    except InvalidOperation as exc:
-        raise ValueError("El porcentaje no es válido.") from exc
-
-    return int(porcentaje * 100)
-
-
 def _render_lista(
     *,
     preparacion,
@@ -72,35 +65,10 @@ def _render_lista(
         preparacion=preparacion,
         periodo_texto=periodo_texto,
         fecha_emision_texto=fecha_emision_texto,
-        importe_a_texto=_importe_a_texto,
+        importe_a_texto=importe_a_texto,
         error=error,
         database_name=get_database_name(),
     )
-
-
-def _importe_a_texto(importe: int) -> str:
-    """Convierte un importe en céntimos a texto."""
-
-    euros, centimos = divmod(importe, 100)
-
-    euros_texto = f"{euros:,}".replace(",", ".")
-
-    return f"{euros_texto},{centimos:02d} €"
-
-
-def _texto_a_importe(texto: str) -> int:
-    """Convierte un importe en euros con coma decimal a céntimos."""
-    texto = texto.strip()
-
-    if not texto:
-        raise ValueError("El importe no puede estar vacío.")
-
-    try:
-        euros = Decimal(texto.replace(",", "."))
-    except InvalidOperation as exc:
-        raise ValueError("El importe no es válido.") from exc
-
-    return int(euros * 100)
 
 
 def _valores_iniciales_facturacion(
@@ -122,43 +90,6 @@ def _valores_iniciales_facturacion(
         )
 
     return periodo, periodo
-
-
-def _periodo(texto: str) -> date:
-    """Convierte un período mm-aaaa a su primer día."""
-
-    try:
-        valor = datetime.strptime(
-            texto.strip(),
-            "%m-%Y",
-        ).date()
-    except ValueError as exc:
-        raise ValueError(
-            "El período no es válido o no tiene "
-            "el formato mm-aaaa."
-        ) from exc
-
-    return date(
-        valor.year,
-        valor.month,
-        1,
-    )
-
-
-def _fecha(texto: str) -> date:
-    """Convierte una fecha dd-mm-aaaa."""
-
-    try:
-        return datetime.strptime(
-            texto.strip(),
-            "%d-%m-%Y",
-        ).date()
-    except ValueError as exc:
-        raise ValueError(
-            "La fecha indicada no es válida o no tiene "
-            "el formato dd-mm-aaaa."
-        ) from exc
-
 
 
 
@@ -183,18 +114,14 @@ def listar():
             )
         )
 
-        periodo_texto = periodo.strftime(
-            "%m-%Y"
-        )
-        fecha_emision_texto = fecha_emision.strftime(
-            "%d-%m-%Y"
-        )
+        periodo_texto = periodo_a_texto(periodo)
+        fecha_emision_texto = fecha_a_texto(fecha_emision)
     else:
         try:
-            periodo = _periodo(
+            periodo = texto_a_periodo(
                 periodo_texto
             )
-            fecha_emision = _fecha(
+            fecha_emision = texto_a_fecha(
                 fecha_emision_texto
             )
         except ValueError as exc:
@@ -247,10 +174,10 @@ def emitir(contrato_id: int):
         return "Las líneas adicionales de la factura no son válidas.", 400
 
     try:
-        periodo = _periodo(periodo_texto)
-        fecha_emision = _fecha(fecha_emision_texto)
+        periodo = texto_a_periodo(periodo_texto)
+        fecha_emision = texto_a_fecha(fecha_emision_texto)
         lineas_adicionales = [
-            (concepto, _texto_a_importe(importe))
+            (concepto, texto_a_importe(importe))
             for concepto, importe in zip(
                 conceptos,
                 importes,
@@ -318,8 +245,8 @@ def contabilizar(contrato_id: int):
     fecha_emision_texto = request.form["fecha_emision"]
 
     try:
-        periodo = _periodo(periodo_texto)
-        fecha = _fecha(fecha_emision_texto)
+        periodo = texto_a_periodo(periodo_texto)
+        fecha = texto_a_fecha(fecha_emision_texto)
     except ValueError as exc:
         return str(exc), 400
 
@@ -393,7 +320,7 @@ def resolver_revision(revision_id: int):
             renta=renta,
             periodo_texto=periodo_texto,
             fecha_emision_texto=fecha_emision_texto,
-            importe_a_texto=_importe_a_texto,
+            importe_a_texto=importe_a_texto,
         )
 
 
@@ -408,7 +335,7 @@ def aplicar_revision(revision_id: int):
     )
 
     try:
-        porcentaje_aplicado = _texto_a_porcentaje(
+        porcentaje_aplicado = texto_a_porcentaje(
             request.form["porcentaje"]
         )
     except (KeyError, ValueError) as exc:
