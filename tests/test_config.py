@@ -1,6 +1,9 @@
-from pathlib import Path
-
 import pytest
+
+from pathlib import Path
+from flask import session
+
+from contab.app import create_app
 
 from contab.config import (
     CategoriaContable,
@@ -15,6 +18,11 @@ from contab.config import (
     ruta_configuracion,
     validar_clasificacion_contable,
 )
+from contab.context import (
+    get_database_path,
+    get_invoice_template_path,
+)
+
 
 
 def test_cargar_bases_datos_lee_una_base(tmp_path: Path) -> None:
@@ -521,5 +529,63 @@ alias =
         match="ningún alias",
     ):
         cargar_alias_conciliacion(ruta)
+
+
+def test_get_database_path(tmp_path) -> None:
+    """Devuelve la ruta de la base de datos activa."""
+
+    ruta_db = tmp_path / "comunidad.db"
+
+    app = create_app(
+        databases={
+            "comunidad": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    with app.test_request_context():
+        session["database"] = "comunidad"
+
+        assert get_database_path() == ruta_db.resolve()
+
+
+def test_get_invoice_template_path(tmp_path) -> None:
+    """Obtiene la plantilla de factura asociada a la base."""
+
+    ruta_db = tmp_path / "comunidad.db"
+
+    app = create_app(
+        databases={
+            "comunidad": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    with app.test_request_context():
+        session["database"] = "comunidad"
+
+        assert get_invoice_template_path() == (
+            tmp_path / "comunidad-factura.html"
+        ).resolve()
+
+
+def test_get_database_path_rechaza_base_en_memoria() -> None:
+    """Una base SQLite en memoria no tiene recursos asociados."""
+
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+    )
+
+    with app.test_request_context():
+        session["database"] = "test"
+
+        with pytest.raises(
+            RuntimeError,
+            match="no tiene una ruta de archivo",
+        ):
+            get_database_path()
 
 

@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from flask import (
     Blueprint,
+    current_app,
     redirect,
     render_template,
     request,
@@ -27,17 +28,23 @@ from contab.models import (
     Contrato,
     RevisionRenta,
 )
-from contab.config import cargar_categorias_contables
+from contab.config import (
+    cargar_categorias_contables,
+)
 from contab.context import (
     get_database_name,
+    get_invoice_template_path,
     get_session_factory,
 )
 from contab.facturacion.services import (
     CalculoFacturaError,
     FacturacionError,
+    FacturaEditada,
+    LineaFacturaEditada,
     calcular_importes_factura,
     contabilizar_ingreso_sin_factura,
     emitir_factura,
+    preparar_datos_documento_factura,
     preparar_periodo_facturacion,
     situacion_revision,
 )
@@ -46,24 +53,6 @@ from contab.contratos.services import (
     renta_vigente,
     resolver_revision_renta,
 )
-
-
-@dataclass
-class LineaFacturaEditada:
-    concepto: str
-    importe: int
-
-
-@dataclass
-class FacturaEditada:
-    lineas: list[LineaFacturaEditada]
-    notas: list[str]
-    iva_porcentaje: int
-    retencion_porcentaje: int
-    base: int
-    iva_importe: int
-    retencion_importe: int
-    total: int
 
 
 bp = Blueprint(
@@ -668,13 +657,40 @@ def previsualizar_factura(contrato_id: int):
                 total=calculo.total,
             )
 
-            return render_template(
-                "facturacion/previsualizar.html",
+            datos_documento = preparar_datos_documento_factura(
                 factura=factura,
                 factura_editada=factura_editada,
-                periodo_texto=periodo_texto,
-                fecha_emision_texto=fecha_emision_texto,
+                fecha_emision=fecha_emision,
+            )
+
+            ruta_plantilla = get_invoice_template_path()
+
+            if not ruta_plantilla.is_file():
+                return (
+                    "No se encuentra la plantilla de factura: "
+                    f"{ruta_plantilla}",
+                    500,
+                )
+
+            try:
+                texto_plantilla = ruta_plantilla.read_text(
+                    encoding="utf-8"
+                )
+            except OSError as exc:
+                return (
+                    "No se pudo leer la plantilla de factura: "
+                    f"{exc}",
+                    500,
+                )
+
+            plantilla = current_app.jinja_env.from_string(
+                texto_plantilla
+            )
+
+            return plantilla.render(
+                factura=datos_documento,
                 importe_a_texto=importe_a_texto,
+                porcentaje_a_texto=porcentaje_a_texto_entrada,
             )
 
     except FacturacionError as exc:

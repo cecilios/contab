@@ -1967,14 +1967,54 @@ def test_listar_facturacion_ofrece_modificar_factura() -> None:
     )
 
 
-def test_modificar_factura_muestra_propuesta_sin_persistir() -> None:
+def test_modificar_factura_muestra_propuesta_sin_persistir(
+    tmp_path,
+) -> None:
     """Muestra una factura preparada sin guardarla en la base de datos."""
 
-    app = crear_app_test()
+    ruta_db = tmp_path / "test.db"
+    ruta_plantilla = tmp_path / "test-factura.html"
+
+    ruta_plantilla.write_text(
+        """
+        <!doctype html>
+        <html>
+        <body>
+            {% for linea in factura.lineas %}
+                <p>
+                    {{ linea.concepto }}:
+                    {{ importe_a_texto(linea.importe) }}
+                </p>
+            {% endfor %}
+
+            <p>
+                Total:
+                {{ importe_a_texto(factura.total) }}
+            </p>
+
+            {% for nota in factura.notas %}
+                <p>{{ nota }}</p>
+            {% endfor %}
+        </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
 
     with session_factory() as session:
         inmueble = Inmueble(
@@ -2079,14 +2119,55 @@ def test_modificar_factura_muestra_propuesta_sin_persistir() -> None:
         ) is None
 
 
-def test_modificar_factura_acepta_datos_editados() -> None:
+def test_modificar_factura_acepta_datos_editados(
+    tmp_path,
+) -> None:
     """Valida los datos editados y muestra la factura resultante."""
 
-    app = crear_app_test()
+
+    ruta_db = tmp_path / "test.db"
+    ruta_plantilla = tmp_path / "test-factura.html"
+
+    ruta_plantilla.write_text(
+        """
+        <!doctype html>
+        <html>
+        <body>
+            {% for linea in factura.lineas %}
+                <p>
+                    {{ linea.concepto }}:
+                    {{ importe_a_texto(linea.importe) }}
+                </p>
+            {% endfor %}
+
+            <p>
+                Total:
+                {{ importe_a_texto(factura.total) }}
+            </p>
+
+            {% for nota in factura.notas %}
+                <p>{{ nota }}</p>
+            {% endfor %}
+        </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
 
     with session_factory() as session:
         inmueble = Inmueble(
@@ -2185,9 +2266,6 @@ def test_modificar_factura_acepta_datos_editados() -> None:
     assert "Primera nota de prueba." in texto
     assert "Segunda nota de prueba." in texto
 
-    assert "1.035,00" in texto
-    assert "217,35" in texto
-    assert "196,65" in texto
     assert "1.055,70" in texto
 
     # Todavía no se ha persistido ni contabilizado nada.

@@ -28,6 +28,22 @@ class FacturacionError(Exception):
 
 
 
+@dataclass
+class LineaFacturaEditada:
+    concepto: str
+    importe: int
+
+@dataclass
+class FacturaEditada:
+    lineas: list[LineaFacturaEditada]
+    notas: list[str]
+    iva_porcentaje: int
+    retencion_porcentaje: int
+    base: int
+    iva_importe: int
+    retencion_importe: int
+    total: int
+
 @dataclass(frozen=True)
 class CalculoFactura:
     """Contiene los importes resultantes del cálculo de una factura."""
@@ -83,6 +99,36 @@ class PreparacionPeriodo:
     fecha_emision: date
     locales: tuple[FacturaPreparada, ...]
     otros: tuple[IngresoPreparado, ...]
+
+@dataclass
+class LineaDocumentoFactura:
+    concepto: str
+    importe: int
+
+
+@dataclass
+class DestinatarioDocumentoFactura:
+    nombre: str
+    nif: str
+    direccion: str
+    codigo_postal: str | None
+    poblacion: str
+    provincia: str
+
+
+@dataclass
+class DatosDocumentoFactura:
+    numero: str
+    fecha_emision: date
+    destinatario: DestinatarioDocumentoFactura
+    lineas: list[LineaDocumentoFactura]
+    base: int
+    iva_porcentaje: int
+    iva_importe: int
+    retencion_porcentaje: int
+    retencion_importe: int
+    total: int
+    notas: list[str]
 
 
 
@@ -670,5 +716,48 @@ def emitir_factura(
     )
 
     return factura, apunte, movimiento
+
+
+def preparar_datos_documento_factura(
+    factura: FacturaPreparada,
+    factura_editada: FacturaEditada,
+    fecha_emision: date,
+) -> DatosDocumentoFactura:
+    """Prepara los datos necesarios para renderizar una factura."""
+
+    return DatosDocumentoFactura(
+        numero=factura.numero_factura,
+        fecha_emision=fecha_emision,
+        destinatario=DestinatarioDocumentoFactura(
+            nombre=factura.destinatario_nombre,
+            nif=factura.destinatario_nif,
+            direccion=factura.direccion_facturacion,
+            codigo_postal=(
+                factura.codigo_postal_facturacion
+            ),
+            poblacion=factura.poblacion_facturacion,
+            provincia=factura.provincia_facturacion,
+        ),
+        lineas=[
+            LineaDocumentoFactura(
+                concepto=linea.concepto,
+                importe=linea.importe,
+            )
+            for linea in factura_editada.lineas
+        ],
+        base=factura_editada.base,
+        iva_porcentaje=(
+            factura_editada.iva_porcentaje
+        ),
+        iva_importe=factura_editada.iva_importe,
+        retencion_porcentaje=(
+            factura_editada.retencion_porcentaje
+        ),
+        retencion_importe=(
+            factura_editada.retencion_importe
+        ),
+        total=factura_editada.total,
+        notas=list(factura_editada.notas),
+    )
 
 

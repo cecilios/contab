@@ -1,4 +1,5 @@
 import os
+
 from configparser import ConfigParser
 from pathlib import Path
 from dataclasses import dataclass
@@ -527,3 +528,5 @@ def cargar_alias_conciliacion(
         )
 
     return resultado
+
+

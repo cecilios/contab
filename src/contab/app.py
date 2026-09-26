@@ -55,6 +55,8 @@ def create_app(
             else {}
         )
 
+    app.extensions["contab_database_urls"] = dict(databases)
+
     app.extensions["contab_databases"] = {
         nombre: create_session_factory(
             create_sqlite_engine(database_url)
