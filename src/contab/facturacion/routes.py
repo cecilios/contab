@@ -10,11 +10,14 @@ from flask import (
     request,
     url_for,
 )
+from dataclasses import dataclass
 
 from contab.formato import (
     fecha_a_texto,
     importe_a_texto,
+    importe_a_texto_entrada,
     periodo_a_texto,
+    porcentaje_a_texto_entrada,
     texto_a_fecha,
     texto_a_importe,
     texto_a_periodo,
@@ -30,7 +33,9 @@ from contab.context import (
     get_session_factory,
 )
 from contab.facturacion.services import (
+    CalculoFacturaError,
     FacturacionError,
+    calcular_importes_factura,
     contabilizar_ingreso_sin_factura,
     emitir_factura,
     preparar_periodo_facturacion,
@@ -41,6 +46,24 @@ from contab.contratos.services import (
     renta_vigente,
     resolver_revision_renta,
 )
+
+
+@dataclass
+class LineaFacturaEditada:
+    concepto: str
+    importe: int
+
+
+@dataclass
+class FacturaEditada:
+    lineas: list[LineaFacturaEditada]
+    notas: list[str]
+    iva_porcentaje: int
+    retencion_porcentaje: int
+    base: int
+    iva_importe: int
+    retencion_importe: int
+    total: int
 
 
 bp = Blueprint(
@@ -385,5 +408,276 @@ def aplicar_revision(revision_id: int):
             fecha_emision=fecha_emision_texto,
         )
     )
+
+
+@bp.get("/facturas/<int:contrato_id>/modificar")
+def modificar_factura(contrato_id: int):
+    """Muestra el formulario de una factura preparada."""
+
+    periodo_texto = request.args.get(
+        "periodo",
+        "",
+    ).strip()
+    fecha_emision_texto = request.args.get(
+        "fecha_emision",
+        "",
+    ).strip()
+
+    try:
+        periodo = texto_a_periodo(periodo_texto)
+        fecha_emision = texto_a_fecha(
+            fecha_emision_texto
+        )
+    except ValueError as exc:
+        return str(exc), 400
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            contrato = session.get(
+                Contrato,
+                contrato_id,
+            )
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
+            preparacion = preparar_periodo_facturacion(
+                contratos=[contrato],
+                periodo=periodo,
+                fecha_emision=fecha_emision,
+            )
+
+            if not preparacion.locales:
+                return (
+                    "No existe una factura preparada "
+                    "para este contrato y período.",
+                    400,
+                )
+
+            factura = preparacion.locales[0]
+
+            if factura.factura is not None:
+                return "La factura ya ha sido emitida.", 400
+
+            if factura.revision_estado == "PENDIENTE":
+                return (
+                    "La factura no puede modificarse hasta "
+                    "resolver la revisión de renta pendiente.",
+                    400,
+                )
+
+            lineas_formulario = [
+                {
+                    "concepto": factura.contrato.concepto_factura,
+                    "importe": importe_a_texto_entrada(
+                        factura.base
+                    ),
+                }
+            ]
+
+            while len(lineas_formulario) < 5:
+                lineas_formulario.append(
+                    {
+                        "concepto": "",
+                        "importe": "",
+                    }
+                )
+
+            notas_formulario = ["", "", ""]
+
+            return render_template(
+                "facturacion/formulario.html",
+                factura=factura,
+                lineas_formulario=lineas_formulario,
+                notas_formulario=notas_formulario,
+                periodo_texto=periodo_texto,
+                fecha_emision_texto=fecha_emision_texto,
+                importe_a_texto=importe_a_texto,
+                iva_porcentaje_texto=porcentaje_a_texto_entrada(
+                    factura.contrato.iva_porcentaje
+                ),
+                retencion_porcentaje_texto=porcentaje_a_texto_entrada(
+                    factura.contrato.retencion_porcentaje
+                ),
+            )
+
+    except FacturacionError as exc:
+        return str(exc), 400
+
+
+@bp.post("/facturas/<int:contrato_id>/modificar")
+def previsualizar_factura(contrato_id: int):
+    """Valida los datos editados y muestra la factura."""
+
+    periodo_texto = request.args.get(
+        "periodo",
+        "",
+    ).strip()
+    fecha_emision_texto = request.args.get(
+        "fecha_emision",
+        "",
+    ).strip()
+
+    try:
+        periodo = texto_a_periodo(periodo_texto)
+        fecha_emision = texto_a_fecha(
+            fecha_emision_texto
+        )
+    except ValueError as exc:
+        return str(exc), 400
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            contrato = session.get(
+                Contrato,
+                contrato_id,
+            )
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
+            preparacion = preparar_periodo_facturacion(
+                contratos=[contrato],
+                periodo=periodo,
+                fecha_emision=fecha_emision,
+            )
+
+            if not preparacion.locales:
+                return (
+                    "No existe una factura preparada "
+                    "para este contrato y período.",
+                    400,
+                )
+
+            factura = preparacion.locales[0]
+
+            if factura.factura is not None:
+                return "La factura ya ha sido emitida.", 400
+
+            if factura.revision_estado == "PENDIENTE":
+                return (
+                    "La factura no puede modificarse hasta "
+                    "resolver la revisión de renta pendiente.",
+                    400,
+                )
+
+            conceptos = request.form.getlist(
+                "linea_concepto"
+            )
+            importes_texto = request.form.getlist(
+                "linea_importe"
+            )
+
+            if len(conceptos) != len(importes_texto):
+                return (
+                    "Las líneas de la factura no son válidas.",
+                    400,
+                )
+
+            lineas: list[LineaFacturaEditada] = []
+
+            for concepto, importe_texto in zip(
+                conceptos,
+                importes_texto,
+                strict=True,
+            ):
+                concepto = concepto.strip()
+                importe_texto = importe_texto.strip()
+
+                if not concepto and not importe_texto:
+                    continue
+
+                if not concepto or not importe_texto:
+                    return (
+                        "Cada línea debe tener concepto "
+                        "e importe.",
+                        400,
+                    )
+
+                try:
+                    importe = texto_a_importe(
+                        importe_texto
+                    )
+                except ValueError as exc:
+                    return str(exc), 400
+
+                lineas.append(
+                    LineaFacturaEditada(
+                        concepto=concepto,
+                        importe=importe,
+                    )
+                )
+
+            if not lineas:
+                return (
+                    "La factura debe tener al menos "
+                    "una línea.",
+                    400,
+                )
+
+            try:
+                iva_porcentaje = texto_a_porcentaje(
+                    request.form.get(
+                        "iva_porcentaje",
+                        "",
+                    )
+                )
+                retencion_porcentaje = (
+                    texto_a_porcentaje(
+                        request.form.get(
+                            "retencion_porcentaje",
+                            "",
+                        )
+                    )
+                )
+            except ValueError as exc:
+                return str(exc), 400
+
+            notas = [
+                texto.strip()
+                for texto in request.form.getlist(
+                    "nota_texto"
+                )
+                if texto.strip()
+            ]
+
+            try:
+                calculo = calcular_importes_factura(
+                    importes=[
+                        linea.importe
+                        for linea in lineas
+                    ],
+                    iva_porcentaje=iva_porcentaje,
+                    retencion_porcentaje=retencion_porcentaje,
+                )
+            except CalculoFacturaError as exc:
+                return str(exc), 400
+
+            factura_editada = FacturaEditada(
+                lineas=lineas,
+                notas=notas,
+                iva_porcentaje=iva_porcentaje,
+                retencion_porcentaje=retencion_porcentaje,
+                base=calculo.base,
+                iva_importe=calculo.iva_importe,
+                retencion_importe=calculo.retencion_importe,
+                total=calculo.total,
+            )
+
+            return render_template(
+                "facturacion/previsualizar.html",
+                factura=factura,
+                factura_editada=factura_editada,
+                periodo_texto=periodo_texto,
+                fecha_emision_texto=fecha_emision_texto,
+                importe_a_texto=importe_a_texto,
+            )
+
+    except FacturacionError as exc:
+        return str(exc), 400
 
 

@@ -4,11 +4,20 @@ from datetime import date
 
 from contab.formato import (
     importe_a_texto,
+    importe_a_texto_entrada,
     periodo_a_texto,
+    porcentaje_a_texto_entrada,
     texto_a_importe,
     texto_a_periodo,
     texto_a_porcentaje,
 )
+
+
+def test_importe_a_texto_entrada() -> None:
+    assert importe_a_texto_entrada(125677) == "1256,77"
+    assert importe_a_texto_entrada(100000) == "1000,00"
+    assert importe_a_texto_entrada(35) == "0,35"
+    assert importe_a_texto_entrada(-1225) == "-12,25"
 
 
 def test_importe_a_texto() -> None:
@@ -49,3 +58,12 @@ def test_texto_a_periodo() -> None:
 def test_texto_a_periodo_rechaza_formato_invalido() -> None:
     with pytest.raises(ValueError):
         texto_a_periodo("11-2026")
+
+
+def test_porcentaje_a_texto_entrada() -> None:
+    assert porcentaje_a_texto_entrada(2100) == "21"
+    assert porcentaje_a_texto_entrada(1050) == "10,50"
+    assert porcentaje_a_texto_entrada(25) == "0,25"
+    assert porcentaje_a_texto_entrada(-125) == "-1,25"
+
+

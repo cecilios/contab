@@ -76,6 +76,16 @@ def texto_a_importe(texto: str) -> int:
     return int(euros * 100)
 
 
+def importe_a_texto_entrada(importe: int) -> str:
+    """Convierte céntimos al formato usado en campos editables."""
+    signo = "-" if importe < 0 else ""
+    importe = abs(importe)
+
+    euros, centimos = divmod(importe, 100)
+
+    return f"{signo}{euros},{centimos:02d}"
+
+
 def texto_a_porcentaje(texto: str) -> int:
     """Convierte un porcentaje decimal a centésimas."""
     texto = texto.strip()
@@ -89,3 +99,18 @@ def texto_a_porcentaje(texto: str) -> int:
         raise ValueError("El porcentaje no es válido.") from exc
 
     return int(porcentaje * 100)
+
+
+def porcentaje_a_texto_entrada(porcentaje: int) -> str:
+    """Convierte centésimas de porcentaje a texto editable."""
+    signo = "-" if porcentaje < 0 else ""
+    porcentaje = abs(porcentaje)
+
+    entero, decimales = divmod(porcentaje, 100)
+
+    if decimales == 0:
+        return f"{signo}{entero}"
+
+    return f"{signo}{entero},{decimales:02d}"
+
+

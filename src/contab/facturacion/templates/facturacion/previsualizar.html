@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Factura - Contab{% endblock %}
+
+{% block content %}
+    <h1>Factura</h1>
+
+    <p>
+        <strong>Nº factura:</strong>
+        {{ factura.numero_factura }}
+    </p>
+
+    <p>
+        <strong>Fecha:</strong>
+        {{ fecha_emision_texto }}
+    </p>
+
+    <p>
+        <strong>Destinatario:</strong>
+        {{ factura.destinatario_nombre }}
+    </p>
+
+    <h2>Líneas</h2>
+
+    <table>
+        <tbody>
+            {% for linea in factura_editada.lineas %}
+                <tr>
+                    <td>{{ linea.concepto }}</td>
+                    <td>
+                        {{ importe_a_texto(linea.importe) }}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <p>
+        Base:
+        {{ importe_a_texto(factura_editada.base) }}
+    </p>
+
+    <p>
+        IVA:
+        {{ importe_a_texto(factura_editada.iva_importe) }}
+    </p>
+
+    <p>
+        Retención:
+        {{ importe_a_texto(
+            factura_editada.retencion_importe
+        ) }}
+    </p>
+
+    <p>
+        Total:
+        {{ importe_a_texto(factura_editada.total) }}
+    </p>
+
+    {% if factura_editada.notas %}
+        <h2>Notas</h2>
+
+        {% for nota in factura_editada.notas %}
+            <p>{{ nota }}</p>
+        {% endfor %}
+    {% endif %}
+{% endblock %}

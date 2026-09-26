@@ -214,7 +214,10 @@ def test_calcular_factura_sin_impuestos() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=0,
         retencion_porcentaje=0,
     )
@@ -237,7 +240,10 @@ def test_calcular_factura_con_iva_y_retencion() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=2100,
         retencion_porcentaje=1900,
     )
@@ -272,7 +278,10 @@ def test_calcular_factura_suma_todas_las_lineas() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=2100,
         retencion_porcentaje=1900,
     )
@@ -303,7 +312,10 @@ def test_calcular_factura_admite_diferencia_revision_negativa() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=0,
         retencion_porcentaje=0,
     )
@@ -324,7 +336,10 @@ def test_calcular_factura_redondea_impuestos_al_centimo() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=5000,
         retencion_porcentaje=0,
     )
@@ -347,7 +362,10 @@ def test_calcular_factura_rechaza_base_negativa() -> None:
 
     with pytest.raises(CalculoFacturaError):
         calcular_importes_factura(
-            lineas=lineas,
+            importes=[
+                linea.importe
+                for linea in lineas
+            ],
             iva_porcentaje=2100,
             retencion_porcentaje=1900,
         )
@@ -365,7 +383,10 @@ def test_calcular_factura_redondea_iva_hacia_arriba() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=5000,
         retencion_porcentaje=0,
     )
@@ -385,7 +406,10 @@ def test_calcular_factura_redondea_iva_hacia_abajo() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=2500,
         retencion_porcentaje=0,
     )
@@ -406,7 +430,10 @@ def test_calcular_factura_redondea_retencion_al_centimo() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=0,
         retencion_porcentaje=5000,
     )
@@ -428,7 +455,10 @@ def test_calcular_factura_rechaza_iva_negativo() -> None:
 
     with pytest.raises(CalculoFacturaError):
         calcular_importes_factura(
-            lineas=lineas,
+            importes=[
+                linea.importe
+                for linea in lineas
+            ],
             iva_porcentaje=-1,
             retencion_porcentaje=0,
         )
@@ -446,8 +476,11 @@ def test_calcular_factura_rechaza_retencion_negativa() -> None:
     ]
 
     with pytest.raises(CalculoFacturaError):
-        calcular_importes_factura(
-            lineas=lineas,
+        calculo = calcular_importes_factura(
+            importes=[
+                linea.importe
+                for linea in lineas
+            ],
             iva_porcentaje=0,
             retencion_porcentaje=-1,
         )
@@ -465,7 +498,10 @@ def test_calcular_factura_admite_base_cero() -> None:
     ]
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=2100,
         retencion_porcentaje=1900,
     )

@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+
+{% block title %}Modificar factura - Contab{% endblock %}
+
+{% block content %}
+    <h1>Modificar factura</h1>
+
+    <form method="post">
+        <div class="formulario-factura">
+            <div class="factura-cabecera">
+                <div>
+                    <p>
+                        <strong>Inmueble:</strong>
+                        {{ factura.inmueble.referencia }}
+                    </p>
+
+                    <p>
+                        <strong>Destinatario:</strong>
+                        {{ factura.destinatario_nombre }}<br>
+                        <strong>NIF:</strong>
+                        {{ factura.destinatario_nif }}<br>
+                        {{ factura.direccion_facturacion }}<br>
+                        {% if factura.codigo_postal_facturacion %}
+                            {{ factura.codigo_postal_facturacion }}
+                        {% endif %}
+                        {{ factura.poblacion_facturacion }}
+                        ({{ factura.provincia_facturacion }})
+                    </p>
+                </div>
+
+                <div class="factura-datos">
+                    <p>
+                        <strong>Nº factura:</strong>
+                        {{ factura.numero_factura }}
+                    </p>
+                    <p>
+                        <strong>Fecha:</strong>
+                        {{ fecha_emision_texto }}
+                    </p>
+                    <p>
+                        <strong>Período:</strong>
+                        {{ periodo_texto }}
+                    </p>
+                </div>
+            </div>
+
+            <h2>Líneas</h2>
+
+            <div class="factura-lineas">
+                <div class="factura-linea factura-linea-cabecera">
+                    <span>Concepto</span>
+                    <span>Importe</span>
+                </div>
+
+                {% for linea in lineas_formulario %}
+                    <div class="factura-linea">
+                        <input
+                            type="text"
+                            name="linea_concepto"
+                            value="{{ linea.concepto }}"
+                        >
+                        <input
+                            class="factura-importe"
+                            type="text"
+                            name="linea_importe"
+                            value="{{ linea.importe }}"
+                        >
+                    </div>
+                {% endfor %}
+
+    <!--
+            <p>
+                <a href="#" data-anadir-linea>
+                    Añadir línea
+                </a>
+            </p>
+    -->
+
+            <div class="factura-totales">
+                <div>
+                    <span>Base</span>
+                    <span data-total-base>
+                        {{ importe_a_texto(factura.base) }}
+                    </span>
+                </div>
+
+                <div>
+                    <span class="factura-tipo-impuesto">
+                        <label for="iva_porcentaje">IVA</label>
+                        <input
+                            id="iva_porcentaje"
+                            class="factura-porcentaje"
+                            type="text"
+                            name="iva_porcentaje"
+                            value="{{ iva_porcentaje_texto }}"
+                            data-iva-porcentaje
+                        >
+                        <span>%</span>
+                    </span>
+
+                    <span data-total-iva>
+                        {{ importe_a_texto(factura.iva_importe) }}
+                    </span>
+                </div>
+
+                <div>
+                    <span class="factura-tipo-impuesto">
+                        <label for="retencion_porcentaje">
+                            Retención
+                        </label>
+                        <input
+                            id="retencion_porcentaje"
+                            class="factura-porcentaje"
+                            type="text"
+                            name="retencion_porcentaje"
+                            value="{{ retencion_porcentaje_texto }}"
+                            data-retencion-porcentaje
+                        >
+                        <span>%</span>
+                    </span>
+
+                    <span data-total-retencion>
+                        {{ importe_a_texto(factura.retencion_importe) }}
+                    </span>
+                </div>
+
+                <div class="factura-total">
+                    <span>Total</span>
+                    <span data-total-factura>
+                        {{ importe_a_texto(factura.total) }}
+                    </span>
+                </div>
+            </div>
+
+            <h2>Notas</h2>
+
+            <div class="factura-notas">
+                {% for nota in notas_formulario %}
+                    <textarea
+                        name="nota_texto"
+                        rows="2"
+                        wrap="soft"
+                    >{{ nota }}</textarea>
+                {% endfor %}
+            </div>
+
+    <!--
+        <p>
+            <a href="#" data-anadir-nota>
+                Añadir nota
+            </a>
+        </p>
+    -->
+
+            <div class="factura-acciones">
+                <a href="{{ url_for(
+                    'facturacion.listar',
+                    periodo=periodo_texto,
+                    fecha_emision=fecha_emision_texto
+                ) }}">
+                    Cancelar
+                </a>
+
+                <a
+                    href="#"
+                    onclick="this.closest('form').requestSubmit(); return false;"
+                >
+                    Emitir
+                </a>
+            </div>
+
+        </div>
+    </form>
+
+<script>
+    function textoAPorcentaje(texto) {
+        const valor = texto
+            .trim()
+            .replace(",", ".");
+
+        if (valor === "") {
+            return 0;
+        }
+
+        const numero = Number(valor);
+
+        if (!Number.isFinite(numero)) {
+            return 0;
+        }
+
+        return Math.round(numero * 100);
+    }
+
+    (() => {
+        const formulario = document.querySelector(
+            ".formulario-factura"
+        );
+
+        if (!formulario) {
+            return;
+        }
+
+        const ivaInput = formulario.querySelector(
+            "[data-iva-porcentaje]"
+        );
+
+        const retencionInput = formulario.querySelector(
+            "[data-retencion-porcentaje]"
+        );
+
+        const ivaPorcentaje =
+            textoAPorcentaje(ivaInput.value);
+
+        const retencionPorcentaje =
+            textoAPorcentaje(retencionInput.value);
+
+        const totalBase = formulario.querySelector(
+            "[data-total-base]"
+        );
+
+        const totalIva = formulario.querySelector(
+            "[data-total-iva]"
+        );
+
+        const totalRetencion = formulario.querySelector(
+            "[data-total-retencion]"
+        );
+
+        const totalFactura = formulario.querySelector(
+            "[data-total-factura]"
+        );
+
+        function textoACentimos(texto) {
+            const valor = texto
+                .trim()
+                .replace(",", ".");
+
+            if (valor === "") {
+                return 0;
+            }
+
+            const numero = Number(valor);
+
+            if (!Number.isFinite(numero)) {
+                return null;
+            }
+
+            return Math.round(numero * 100);
+        }
+
+        function centimosATexto(centimos) {
+            return (centimos / 100).toLocaleString(
+                "es-ES",
+                {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                }
+            );
+        }
+
+        function calcularPorcentaje(
+            importe,
+            porcentaje
+        ) {
+            return Math.round(
+                importe * porcentaje / 10000
+            );
+        }
+
+        function actualizarTotales() {
+            let base = 0;
+
+            const importes = formulario.querySelectorAll(
+                'input[name="linea_importe"]'
+            );
+
+            for (const input of importes) {
+                const importe = textoACentimos(
+                    input.value
+                );
+
+                if (importe === null) {
+                    continue;
+                }
+
+                base += importe;
+            }
+
+            const ivaPorcentaje = textoAPorcentaje(
+                ivaInput.value
+            );
+
+            const retencionPorcentaje = textoAPorcentaje(
+                retencionInput.value
+            );
+
+            const iva = calcularPorcentaje(
+                base,
+                ivaPorcentaje
+            );
+
+            const retencion = calcularPorcentaje(
+                base,
+                retencionPorcentaje
+            );
+
+            totalBase.textContent =
+                centimosATexto(base);
+
+            totalIva.textContent =
+                centimosATexto(iva);
+
+            totalRetencion.textContent =
+                centimosATexto(retencion);
+
+            totalFactura.textContent =
+                centimosATexto(base + iva - retencion);
+        }
+
+        formulario.addEventListener(
+            "input",
+            (event) => {
+                if (
+                    event.target.matches(
+                        'input[name="linea_importe"]'
+                    )
+                    || event.target.matches(
+                        "[data-iva-porcentaje]"
+                    )
+                    || event.target.matches(
+                        "[data-retencion-porcentaje]"
+                    )
+                ) {
+                    actualizarTotales();
+                }
+            }
+        );
+
+        actualizarTotales();
+
+    })();
+</script>
+
+{% endblock %}

@@ -192,11 +192,12 @@ def siguiente_numero_factura(
 
 
 def calcular_importes_factura(
-    lineas: list[FacturaLinea],
+    importes: list[int],
     iva_porcentaje: int,
     retencion_porcentaje: int,
 ) -> CalculoFactura:
-    """Calcula base, IVA, retención y total a partir de las líneas."""
+    """Calcula base, IVA, retención y total de una factura."""
+
     if iva_porcentaje < 0:
         raise CalculoFacturaError(
             "El porcentaje de IVA no puede ser negativo."
@@ -207,11 +208,12 @@ def calcular_importes_factura(
             "El porcentaje de retención no puede ser negativo."
         )
 
-    base = sum(linea.importe for linea in lineas)
+    base = sum(importes)
 
     if base < 0:
         raise CalculoFacturaError(
-            "Las líneas de factura no pueden producir una base negativa."
+            "Las líneas de factura no pueden producir "
+            "una base negativa."
         )
 
     iva_importe = redondear_division(
@@ -366,7 +368,10 @@ def crear_factura(
             )
 
     calculo = calcular_importes_factura(
-        lineas=lineas,
+        importes=[
+            linea.importe
+            for linea in lineas
+        ],
         iva_porcentaje=contrato.iva_porcentaje,
         retencion_porcentaje=contrato.retencion_porcentaje,
     )
@@ -551,15 +556,15 @@ def preparar_periodo_facturacion(
                     fecha_renta,
                 )
 
-                linea = FacturaLinea(
-                    orden=1,
-                    tipo="RENTA",
-                    concepto=contrato.concepto_factura,
-                    importe=importe_renta,
-                )
+#                linea = FacturaLinea(
+#                    orden=1,
+#                    tipo="RENTA",
+#                    concepto=contrato.concepto_factura,
+#                    importe=importe_renta,
+#                )
 
                 calculo = calcular_importes_factura(
-                    lineas=[linea],
+                    importes=[importe_renta],
                     iva_porcentaje=contrato.iva_porcentaje,
                     retencion_porcentaje=contrato.retencion_porcentaje,
                 )

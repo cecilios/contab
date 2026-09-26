@@ -161,3 +161,110 @@ button {
 .estado-previsto {
     min-width: 18rem;
 }
+
+
+/* Formulario para crear/modificar una factura */
+
+.formulario-factura {
+    max-width: 900px;
+}
+
+.factura-cabecera {
+    display: flex;
+    justify-content: space-between;
+    gap: 3rem;
+    margin-bottom: 2rem;
+}
+
+.factura-cabecera > div {
+    flex: 1;
+}
+
+.factura-datos {
+    text-align: right;
+}
+
+.factura-lineas {
+    margin-bottom: 0.5rem;
+}
+
+.factura-linea {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 9rem;
+    gap: 1rem;
+    margin-bottom: 0.4rem;
+}
+
+.factura-linea input {
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.factura-linea-cabecera {
+    font-weight: bold;
+}
+
+.factura-linea-cabecera span:last-child {
+    text-align: right;
+}
+
+.factura-importe {
+    text-align: right;
+}
+
+.factura-totales {
+    width: 22rem;
+    margin-top: 1.5rem;
+    margin-left: auto;
+}
+
+.factura-totales > div {
+    display: grid;
+    grid-template-columns: 1fr 9rem;
+    gap: 1rem;
+    padding: 0.2rem 0;
+}
+
+.factura-totales span:last-child {
+    text-align: right;
+}
+
+.factura-total {
+    margin-top: 0.4rem;
+    padding-top: 0.5rem !important;
+    border-top: 1px solid;
+    font-weight: bold;
+}
+
+.factura-notas {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.factura-notas textarea {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 3.5rem;
+    resize: vertical;
+}
+
+.factura-acciones {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1.5rem;
+    margin-top: 2rem;
+}
+
+.factura-tipo-impuesto {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.35rem;
+}
+
+.factura-tipo-impuesto .factura-porcentaje {
+    width: 4.5rem;
+    min-width: 0;
+    text-align: right;
+}
+

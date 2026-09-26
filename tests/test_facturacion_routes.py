@@ -1598,3 +1598,754 @@ def test_aplicar_revision_actualiza_renta_y_facturacion() -> None:
     assert "Emitir" in texto
 
 
+def test_aplicar_revision_rechaza_porcentaje_invalido() -> None:
+    """No modifica la revisión si el porcentaje no es válido."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario introduce un porcentaje que no puede interpretarse.
+    response = client.post(
+        f"/facturacion/revisiones/{revision_id}/resolver"
+        "?periodo=11/2026"
+        "&fecha_emision=01/11/2026",
+        data={
+            "porcentaje": "dos y medio",
+        },
+    )
+
+    assert response.status_code == 400
+
+    # El error no debe haber modificado ni la revisión ni la renta.
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        assert revision.estado == "PENDIENTE"
+        assert revision.porcentaje_aplicado is None
+        assert revision.fecha_resolucion is None
+
+        assert len(contrato.rentas) == 1
+        assert len(contrato.revisiones_renta) == 1
+
+
+def test_aplicar_revision_rechaza_revision_resuelta() -> None:
+    """No permite aplicar otra vez una revisión ya resuelta."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="APLICADA",
+            porcentaje_aplicado=250,
+            fecha_resolucion=date(2026, 10, 15),
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario intenta aplicar de nuevo una revisión ya resuelta.
+    response = client.post(
+        f"/facturacion/revisiones/{revision_id}/resolver"
+        "?periodo=11/2026"
+        "&fecha_emision=01/11/2026",
+        data={
+            "porcentaje": "3,0",
+        },
+    )
+
+    assert response.status_code == 400
+
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        assert revision.estado == "APLICADA"
+        assert revision.porcentaje_aplicado == 250
+        assert revision.fecha_resolucion == date(2026, 10, 15)
+
+        assert len(contrato.rentas) == 1
+        assert len(contrato.revisiones_renta) == 1
+
+
+def test_aplicar_revision_rechaza_metodo_fijo() -> None:
+    """No interpreta una revisión FIJO como revisión porcentual."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="FIJO",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # FIJO todavía no tiene una semántica definida:
+    # no debe tratarse como un porcentaje.
+    response = client.post(
+        f"/facturacion/revisiones/{revision_id}/resolver"
+        "?periodo=11/2026"
+        "&fecha_emision=01/11/2026",
+        data={
+            "porcentaje": "2,5",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "FIJO" in response.get_data(as_text=True)
+
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        assert revision.estado == "PENDIENTE"
+        assert revision.porcentaje_aplicado is None
+        assert revision.fecha_resolucion is None
+
+        assert len(contrato.rentas) == 1
+        assert len(contrato.revisiones_renta) == 1
+
+
+def test_listar_facturacion_ofrece_modificar_factura() -> None:
+    """Permite abrir la modificación de una factura pendiente."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario prepara la facturación mensual.
+    response = client.get(
+        "/facturacion/"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Modificar" in texto
+    assert (
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&amp;fecha_emision=01/10/2026"
+        in texto
+    )
+
+
+def test_modificar_factura_muestra_propuesta_sin_persistir() -> None:
+    """Muestra una factura preparada sin guardarla en la base de datos."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario abre la factura propuesta para modificarla.
+    response = client.get(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Modificar factura" in texto
+    assert "LOCAL-1" in texto
+    assert "Ana Pérez" in texto
+    assert "11111111A" in texto
+    assert "Calle del Cliente 10" in texto
+    assert "36001" in texto
+    assert "Pontevedra" in texto
+
+    assert "Alquiler local" in texto
+    assert "1.000,00" in texto
+    assert "210,00" in texto
+    assert "190,00" in texto
+    assert "1.020,00" in texto
+
+    assert "01/10/2026" in texto
+    assert "10/2026" in texto
+
+    assert "Añadir línea" in texto
+    assert "Emitir" in texto
+    assert "Cancelar" in texto
+
+    # Abrir el formulario no emite ni contabiliza nada.
+    with session_factory() as session:
+        assert session.scalar(
+            select(Factura)
+        ) is None
+
+        assert session.scalar(
+            select(ApunteContable)
+        ) is None
+
+        assert session.scalar(
+            select(MovimientoPrevisto)
+        ) is None
+
+
+def test_modificar_factura_acepta_datos_editados() -> None:
+    """Valida los datos editados y muestra la factura resultante."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026",
+        data={
+            "linea_concepto": [
+                "Alquiler octubre",
+                "Consumo de agua",
+                "",
+                "",
+                "",
+            ],
+            "linea_importe": [
+                "1000,00",
+                "35,00",
+                "",
+                "",
+                "",
+            ],
+            "iva_porcentaje": "21",
+            "retencion_porcentaje": "19",
+            "nota_texto": [
+                "Primera nota de prueba.",
+                "Segunda nota de prueba.",
+                "",
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Alquiler octubre" in texto
+    assert "1.000,00" in texto
+    assert "Consumo de agua" in texto
+    assert "35,00" in texto
+
+    assert "Primera nota de prueba." in texto
+    assert "Segunda nota de prueba." in texto
+
+    assert "1.035,00" in texto
+    assert "217,35" in texto
+    assert "196,65" in texto
+    assert "1.055,70" in texto
+
+    # Todavía no se ha persistido ni contabilizado nada.
+    with session_factory() as session:
+        assert session.scalar(select(Factura)) is None
+        assert session.scalar(select(ApunteContable)) is None
+        assert session.scalar(select(MovimientoPrevisto)) is None
+
+
+def test_modificar_factura_rechaza_linea_incompleta() -> None:
+    """Exige concepto e importe en cada línea utilizada."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026",
+        data={
+            "linea_concepto": [
+                "Alquiler",
+                "Consumo de agua",
+                "",
+                "",
+                "",
+            ],
+            "linea_importe": [
+                "1000,00",
+                "",
+                "",
+                "",
+                "",
+            ],
+            "iva_porcentaje": "21",
+            "retencion_porcentaje": "19",
+            "nota_texto": ["", "", ""],
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_modificar_factura_rechaza_factura_sin_lineas() -> None:
+    """Una factura debe contener al menos una línea."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026",
+        data={
+            "linea_concepto": ["", "", "", "", ""],
+            "linea_importe": ["", "", "", "", ""],
+            "iva_porcentaje": "21",
+            "retencion_porcentaje": "19",
+            "nota_texto": ["", "", ""],
+        },
+    )
+
+    assert response.status_code == 400
+
+
