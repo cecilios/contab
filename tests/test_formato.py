@@ -3,9 +3,11 @@ import pytest
 from datetime import date
 
 from contab.formato import (
+    fecha_a_texto_largo,
     importe_a_texto,
     importe_a_texto_entrada,
     periodo_a_texto,
+    periodo_a_texto_largo,
     porcentaje_a_texto_entrada,
     texto_a_importe,
     texto_a_periodo,
@@ -65,5 +67,21 @@ def test_porcentaje_a_texto_entrada() -> None:
     assert porcentaje_a_texto_entrada(1050) == "10,50"
     assert porcentaje_a_texto_entrada(25) == "0,25"
     assert porcentaje_a_texto_entrada(-125) == "-1,25"
+
+
+def test_fecha_a_texto_largo() -> None:
+    """Formatea una fecha larga en español."""
+
+    assert fecha_a_texto_largo(
+        date(2026, 9, 1)
+    ) == "1 de septiembre de 2026"
+
+
+def test_periodo_a_texto_largo() -> None:
+    """Formatea un período mensual en español."""
+
+    assert periodo_a_texto_largo(
+        date(2026, 10, 1)
+    ) == "Octubre de 2026"
 
 

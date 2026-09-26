@@ -9,15 +9,18 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     url_for,
 )
 from dataclasses import dataclass
 
 from contab.formato import (
     fecha_a_texto,
+    fecha_a_texto_largo,
     importe_a_texto,
     importe_a_texto_entrada,
     periodo_a_texto,
+    periodo_a_texto_largo,
     porcentaje_a_texto_entrada,
     texto_a_fecha,
     texto_a_importe,
@@ -35,6 +38,7 @@ from contab.context import (
     get_database_name,
     get_invoice_template_path,
     get_session_factory,
+    obtener_ruta_de_la_firma,
 )
 from contab.facturacion.services import (
     CalculoFacturaError,
@@ -457,9 +461,16 @@ def modificar_factura(contrato_id: int):
                     400,
                 )
 
+            concepto = factura.contrato.concepto_factura.rstrip(".")
+
+            concepto = (
+                f"{concepto}. "
+                f"{periodo_a_texto_largo(periodo)}"
+            )
+
             lineas_formulario = [
                 {
-                    "concepto": factura.contrato.concepto_factura,
+                    "concepto": concepto,
                     "importe": importe_a_texto_entrada(
                         factura.base
                     ),
@@ -691,9 +702,29 @@ def previsualizar_factura(contrato_id: int):
                 factura=datos_documento,
                 importe_a_texto=importe_a_texto,
                 porcentaje_a_texto=porcentaje_a_texto_entrada,
+                fecha_a_texto_largo=fecha_a_texto_largo,
+                firma_url=url_for("facturacion.firma_factura"),
             )
 
     except FacturacionError as exc:
         return str(exc), 400
 
 
+@bp.get("/facturas/firma")
+def firma_factura():
+    """Devuelve la firma asociada a la base de datos activa."""
+
+    database_name = get_database_name()
+
+    if database_name is None:
+        return "No se ha seleccionado ninguna base de datos.", 400
+
+    ruta = obtener_ruta_de_la_firma()
+
+    if not ruta.is_file():
+        return "No se encuentra la firma de la factura.", 404
+
+    return send_file(
+        ruta,
+        mimetype="image/png",
+    )

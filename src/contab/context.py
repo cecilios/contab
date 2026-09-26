@@ -91,3 +91,11 @@ def get_invoice_template_path() -> Path:
     )
 
 
+def obtener_ruta_de_la_firma() -> Path:
+    """Devuelve la ruta de la firma de la base de datos activa."""
+
+    database_path = get_database_path()
+
+    return database_path.with_name(
+        f"{database_path.stem}-firma.png"
+    )

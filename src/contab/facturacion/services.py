@@ -118,6 +118,7 @@ class DestinatarioDocumentoFactura:
 
 @dataclass
 class DatosDocumentoFactura:
+    titulo: str
     numero: str
     fecha_emision: date
     destinatario: DestinatarioDocumentoFactura
@@ -725,7 +726,15 @@ def preparar_datos_documento_factura(
 ) -> DatosDocumentoFactura:
     """Prepara los datos necesarios para renderizar una factura."""
 
+    notas = list(factura_editada.notas)
+    if factura_editada.retencion_porcentaje == 2400:
+        notas.append(
+            "Se aplica el 24% de retención por ser el emisor "
+            "no residente en la UE ni el EEE"
+        )
+
     return DatosDocumentoFactura(
+        titulo=factura.inmueble.descripcion,
         numero=factura.numero_factura,
         fecha_emision=fecha_emision,
         destinatario=DestinatarioDocumentoFactura(
@@ -757,7 +766,7 @@ def preparar_datos_documento_factura(
             factura_editada.retencion_importe
         ),
         total=factura_editada.total,
-        notas=list(factura_editada.notas),
+        notas=notas,
     )
 
 

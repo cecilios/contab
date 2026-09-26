@@ -2040,7 +2040,7 @@ def test_modificar_factura_muestra_propuesta_sin_persistir(
             codigo_postal_facturacion="36001",
             poblacion_facturacion="Pontevedra",
             provincia_facturacion="Pontevedra",
-            concepto_factura="Alquiler local",
+            concepto_factura="Alquiler del local",
         )
 
         contrato.titulares.append(
@@ -2091,7 +2091,7 @@ def test_modificar_factura_muestra_propuesta_sin_persistir(
     assert "36001" in texto
     assert "Pontevedra" in texto
 
-    assert "Alquiler local" in texto
+    assert "Alquiler del local. Octubre de 2026" in texto
     assert "1.000,00" in texto
     assert "210,00" in texto
     assert "190,00" in texto
@@ -2267,6 +2267,7 @@ def test_modificar_factura_acepta_datos_editados(
     assert "Segunda nota de prueba." in texto
 
     assert "1.055,70" in texto
+    assert "Alquiler octubre. Octubre de 2026" not in response.text
 
     # Todavía no se ha persistido ni contabilizado nada.
     with session_factory() as session:
@@ -2425,5 +2426,99 @@ def test_modificar_factura_rechaza_factura_sin_lineas() -> None:
     )
 
     assert response.status_code == 400
+
+
+def test_firma_factura_devuelve_firma_base_activa(
+    tmp_path,
+) -> None:
+    """Devuelve la firma asociada a la base de datos activa."""
+
+    ruta_db = tmp_path / "test.db"
+    ruta_firma = tmp_path / "test-firma.png"
+
+    contenido_firma = b"\x89PNG\r\n\x1a\nfirma-de-prueba"
+
+    ruta_firma.write_bytes(contenido_firma)
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/facturas/firma"
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "image/png"
+    assert response.data == contenido_firma
+
+
+def test_firma_factura_no_encontrada(
+    tmp_path,
+) -> None:
+    """Devuelve 404 si no existe la firma de la base activa."""
+
+    ruta_db = tmp_path / "test.db"
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/facturas/firma"
+    )
+
+    assert response.status_code == 404
+    assert (
+        "No se encuentra la firma de la factura."
+        in response.text
+    )
+
+
+def test_firma_factura_requiere_base_activa(
+    tmp_path,
+) -> None:
+    """Rechaza la petición si no hay una base seleccionada."""
+
+    ruta_db = tmp_path / "test.db"
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    client = app.test_client()
+
+    response = client.get(
+        "/facturacion/facturas/firma"
+    )
+
+    assert response.status_code == 400
+    assert (
+        "No se ha seleccionado ninguna base de datos."
+        in response.text
+    )
 
 

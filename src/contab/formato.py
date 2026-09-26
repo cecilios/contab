@@ -114,3 +114,51 @@ def porcentaje_a_texto_entrada(porcentaje: int) -> str:
     return f"{signo}{entero},{decimales:02d}"
 
 
+def fecha_a_texto_largo(fecha: date) -> str:
+    """Devuelve una fecha con el mes escrito en español."""
+
+    meses = (
+        "enero",
+        "febrero",
+        "marzo",
+        "abril",
+        "mayo",
+        "junio",
+        "julio",
+        "agosto",
+        "septiembre",
+        "octubre",
+        "noviembre",
+        "diciembre",
+    )
+
+    return (
+        f"{fecha.day} de "
+        f"{meses[fecha.month - 1]} de "
+        f"{fecha.year}"
+    )
+
+
+def periodo_a_texto_largo(periodo: date) -> str:
+    """Devuelve un período mensual con el mes escrito en español."""
+
+    meses = (
+        "enero",
+        "febrero",
+        "marzo",
+        "abril",
+        "mayo",
+        "junio",
+        "julio",
+        "agosto",
+        "septiembre",
+        "octubre",
+        "noviembre",
+        "diciembre",
+    )
+
+    mes = meses[periodo.month - 1]
+
+    return f"{mes.capitalize()} de {periodo.year}"
+
+

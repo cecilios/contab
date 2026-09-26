@@ -12,6 +12,7 @@ from contab.models import (
     ContratoInquilino,
     Factura,
     FacturaLinea,
+    Inmueble,
     Inquilino,
     MovimientoPrevisto,
     RentaContrato,
@@ -20,12 +21,16 @@ from contab.models import (
 from contab.facturacion.services import (
     CalculoFacturaError,
     FacturacionError,
+    FacturaEditada,
+    FacturaPreparada,
+    LineaFacturaEditada,
     RepercusionGasto,
     calcular_importes_factura,
     componer_destinatario,
     contabilizar_ingreso_sin_factura,
     crear_factura,
     emitir_factura,
+    preparar_datos_documento_factura,
     preparar_periodo_facturacion,
     preparar_registro_contable_factura,
     siguiente_numero_factura,
@@ -2075,5 +2080,163 @@ def test_contabilizar_ingreso_sin_factura_rechaza_duplicado(
             fecha=date(2026, 10, 1),
             categorias=categorias,
         )
+
+
+def test_preparar_datos_documento_factura_anade_nota_retencion_24() -> None:
+    """Añade la nota de no residente para una retención del 24 %."""
+
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="A1",
+        descripcion="Local comercial",
+        direccion="Dirección de prueba",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=100000,
+        iva_porcentaje=2100,
+        retencion_porcentaje=2400,
+        direccion_facturacion="Calle del Cliente 10",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler local",
+    )
+
+    factura = FacturaPreparada(
+        contrato=contrato,
+        inmueble=inmueble,
+        destinatario_nombre="Ana Pérez",
+        destinatario_nif="11111111A",
+        direccion_facturacion="Calle del Cliente 10",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=24000,
+        total=97000,
+        factura=None,
+        numero_factura="2026-A1-10",
+        revision=None,
+        revision_estado=None,
+    )
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto="Alquiler local. Octubre de 2026",
+                importe=100000,
+            )
+        ],
+        notas=[
+            "Nota introducida por el usuario.",
+        ],
+        iva_porcentaje=2100,
+        retencion_porcentaje=2400,
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=24000,
+        total=97000,
+    )
+
+    datos = preparar_datos_documento_factura(
+        factura=factura,
+        factura_editada=factura_editada,
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert datos.notas == [
+        "Nota introducida por el usuario.",
+        (
+            "Se aplica el 24% de retención por ser el emisor "
+            "no residente en la UE ni el EEE"
+        ),
+    ]
+
+
+def test_preparar_datos_documento_factura_no_anade_nota_otra_retencion() -> None:
+    """No añade la nota de no residente para otra retención."""
+
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="A1",
+        descripcion="Local comercial",
+        direccion="Dirección de prueba",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=100000,
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        direccion_facturacion="Calle del Cliente 10",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler local",
+    )
+
+    factura = FacturaPreparada(
+        contrato=contrato,
+        inmueble=inmueble,
+        destinatario_nombre="Ana Pérez",
+        destinatario_nif="11111111A",
+        direccion_facturacion="Calle del Cliente 10",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+        factura=None,
+        numero_factura="2026-A1-10",
+        revision=None,
+        revision_estado=None,
+    )
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto="Alquiler local. Octubre de 2026",
+                importe=100000,
+            )
+        ],
+        notas=[
+            "Nota introducida por el usuario.",
+        ],
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+    )
+
+    datos = preparar_datos_documento_factura(
+        factura=factura,
+        factura_editada=factura_editada,
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert datos.notas == [
+        "Nota introducida por el usuario.",
+    ]
 
 
