@@ -24,6 +24,7 @@ from contab.facturacion.services import (
     FacturaEditada,
     FacturaPreparada,
     LineaFacturaEditada,
+    LineaFacturaPreparada,
     RepercusionGasto,
     calcular_importes_factura,
     componer_destinatario,
@@ -1201,6 +1202,12 @@ def test_preparar_periodo_facturacion_separa_locales_y_otros(
     assert local.iva_importe == 21000
     assert local.retencion_importe == 19000
     assert local.total == 102000
+    assert local.lineas == (
+        LineaFacturaPreparada(
+            concepto=contrato.concepto_factura,
+            importe=100000,
+        ),
+    )
 
     otro = preparacion.otros[0]
 
@@ -1389,6 +1396,7 @@ def test_preparar_periodo_facturacion_reconoce_factura_emitida(
             importe=100000,
         )
     )
+    concepto_emitido = contrato.concepto_factura
 
     factura = crear_factura(
         contrato=contrato,
@@ -1403,6 +1411,7 @@ def test_preparar_periodo_facturacion_reconoce_factura_emitida(
     # emitida, no los nuevos datos calculados
     contrato.iva_porcentaje = 1000
     contrato.retencion_porcentaje = 0
+    contrato.concepto_factura = "Concepto modificado"
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
@@ -1418,7 +1427,12 @@ def test_preparar_periodo_facturacion_reconoce_factura_emitida(
     assert local.contrato is contrato
     assert local.factura is factura
     assert local.numero_factura == factura.numero_factura
-
+    assert local.lineas == (
+        LineaFacturaPreparada(
+            concepto=concepto_emitido,
+            importe=100000,
+        ),
+    )
     assert local.base == factura.base
     assert local.iva_importe == 21000
     assert local.retencion_importe == 19000
@@ -2015,6 +2029,12 @@ def test_preparar_datos_documento_factura_anade_nota_retencion_24() -> None:
         codigo_postal_facturacion="36001",
         poblacion_facturacion="Pontevedra",
         provincia_facturacion="Pontevedra",
+        lineas=(
+            LineaFacturaPreparada(
+                concepto="Alquiler local",
+                importe=100000,
+            ),
+        ),
         base=100000,
         iva_importe=21000,
         retencion_importe=24000,
@@ -2096,6 +2116,12 @@ def test_preparar_datos_documento_factura_no_anade_nota_otra_retencion() -> None
         codigo_postal_facturacion="36001",
         poblacion_facturacion="Pontevedra",
         provincia_facturacion="Pontevedra",
+        lineas=(
+            LineaFacturaPreparada(
+                concepto="Alquiler local",
+                importe=100000,
+            ),
+        ),
         base=100000,
         iva_importe=21000,
         retencion_importe=19000,

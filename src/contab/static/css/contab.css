@@ -163,6 +163,25 @@ button {
 }
 
 
+/* pantalla-resumen de facturación */
+
+.linea-factura {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+    white-space: nowrap;
+}
+
+.linea-factura span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.linea-factura span:last-child {
+    flex: none;
+}
+
+
 /* Formulario para crear/modificar una factura */
 
 .formulario-factura {

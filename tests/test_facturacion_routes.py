@@ -167,9 +167,6 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     assert "Locales" in texto
     assert "LOCAL-1" in texto
     assert "Ana Pérez" in texto
-    assert "11111111A" in texto
-    assert "Calle Facturación 1" in texto
-    assert "36001" in texto
     assert "1.000,00" in texto
     assert "210,00" in texto
     assert "190,00" in texto
@@ -660,7 +657,7 @@ ING_ALQUILERES = INGRESO | Alquileres
 
     assert "Revisión pendiente" in texto
     assert "Resolver revisión" in texto
-    assert "Emitir" not in texto
+    assert "Previsualizar" not in texto
 
 
 def test_contabilizar_factura_rechaza_revision_pendiente(

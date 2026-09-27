@@ -29,6 +29,11 @@ class FacturacionError(Exception):
 
 
 @dataclass
+class LineaFacturaPreparada:
+    concepto: str
+    importe: int
+
+@dataclass
 class LineaFacturaEditada:
     concepto: str
     importe: int
@@ -72,6 +77,7 @@ class FacturaPreparada:
     codigo_postal_facturacion: str | None
     poblacion_facturacion: str
     provincia_facturacion: str
+    lineas: tuple[LineaFacturaPreparada, ...]
     base: int
     iva_importe: int
     retencion_importe: int
@@ -101,12 +107,6 @@ class PreparacionPeriodo:
     otros: tuple[IngresoPreparado, ...]
 
 @dataclass
-class LineaDocumentoFactura:
-    concepto: str
-    importe: int
-
-
-@dataclass
 class DestinatarioDocumentoFactura:
     nombre: str
     nif: str
@@ -122,7 +122,7 @@ class DatosDocumentoFactura:
     numero: str
     fecha_emision: date
     destinatario: DestinatarioDocumentoFactura
-    lineas: list[LineaDocumentoFactura]
+    lineas: list[LineaFacturaPreparada]
     base: int
     iva_porcentaje: int
     iva_importe: int
@@ -603,9 +603,17 @@ def preparar_periodo_facturacion(
 
             if factura is None:
                 _, numero_factura = siguiente_numero_factura(contrato, periodo.year)
+
                 importe_renta = renta_facturable(
                     contrato,
                     fecha_renta,
+                )
+
+                lineas = (
+                    LineaFacturaPreparada(
+                        concepto=contrato.concepto_factura,
+                        importe=importe_renta,
+                    ),
                 )
 
                 calculo = calcular_importes_factura(
@@ -619,6 +627,13 @@ def preparar_periodo_facturacion(
                 total = calculo.total
             else:
                 numero_factura = factura.numero_factura
+                lineas = tuple(
+                    LineaFacturaPreparada(
+                        concepto=linea.concepto,
+                        importe=linea.importe,
+                    )
+                    for linea in factura.lineas
+                )
                 base = factura.base
                 iva_importe = factura.iva_importe
                 retencion_importe = factura.retencion_importe
@@ -637,6 +652,7 @@ def preparar_periodo_facturacion(
                     codigo_postal_facturacion=contrato.codigo_postal_facturacion,
                     poblacion_facturacion=contrato.poblacion_facturacion,
                     provincia_facturacion=contrato.provincia_facturacion,
+                    lineas=lineas,
                     base=base,
                     iva_importe=iva_importe,
                     retencion_importe=retencion_importe,
@@ -746,7 +762,7 @@ def preparar_datos_documento_factura(
             provincia=factura.provincia_facturacion,
         ),
         lineas=[
-            LineaDocumentoFactura(
+            LineaFacturaPreparada(
                 concepto=linea.concepto,
                 importe=linea.importe,
             )
