@@ -324,7 +324,7 @@ def crear_factura(
     diferencia_revision: int = 0,
     aviso_revision: str | None = None,
     repercusiones: list[RepercusionGasto] | None = None,
-    lineas_adicionales: list[tuple[str, int]] | None = None,
+    factura_editada: FacturaEditada | None = None,
 ) -> Factura:
     """Prepara una factura ordinaria mensual sin persistirla."""
     if periodo.day != 1:
@@ -391,36 +391,35 @@ def crear_factura(
                 )
             )
 
-    if lineas_adicionales:
-        for concepto, importe in lineas_adicionales:
-            concepto = concepto.strip()
-
-            if not concepto:
-                raise FacturacionError(
-                    "Toda línea adicional debe tener un concepto."
-                )
-
-            if importe == 0:
-                raise FacturacionError(
-                    "El importe de una línea adicional no puede ser cero."
-                )
-
-            lineas.append(
-                FacturaLinea(
-                    orden=len(lineas) + 1,
-                    tipo="OTRO",
-                    concepto=concepto,
-                    importe=importe,
-                )
+    if factura_editada is not None:
+        lineas = [
+            FacturaLinea(
+                orden=orden,
+                tipo="RENTA" if orden == 1 else "OTRO",
+                concepto=linea.concepto,
+                importe=linea.importe,
             )
+            for orden, linea in enumerate(
+                factura_editada.lineas,
+                start=1,
+            )
+        ]
+
+        iva_porcentaje = factura_editada.iva_porcentaje
+        retencion_porcentaje = (
+            factura_editada.retencion_porcentaje
+        )
+    else:
+        iva_porcentaje = contrato.iva_porcentaje
+        retencion_porcentaje = contrato.retencion_porcentaje
 
     calculo = calcular_importes_factura(
         importes=[
             linea.importe
             for linea in lineas
         ],
-        iva_porcentaje=contrato.iva_porcentaje,
-        retencion_porcentaje=contrato.retencion_porcentaje,
+        iva_porcentaje=iva_porcentaje,
+        retencion_porcentaje=retencion_porcentaje,
     )
 
     factura = Factura(
@@ -431,15 +430,21 @@ def crear_factura(
         fecha_emision=fecha_emision,
         periodo=periodo,
         base=calculo.base,
-        iva_porcentaje=contrato.iva_porcentaje,
+        iva_porcentaje=iva_porcentaje,
         iva_importe=calculo.iva_importe,
-        retencion_porcentaje=contrato.retencion_porcentaje,
+        retencion_porcentaje=retencion_porcentaje,
         retencion_importe=calculo.retencion_importe,
         total=calculo.total,
         ruta_pdf=ruta_pdf,
         revision_renta=revision_renta,
         aviso_revision=aviso_revision,
         estado="EMITIDA",
+        notas=(
+            "\n".join(factura_editada.notas)
+            if factura_editada is not None
+            and factura_editada.notas
+            else None
+        ),
     )
 
     factura.lineas.extend(lineas)
@@ -603,13 +608,6 @@ def preparar_periodo_facturacion(
                     fecha_renta,
                 )
 
-#                linea = FacturaLinea(
-#                    orden=1,
-#                    tipo="RENTA",
-#                    concepto=contrato.concepto_factura,
-#                    importe=importe_renta,
-#                )
-
                 calculo = calcular_importes_factura(
                     importes=[importe_renta],
                     iva_porcentaje=contrato.iva_porcentaje,
@@ -685,7 +683,7 @@ def emitir_factura(
     periodo: date,
     fecha_emision: date,
     categorias: dict[str, CategoriaContable],
-    lineas_adicionales: list[tuple[str, int]] | None = None,
+    factura_editada: FacturaEditada | None = None,
 ) -> tuple[Factura, ApunteContable, MovimientoPrevisto]:
     """Prepara la emisión completa de una factura sin persistirla."""
 
@@ -708,7 +706,7 @@ def emitir_factura(
         fecha_emision=fecha_emision,
         revision_renta=revision,
         aviso_revision=revision_estado,
-        lineas_adicionales=lineas_adicionales,
+        factura_editada=factura_editada,
     )
 
     apunte, movimiento = preparar_registro_contable_factura(

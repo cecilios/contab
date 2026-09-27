@@ -44,586 +44,6 @@ def crear_app_test():
     return app
 
 
-def test_emitir_factura_persiste_operacion_completa(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Emite factura, apunte y cobro previsto en una sola operación."""
-
-    ruta = tmp_path / "contab.ini"
-    ruta.write_text(
-        """
-[categorias_contables]
-ING_ALQUILERES = INGRESO | Alquileres
-
-[subcategorias_contables]
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv(
-        "CONTAB_CONFIG",
-        str(ruta),
-    )
-
-    app = crear_app_test()
-
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección de prueba",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-
-        contrato = Contrato(
-            inmueble=inmueble,
-            fecha_inicio=date(2026, 1, 15),
-            fecha_vencimiento=date(2030, 12, 31),
-            genera_factura=True,
-            fecha_inicio_facturacion=date(2026, 2, 1),
-            fianza=100000,
-            iva_porcentaje=2100,
-            retencion_porcentaje=1900,
-            direccion_facturacion="Dirección",
-            poblacion_facturacion="Pontevedra",
-            provincia_facturacion="Pontevedra",
-            concepto_factura="Alquiler",
-        )
-
-        inquilino = Inquilino(
-            nombre="Ana Pérez",
-            nif="11111111A",
-        )
-
-        contrato.titulares.append(
-            ContratoInquilino(
-                inquilino=inquilino,
-                orden=1,
-            )
-        )
-
-        contrato.rentas.append(
-            RentaContrato(
-                fecha_desde=contrato.fecha_inicio,
-                importe=100000,
-            )
-        )
-
-        session.add(contrato)
-        session.commit()
-
-        contrato_id = contrato.id
-
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    # El usuario confirma la emisión de la factura preparada.
-    response = client.post(
-        f"/facturacion/emitir/{contrato_id}",
-        data={
-            "periodo": "10/2026",
-            "fecha_emision": "01/10/2026",
-        },
-    )
-
-    assert response.status_code == 302
-
-    with session_factory() as session:
-        factura = session.scalar(
-            select(Factura)
-        )
-        apunte = session.scalar(
-            select(ApunteContable)
-        )
-        movimiento = session.scalar(
-            select(MovimientoPrevisto)
-        )
-
-        assert factura is not None
-        assert factura.contrato_id == contrato_id
-        assert factura.periodo == date(2026, 10, 1)
-        assert factura.estado == "EMITIDA"
-        assert factura.total == 102000
-
-        assert apunte is not None
-        assert apunte.referencia_documento == (
-            factura.numero_factura
-        )
-        assert apunte.categoria == "ING_ALQUILERES"
-        assert apunte.total == factura.total
-
-        assert movimiento is not None
-        assert movimiento.apunte_id == apunte.id
-        assert movimiento.contrato_id == contrato_id
-        assert movimiento.importe_esperado == factura.total
-        assert movimiento.estado == "PENDIENTE"
-
-
-def test_emitir_factura_con_lineas_adicionales(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Emite una factura con líneas adicionales y actualiza sus efectos."""
-
-    ruta = tmp_path / "contab.ini"
-    ruta.write_text(
-        """
-[categorias_contables]
-ING_ALQUILERES = INGRESO | Alquileres
-
-[subcategorias_contables]
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv(
-        "CONTAB_CONFIG",
-        str(ruta),
-    )
-
-    app = crear_app_test()
-
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección de prueba",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-
-        contrato = Contrato(
-            inmueble=inmueble,
-            fecha_inicio=date(2026, 1, 15),
-            fecha_vencimiento=date(2030, 12, 31),
-            genera_factura=True,
-            fecha_inicio_facturacion=date(2026, 2, 1),
-            fianza=100000,
-            iva_porcentaje=2100,
-            retencion_porcentaje=1900,
-            direccion_facturacion="Dirección",
-            poblacion_facturacion="Pontevedra",
-            provincia_facturacion="Pontevedra",
-            concepto_factura="Alquiler del mes",
-        )
-
-        contrato.titulares.append(
-            ContratoInquilino(
-                inquilino=Inquilino(
-                    nombre="Ana Pérez",
-                    nif="11111111A",
-                ),
-                orden=1,
-            )
-        )
-
-        contrato.rentas.append(
-            RentaContrato(
-                fecha_desde=contrato.fecha_inicio,
-                importe=94500,
-            )
-        )
-
-        session.add(contrato)
-        session.commit()
-
-        contrato_id = contrato.id
-
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    # El usuario añade dos conceptos a la renta mensual
-    # y confirma la emisión de la factura.
-    response = client.post(
-        f"/facturacion/emitir/{contrato_id}",
-        data={
-            "periodo": "10/2026",
-            "fecha_emision": "01/10/2026",
-            "linea_concepto": [
-                "Consumo de agua",
-                "Reparación repercutida",
-            ],
-            "linea_importe": [
-                "35,00",
-                "20,00",
-            ],
-        },
-    )
-
-    assert response.status_code == 302
-
-    with session_factory() as session:
-        factura = session.scalar(
-            select(Factura)
-        )
-        apunte = session.scalar(
-            select(ApunteContable)
-        )
-        movimiento = session.scalar(
-            select(MovimientoPrevisto)
-        )
-
-        assert factura is not None
-        assert len(factura.lineas) == 3
-
-        assert factura.lineas[0].tipo == "RENTA"
-        assert factura.lineas[0].concepto == "Alquiler del mes"
-        assert factura.lineas[0].importe == 94500
-
-        assert factura.lineas[1].tipo == "OTRO"
-        assert factura.lineas[1].concepto == "Consumo de agua"
-        assert factura.lineas[1].importe == 3500
-
-        assert factura.lineas[2].tipo == "OTRO"
-        assert factura.lineas[2].concepto == "Reparación repercutida"
-        assert factura.lineas[2].importe == 2000
-
-        assert factura.base == 100000
-        assert factura.iva_importe == 21000
-        assert factura.retencion_importe == 19000
-        assert factura.total == 102000
-
-        assert apunte is not None
-        assert apunte.base == 100000
-        assert apunte.iva_importe == 21000
-        assert apunte.retencion_importe == 19000
-        assert apunte.total == 102000
-
-        assert movimiento is not None
-        assert movimiento.importe_esperado == 102000
-
-
-def test_emitir_factura_rechaza_lineas_adicionales_desparejadas(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Rechaza conceptos e importes que no formen parejas completas."""
-
-    ruta = tmp_path / "contab.ini"
-    ruta.write_text(
-        """
-[categorias_contables]
-ING_ALQUILERES = INGRESO | Alquileres
-
-[subcategorias_contables]
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv(
-        "CONTAB_CONFIG",
-        str(ruta),
-    )
-
-    app = crear_app_test()
-
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección de prueba",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-
-        contrato = Contrato(
-            inmueble=inmueble,
-            fecha_inicio=date(2026, 1, 15),
-            fecha_vencimiento=date(2030, 12, 31),
-            genera_factura=True,
-            fecha_inicio_facturacion=date(2026, 2, 1),
-            fianza=100000,
-            iva_porcentaje=2100,
-            retencion_porcentaje=1900,
-            direccion_facturacion="Dirección",
-            poblacion_facturacion="Pontevedra",
-            provincia_facturacion="Pontevedra",
-            concepto_factura="Alquiler del mes",
-        )
-
-        contrato.titulares.append(
-            ContratoInquilino(
-                inquilino=Inquilino(
-                    nombre="Ana Pérez",
-                    nif="11111111A",
-                ),
-                orden=1,
-            )
-        )
-
-        contrato.rentas.append(
-            RentaContrato(
-                fecha_desde=contrato.fecha_inicio,
-                importe=94500,
-            )
-        )
-
-        session.add(contrato)
-        session.commit()
-
-        contrato_id = contrato.id
-
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    # El formulario envía dos conceptos pero solamente un importe.
-    response = client.post(
-        f"/facturacion/emitir/{contrato_id}",
-        data={
-            "periodo": "10/2026",
-            "fecha_emision": "01/10/2026",
-            "linea_concepto": [
-                "Consumo de agua",
-                "Reparación repercutida",
-            ],
-            "linea_importe": [
-                "35,00",
-            ],
-        },
-    )
-
-    assert response.status_code == 400
-
-    with session_factory() as session:
-        assert session.scalar(
-            select(Factura)
-        ) is None
-
-
-def test_emitir_factura_rechaza_importe_adicional_invalido(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Rechaza un importe adicional que no sea válido."""
-
-    ruta = tmp_path / "contab.ini"
-    ruta.write_text(
-        """
-[categorias_contables]
-ING_ALQUILERES = INGRESO | Alquileres
-
-[subcategorias_contables]
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv(
-        "CONTAB_CONFIG",
-        str(ruta),
-    )
-
-    app = crear_app_test()
-
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección de prueba",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-
-        contrato = Contrato(
-            inmueble=inmueble,
-            fecha_inicio=date(2026, 1, 15),
-            fecha_vencimiento=date(2030, 12, 31),
-            genera_factura=True,
-            fecha_inicio_facturacion=date(2026, 2, 1),
-            fianza=100000,
-            iva_porcentaje=2100,
-            retencion_porcentaje=1900,
-            direccion_facturacion="Dirección",
-            poblacion_facturacion="Pontevedra",
-            provincia_facturacion="Pontevedra",
-            concepto_factura="Alquiler del mes",
-        )
-
-        contrato.titulares.append(
-            ContratoInquilino(
-                inquilino=Inquilino(
-                    nombre="Ana Pérez",
-                    nif="11111111A",
-                ),
-                orden=1,
-            )
-        )
-
-        contrato.rentas.append(
-            RentaContrato(
-                fecha_desde=contrato.fecha_inicio,
-                importe=94500,
-            )
-        )
-
-        session.add(contrato)
-        session.commit()
-
-        contrato_id = contrato.id
-
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    # El usuario introduce un texto que no representa un importe.
-    response = client.post(
-        f"/facturacion/emitir/{contrato_id}",
-        data={
-            "periodo": "10/2026",
-            "fecha_emision": "01/10/2026",
-            "linea_concepto": [
-                "Consumo de agua",
-            ],
-            "linea_importe": [
-                "treinta",
-            ],
-        },
-    )
-
-    assert response.status_code == 400
-
-    with session_factory() as session:
-        assert session.scalar(
-            select(Factura)
-        ) is None
-
-
-def test_emitir_factura_no_persiste_nada_si_falla(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """No deja datos parciales cuando falla la emisión."""
-
-    ruta = tmp_path / "contab.ini"
-    ruta.write_text(
-        """
-[categorias_contables]
-ING_ALQUILERES = INGRESO | Alquileres
-
-[subcategorias_contables]
-""".strip(),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setenv(
-        "CONTAB_CONFIG",
-        str(ruta),
-    )
-
-    app = crear_app_test()
-
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección de prueba",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-
-        contrato = Contrato(
-            inmueble=inmueble,
-            fecha_inicio=date(2026, 1, 15),
-            fecha_vencimiento=date(2030, 12, 31),
-            genera_factura=True,
-            fecha_inicio_facturacion=date(2026, 2, 1),
-            fianza=100000,
-            direccion_facturacion="Dirección",
-            poblacion_facturacion="Pontevedra",
-            provincia_facturacion="Pontevedra",
-            concepto_factura="Alquiler",
-        )
-
-        contrato.rentas.append(
-            RentaContrato(
-                fecha_desde=contrato.fecha_inicio,
-                importe=100000,
-            )
-        )
-
-        session.add(contrato)
-        session.commit()
-
-        contrato_id = contrato.id
-
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    # La emisión falla porque el contrato no tiene titular.
-    response = client.post(
-        f"/facturacion/emitir/{contrato_id}",
-        data={
-            "periodo": "2026-10-01",
-            "fecha_emision": "2026-10-01",
-        },
-    )
-
-    assert response.status_code == 400
-
-    with session_factory() as session:
-        assert session.scalar(
-            select(Factura)
-        ) is None
-
-        assert session.scalar(
-            select(ApunteContable)
-        ) is None
-
-        assert session.scalar(
-            select(MovimientoPrevisto)
-        ) is None
-
-
 def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     """Muestra los ingresos preparados de un período sin modificarlos."""
 
@@ -754,7 +174,6 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     assert "210,00" in texto
     assert "190,00" in texto
     assert "1.020,00" in texto
-    assert "Emitir" in texto
 
     assert "Otros" in texto
     assert "PISO-1" in texto
@@ -882,11 +301,11 @@ def test_listar_facturacion_rechaza_fecha_emision_invalida() -> None:
     assert 'value="30/02/2026"' in texto
 
 
-def test_emitir_factura_desde_lista_conserva_aviso_revision(
+def test_contabilizar_factura_conserva_aviso_revision(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """Emite desde la lista y conserva el aviso de revisión."""
+    """Contabiliza la factura y conserva el aviso de revisión."""
 
     ruta = tmp_path / "contab.ini"
     ruta.write_text(
@@ -932,6 +351,8 @@ ING_ALQUILERES = INGRESO | Alquileres
             poblacion_facturacion="Pontevedra",
             provincia_facturacion="Pontevedra",
             concepto_factura="Alquiler",
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
         )
 
         contrato.titulares.append(
@@ -972,12 +393,25 @@ ING_ALQUILERES = INGRESO | Alquileres
         data={"database": "test"},
     )
 
-    # El usuario emite desde la preparación de octubre.
+    # El usuario contabiliza la factura previsualizada de octubre.
     response = client.post(
-        f"/facturacion/emitir/{contrato_id}",
+        f"/facturacion/facturas/{contrato_id}/contabilizar",
         data={
             "periodo": "10/2026",
             "fecha_emision": "01/10/2026",
+            "linea_concepto": [
+                "Alquiler",
+            ],
+            "linea_importe": [
+                "1000,00",
+            ],
+            "iva_porcentaje": "0",
+            "retencion_porcentaje": "0",
+            "nota_texto": [],
+            "base_previsualizada": "100000",
+            "iva_previsualizado": "0",
+            "retencion_previsualizada": "0",
+            "total_previsualizado": "100000",
         },
     )
 
@@ -1229,11 +663,11 @@ ING_ALQUILERES = INGRESO | Alquileres
     assert "Emitir" not in texto
 
 
-def test_emitir_factura_rechaza_revision_pendiente(
+def test_contabilizar_factura_rechaza_revision_pendiente(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """Comprueba que impide emitir si la revisión está pendiente."""
+    """Impide contabilizar si la revisión está pendiente."""
 
     ruta = tmp_path / "contab.ini"
     ruta.write_text(
@@ -1279,6 +713,8 @@ ING_ALQUILERES = INGRESO | Alquileres
             poblacion_facturacion="Pontevedra",
             provincia_facturacion="Pontevedra",
             concepto_factura="Alquiler",
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
         )
 
         contrato.titulares.append(
@@ -1319,31 +755,45 @@ ING_ALQUILERES = INGRESO | Alquileres
     )
 
     response = client.post(
-        f"/facturacion/emitir/{contrato_id}",
+        f"/facturacion/facturas/{contrato_id}/contabilizar",
         data={
             "periodo": "11/2026",
             "fecha_emision": "01/11/2026",
+            "linea_concepto": [
+                "Alquiler",
+            ],
+            "linea_importe": [
+                "1000,00",
+            ],
+            "iva_porcentaje": "0",
+            "retencion_porcentaje": "0",
+            "nota_texto": [],
+            "base_previsualizada": "100000",
+            "iva_previsualizado": "0",
+            "retencion_previsualizada": "0",
+            "total_previsualizado": "100000",
         },
     )
 
     assert response.status_code == 400
     assert (
-        "revisión de renta pendiente"
+        "La factura no puede contabilizarse hasta "
+        "resolver la revisión de renta pendiente."
         in response.get_data(as_text=True)
     )
 
     with session_factory() as session:
-        assert session.scalar(
-            select(Factura)
-        ) is None
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
 
-        assert session.scalar(
-            select(ApunteContable)
-        ) is None
+        assert revision is not None
+        assert revision.estado == "PENDIENTE"
 
-        assert session.scalar(
-            select(MovimientoPrevisto)
-        ) is None
+        assert session.scalar(select(Factura)) is None
+        assert session.scalar(select(ApunteContable)) is None
+        assert session.scalar(select(MovimientoPrevisto)) is None
 
 
 def test_resolver_revision_muestra_formulario() -> None:
@@ -1595,7 +1045,6 @@ def test_aplicar_revision_actualiza_renta_y_facturacion() -> None:
     assert "1.025,00" in texto
     assert "Pendiente de revisión" not in texto
     assert "Resolver revisión" not in texto
-    assert "Emitir" in texto
 
 
 def test_aplicar_revision_rechaza_porcentaje_invalido() -> None:
@@ -2101,7 +1550,7 @@ def test_modificar_factura_muestra_propuesta_sin_persistir(
     assert "10/2026" in texto
 
     assert "Añadir línea" in texto
-    assert "Emitir" in texto
+    assert "Previsualizar" in texto
     assert "Cancelar" in texto
 
     # Abrir el formulario no emite ni contabiliza nada.
@@ -2520,5 +1969,293 @@ def test_firma_factura_requiere_base_activa(
         "No se ha seleccionado ninguna base de datos."
         in response.text
     )
+
+
+def test_contabilizar_factura_persiste_factura_editada(
+    tmp_path,
+) -> None:
+    """Persiste la factura previsualizada y su registro contable."""
+
+    ruta_db = tmp_path / "test.db"
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/contabilizar",
+        data={
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
+            "linea_concepto": [
+                "Alquiler octubre",
+                "Consumo de agua",
+            ],
+            "linea_importe": [
+                "1000,00",
+                "35,00",
+            ],
+            "iva_porcentaje": "21",
+            "retencion_porcentaje": "19",
+            "nota_texto": [
+                "Primera nota de prueba.",
+                "Segunda nota de prueba.",
+            ],
+            "base_previsualizada": "103500",
+            "iva_previsualizado": "21735",
+            "retencion_previsualizada": "19665",
+            "total_previsualizado": "105570",
+        },
+    )
+
+    assert response.status_code == 302
+
+    assert response.headers["Location"].endswith(
+        "/facturacion/?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
+    )
+
+    with session_factory() as session:
+        factura = session.scalar(
+            select(Factura)
+        )
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert factura is not None
+        assert factura.contrato_id == contrato_id
+        assert factura.periodo == date(2026, 10, 1)
+        assert factura.fecha_emision == date(2026, 10, 1)
+        assert factura.estado == "EMITIDA"
+
+        assert len(factura.lineas) == 2
+
+        assert factura.lineas[0].concepto == "Alquiler octubre"
+        assert factura.lineas[0].importe == 100000
+
+        assert factura.lineas[1].concepto == "Consumo de agua"
+        assert factura.lineas[1].importe == 3500
+
+        assert factura.base == 103500
+        assert factura.iva_porcentaje == 2100
+        assert factura.iva_importe == 21735
+        assert factura.retencion_porcentaje == 1900
+        assert factura.retencion_importe == 19665
+        assert factura.total == 105570
+
+        assert factura.notas == (
+            "Primera nota de prueba.\n"
+            "Segunda nota de prueba."
+        )
+
+        assert apunte is not None
+        assert apunte.referencia_documento == (
+            factura.numero_factura
+        )
+        assert apunte.categoria == "ING_ALQUILERES"
+        assert apunte.base == factura.base
+        assert apunte.iva_importe == factura.iva_importe
+        assert (
+            apunte.retencion_importe
+            == factura.retencion_importe
+        )
+        assert apunte.total == factura.total
+
+        assert movimiento is not None
+        assert movimiento.apunte_id == apunte.id
+        assert movimiento.contrato_id == contrato_id
+        assert movimiento.importe_esperado == factura.total
+        assert movimiento.estado == "PENDIENTE"
+
+
+def test_contabilizar_factura_rechaza_importes_distintos(
+    tmp_path,
+) -> None:
+    """Rechaza importes distintos de los previsualizados."""
+
+    ruta_db = tmp_path / "test.db"
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/contabilizar",
+        data={
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
+            "linea_concepto": [
+                "Alquiler octubre",
+                "Consumo de agua",
+            ],
+            "linea_importe": [
+                "1000,00",
+                "35,00",
+            ],
+            "iva_porcentaje": "21",
+            "retencion_porcentaje": "19",
+            "nota_texto": [
+                "Primera nota de prueba.",
+                "Segunda nota de prueba.",
+            ],
+            "base_previsualizada": "103500",
+            "iva_previsualizado": "21735",
+            "retencion_previsualizada": "19665",
+
+            # Un céntimo distinto del total calculado.
+            "total_previsualizado": "105571",
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        "Los importes de la factura han cambiado. "
+        "Vuelve a previsualizarla antes de contabilizar."
+        in response.get_data(as_text=True)
+    )
+
+    with session_factory() as session:
+        assert session.scalar(select(Factura)) is None
+        assert session.scalar(select(ApunteContable)) is None
+        assert session.scalar(select(MovimientoPrevisto)) is None
 
 

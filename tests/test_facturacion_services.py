@@ -552,111 +552,6 @@ def test_crear_factura_ordinaria(session, contrato) -> None:
     assert factura.ruta_pdf == "facturas/01-2026A1.pdf"
 
 
-def test_crear_factura_con_lineas_adicionales(
-    session,
-    contrato,
-) -> None:
-    """Añade líneas manuales después de la renta y recalcula la factura."""
-
-    contrato.iva_porcentaje = 2100
-    contrato.retencion_porcentaje = 1900
-    contrato.rentas.append(
-        RentaContrato(
-            fecha_desde=contrato.fecha_inicio,
-            importe=94500,
-        )
-    )
-    session.commit()
-
-    factura = crear_factura(
-        contrato=contrato,
-        periodo=date(2026, 9, 1),
-        fecha_emision=date(2026, 9, 1),
-        lineas_adicionales=[
-            ("Consumo de agua", 3500),
-            ("Reparación repercutida", 2000),
-        ],
-    )
-
-    assert len(factura.lineas) == 3
-
-    assert factura.lineas[0].orden == 1
-    assert factura.lineas[0].tipo == "RENTA"
-    assert factura.lineas[0].concepto == contrato.concepto_factura
-    assert factura.lineas[0].importe == 94500
-
-    assert factura.lineas[1].orden == 2
-    assert factura.lineas[1].tipo == "OTRO"
-    assert factura.lineas[1].concepto == "Consumo de agua"
-    assert factura.lineas[1].importe == 3500
-
-    assert factura.lineas[2].orden == 3
-    assert factura.lineas[2].tipo == "OTRO"
-    assert factura.lineas[2].concepto == "Reparación repercutida"
-    assert factura.lineas[2].importe == 2000
-
-    assert factura.base == 100000
-    assert factura.iva_importe == 21000
-    assert factura.retencion_importe == 19000
-    assert factura.total == 102000
-
-
-def test_crear_factura_rechaza_linea_adicional_sin_concepto(
-    session,
-    contrato,
-) -> None:
-    """Una línea manual debe tener un concepto no vacío."""
-
-    contrato.rentas.append(
-        RentaContrato(
-            fecha_desde=contrato.fecha_inicio,
-            importe=100000,
-        )
-    )
-    session.commit()
-
-    with pytest.raises(
-        FacturacionError,
-        match="concepto",
-    ):
-        crear_factura(
-            contrato=contrato,
-            periodo=date(2026, 9, 1),
-            fecha_emision=date(2026, 9, 1),
-            lineas_adicionales=[
-                ("   ", 3500),
-            ],
-        )
-
-
-def test_crear_factura_rechaza_linea_adicional_sin_importe(
-    session,
-    contrato,
-) -> None:
-    """Una línea manual debe tener un importe distinto de cero."""
-
-    contrato.rentas.append(
-        RentaContrato(
-            fecha_desde=contrato.fecha_inicio,
-            importe=100000,
-        )
-    )
-    session.commit()
-
-    with pytest.raises(
-        FacturacionError,
-        match="importe",
-    ):
-        crear_factura(
-            contrato=contrato,
-            periodo=date(2026, 9, 1),
-            fecha_emision=date(2026, 9, 1),
-            lineas_adicionales=[
-                ("Consumo de agua", 0),
-            ],
-        )
-
-
 def test_factura_admite_ruta_pdf_vacia_por_defecto(session, contrato) -> None:
     contrato.rentas.append(
         RentaContrato(
@@ -2238,5 +2133,197 @@ def test_preparar_datos_documento_factura_no_anade_nota_otra_retencion() -> None
     assert datos.notas == [
         "Nota introducida por el usuario.",
     ]
+
+
+def test_crear_factura_usa_datos_editados() -> None:
+    """Crea una factura con las líneas y porcentajes editados."""
+
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="A1",
+        descripcion="Local comercial",
+        direccion="Dirección de prueba",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=100000,
+        iva_porcentaje=1000,
+        retencion_porcentaje=500,
+        direccion_facturacion="Calle del Cliente 10",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler local",
+    )
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto="Alquiler octubre",
+                importe=100000,
+            ),
+            LineaFacturaEditada(
+                concepto="Consumo de agua",
+                importe=3500,
+            ),
+        ],
+        notas=[
+            "Primera nota de prueba.",
+            "Segunda nota de prueba.",
+        ],
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        base=103500,
+        iva_importe=21735,
+        retencion_importe=19665,
+        total=105570,
+    )
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        factura_editada=factura_editada,
+    )
+
+    assert len(factura.lineas) == 2
+
+    assert factura.lineas[0].orden == 1
+    assert factura.lineas[0].tipo == "RENTA"
+    assert factura.lineas[0].concepto == "Alquiler octubre"
+    assert factura.lineas[0].importe == 100000
+
+    assert factura.lineas[1].orden == 2
+    assert factura.lineas[1].tipo == "OTRO"
+    assert factura.lineas[1].concepto == "Consumo de agua"
+    assert factura.lineas[1].importe == 3500
+
+    assert factura.base == 103500
+    assert factura.iva_porcentaje == 2100
+    assert factura.iva_importe == 21735
+    assert factura.retencion_porcentaje == 1900
+    assert factura.retencion_importe == 19665
+    assert factura.total == 105570
+
+    assert factura.notas == (
+        "Primera nota de prueba.\n"
+        "Segunda nota de prueba."
+    )
+
+
+def test_emitir_factura_usa_factura_editada(
+    session,
+    contrato,
+) -> None:
+    """Emite y contabiliza los datos de la factura editada."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+
+    contrato.genera_factura = True
+
+    # Deliberadamente distintos de los editados.
+    contrato.iva_porcentaje = 1000
+    contrato.retencion_porcentaje = 500
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto="Alquiler octubre",
+                importe=100000,
+            ),
+            LineaFacturaEditada(
+                concepto="Consumo de agua",
+                importe=3500,
+            ),
+        ],
+        notas=[
+            "Primera nota de prueba.",
+            "Segunda nota de prueba.",
+        ],
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        base=103500,
+        iva_importe=21735,
+        retencion_importe=19665,
+        total=105570,
+    )
+
+    factura, apunte, movimiento = emitir_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        categorias=categorias,
+        factura_editada=factura_editada,
+    )
+
+    assert len(factura.lineas) == 2
+
+    assert factura.lineas[0].orden == 1
+    assert factura.lineas[0].tipo == "RENTA"
+    assert factura.lineas[0].concepto == "Alquiler octubre"
+    assert factura.lineas[0].importe == 100000
+
+    assert factura.lineas[1].orden == 2
+    assert factura.lineas[1].tipo == "OTRO"
+    assert factura.lineas[1].concepto == "Consumo de agua"
+    assert factura.lineas[1].importe == 3500
+
+    assert factura.base == 103500
+    assert factura.iva_porcentaje == 2100
+    assert factura.iva_importe == 21735
+    assert factura.retencion_porcentaje == 1900
+    assert factura.retencion_importe == 19665
+    assert factura.total == 105570
+
+    assert factura.notas == (
+        "Primera nota de prueba.\n"
+        "Segunda nota de prueba."
+    )
+
+    assert apunte.base == 103500
+    assert apunte.iva_importe == 21735
+    assert apunte.retencion_importe == 19665
+    assert apunte.total == 105570
+
+    assert movimiento.importe_esperado == 105570
+    assert movimiento.estado == "PENDIENTE"
 
 

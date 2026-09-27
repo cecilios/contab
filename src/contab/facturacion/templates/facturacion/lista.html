@@ -98,7 +98,7 @@
                                 <div>
                                     {{ local.destinatario_nombre }}
                                 </div>
-                                <div>
+<!--                                <div>
                                     NIF: {{ local.destinatario_nif }}
                                 </div>
                                 <div>
@@ -110,7 +110,7 @@
                                     {% endif %}
                                     {{ local.poblacion_facturacion }}
                                     ({{ local.provincia_facturacion }})
-                                </div>
+                                </div> -->
                             </td>
 
                             <td data-importe="base">
@@ -152,55 +152,14 @@
                                         Resolver revisión
                                     </a>
                                 {% else %}
-                                    <form
-                                        method="post"
-                                        action="{{ url_for(
-                                            'facturacion.emitir',
-                                            contrato_id=local.contrato.id
-                                        ) }}"
-                                        data-formulario-factura
-                                    >
-                                        <input
-                                            type="hidden"
-                                            name="periodo"
-                                            value="{{ periodo_texto }}"
-                                        >
-                                        <input
-                                            type="hidden"
-                                            name="fecha_emision"
-                                            value="{{ fecha_emision_texto }}"
-                                        >
-
-                                        <div data-lineas-adicionales></div>
-
-                                        <a
-                                            href="{{ url_for(
-                                                'facturacion.modificar_factura',
-                                                contrato_id=local.contrato.id,
-                                                periodo=periodo_texto,
-                                                fecha_emision=fecha_emision_texto
-                                            ) }}"
-                                        >
-                                            Modificar
-                                        </a>
-
-                                        &nbsp;
-
-                                        <a
-                                            href="#"
-                                            onclick="this.closest('form').requestSubmit(); return false;"
-                                        >
-                                            Emitir
-                                        </a>
-                                        <br/>
-                                        <a
-                                            class="no-imprimir"
-                                            href="#"
-                                            data-anadir-linea
-                                        >
-                                            Añadir línea
-                                        </a>
-                                    </form>
+                                    <a href="{{ url_for(
+                                        'facturacion.modificar_factura',
+                                        contrato_id=local.contrato.id,
+                                        periodo=periodo_texto,
+                                        fecha_emision=fecha_emision_texto
+                                    ) }}">
+                                        Modificar
+                                    </a>
                                 {% endif %}
                             </td>
                         </tr>
