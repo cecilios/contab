@@ -1206,7 +1206,10 @@ def test_preparar_periodo_facturacion_separa_locales_y_otros(
     assert local.total == 102000
     assert local.lineas == (
         LineaFacturaPreparada(
-            concepto=contrato.concepto_factura,
+            concepto=(
+                f"{contrato.concepto_factura.rstrip('.')}. "
+                "Octubre de 2026"
+            ),
             importe=100000,
         ),
     )
@@ -2385,7 +2388,7 @@ def test_preparar_periodo_facturacion_indica_revision_aplicada(
 
     assert local.lineas == (
         LineaFacturaPreparada(
-            concepto=contrato.concepto_factura,
+            concepto="Alquiler. Noviembre de 2026",
             importe=103600,
         ),
         LineaFacturaPreparada(

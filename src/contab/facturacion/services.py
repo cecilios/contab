@@ -20,6 +20,7 @@ from contab.contratos.services import (
 )
 from contab.formato import (
     nombre_mes,
+    periodo_a_texto_largo,
 )
 
 
@@ -685,15 +686,19 @@ def preparar_periodo_facturacion(
                     fecha_renta,
                 )
 
+                concepto = contrato.concepto_factura.rstrip(".")
+
                 lineas = [
                     LineaFacturaPreparada(
-                        concepto=contrato.concepto_factura,
+                        concepto=(
+                            f"{concepto}. "
+                            f"{periodo_a_texto_largo(periodo)}"
+                        ),
                         importe=importe_renta,
                     )
                 ]
 
-                if (
-                    revision is not None
+                if (revision is not None
                     and revision_estado == "APLICADA"
                 ):
                     diferencia_revision = _diferencia_revision_aplicada(

@@ -478,19 +478,12 @@ def modificar_factura(contrato_id: int):
 
             lineas_formulario = [
                 {
-                    "concepto": (
-                        (
-                            f"{linea.concepto.rstrip('.')}. "
-                            f"{periodo_a_texto_largo(periodo)}"
-                        )
-                        if indice == 0
-                        else linea.concepto
-                    ),
+                    "concepto": linea.concepto,
                     "importe": importe_a_texto_entrada(
                         linea.importe
                     ),
                 }
-                for indice, linea in enumerate(factura.lineas)
+                for linea in factura.lineas
             ]
 
             while len(lineas_formulario) < 5:
