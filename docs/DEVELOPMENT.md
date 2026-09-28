@@ -29,10 +29,8 @@ Before proposing changes or code:
 
 Repository:
 
-```text
 cecilios/contab
 branch: develop
-```
 
 The user's local tree may be ahead of GitHub between commits. Once the user says changes have been committed and pushed, `develop` can again be treated as current.
 
@@ -469,7 +467,7 @@ Discard proposals remain postponed because they currently offer little value.
 
 ## Billing: current operational scope
 
-Billing has been implemented to the minimum level required for the October 2026 parallel run.
+Billing now contains the complete ordinary workflow required for the October 2026 parallel run.
 
 The monthly screen is:
 
@@ -480,8 +478,8 @@ The monthly screen is:
 It receives:
 
 ```text
-periodo       mm-aaaa
-fecha_emision dd-mm-aaaa
+periodo
+fecha_emision
 ```
 
 Initial values propose the next calendar month and its first day.
@@ -494,6 +492,8 @@ Otros
 ```
 
 Preparation is transient. Do not create `Factura` objects merely to display the monthly preparation.
+
+A `Factura` is persisted only when the user confirms the final accounting operation.
 
 ### Contract selection
 
@@ -528,25 +528,63 @@ tercero_nif    = "11111111A / 22222222B"
 
 For invoice rows the billing address comes from the current contract.
 
-Historical recipient/address snapshots are deliberately not stored in `Factura`. The archived physical document is the definitive historical representation.
+Historical recipient/address snapshots are deliberately not stored in `Factura`. The emitted document is the definitive historical representation.
 
 ## Billing: invoice preparation
 
-`FacturaPreparada` is transient and contains the calculated monthly row.
+`FacturaPreparada` is transient and represents the calculated invoice for the requested period.
+
+It contains, among other data:
+
+```text
+contract
+property
+recipient
+billing address
+definitive prepared lines
+automatic notes
+base
+VAT
+withholding
+total
+predicted invoice number
+rent revision and state
+existing Factura, if already emitted
+```
+
+A key design rule is:
+
+```text
+FacturaPreparada.lineas
+    = definitive lines that consumers should display
+```
+
+Routes and templates must not independently reconstruct invoice concepts already prepared by the service.
+
+In particular, the ordinary rent concept already includes the invoiced period, for example:
+
+```text
+Alquiler local. Octubre de 2026
+```
+
+This avoids differences between the monthly list, Modify and Preview paths.
 
 If no invoice exists for contract/period:
 
-* amounts are calculated from the current applicable rent and tax percentages;
+* lines and amounts are calculated from current contract data;
+* automatic notes are prepared;
+* revision effects are incorporated when applicable;
 * `siguiente_numero_factura()` predicts the number for display;
 * no `Factura` is persisted.
 
 If an invoice already exists:
 
 * `FacturaPreparada.factura` references it;
-* its persisted invoice number and economic amounts are displayed;
+* persisted invoice lines and economic amounts are used;
+* current contract data must not recalculate the economic content;
 * the row shows `Emitida`.
 
-The predicted number is only operational guidance for preparing the physical invoice. The definitive number is assigned when emission is confirmed.
+The predicted number is only operational guidance. The definitive number is assigned when the invoice is persisted.
 
 Invoice numbering is per property and year, across all contracts belonging to the property:
 
@@ -560,9 +598,229 @@ There is deliberately no database unique constraint on `(contrato_id, periodo)` 
 
 Ordinary `emitir_factura()` nevertheless rejects a second invoice for the same contract/period, including when the existing invoice is annulled. Replacement after annulment requires a future explicit workflow.
 
-## Billing: emission
+## Billing: automatic notes
 
-`emitir_factura()` prepares:
+Automatic invoice notes are prepared centrally and included in `FacturaPreparada.notas`.
+
+Current automatic cases include:
+
+```text
+24 % withholding
+rent revision AVISO
+rent revision ESPERANDO_INDICE
+rent revision APLICADA
+```
+
+These notes must survive all paths:
+
+```text
+monthly list → Preview
+
+monthly list → Modify → Preview
+```
+
+Modify therefore starts from `factura.notas`.
+
+User-entered notes can be added during transient editing.
+
+The final notes are persisted with the invoice when accounting is confirmed.
+
+Do not reconstruct automatic notes independently in individual templates or routes.
+
+## Billing: transient modification
+
+An unissued prepared invoice can be opened through `Modificar`.
+
+The form receives the lines already contained in `FacturaPreparada`.
+
+It allows transient editing of:
+
+```text
+concepts
+amounts
+VAT percentage
+withholding percentage
+notes
+```
+
+No draft `Factura` is persisted.
+
+Empty form lines are discarded.
+
+The form deliberately exposes only a small fixed number of line/note inputs because real invoices are compact and the physical document is intended to occupy approximately half an A4 page.
+
+A revision in state `PENDIENTE` blocks modification until the revision has been resolved.
+
+The result is represented by `FacturaEditada`, which is then used by Preview and final accounting.
+
+## Billing: preview and invoice document
+
+Invoices can be previewed directly from the monthly list or after passing through Modify.
+
+The preview renders the configured HTML invoice template.
+
+The rendered invoice uses prepared data for:
+
+```text
+issuer
+recipient
+property
+period
+lines
+notes
+base
+VAT
+withholding
+total
+invoice number
+issue date
+```
+
+The same prepared invoice must produce equivalent economic/document data regardless of the path used to reach Preview.
+
+The current HTML invoice is printable and is sufficient for the October real workflow.
+
+The preview also contains a hidden accounting form carrying the exact edited lines, percentages, notes and previsualized totals.
+
+The server does not trust those totals blindly.
+
+Before persistence:
+
+```text
+parse submitted edited invoice
+recalculate base / VAT / withholding / total
+compare with previewed totals
+```
+
+If they differ, accounting is rejected and the user must preview again.
+
+This protects the transition between Preview and Contabilizar.
+
+## Billing: rent revisions
+
+Rent revisions are integrated with invoice preparation.
+
+`situacion_revision()` provides the state relevant to the requested billing period.
+
+Current visible states are:
+
+```text
+AVISO
+ESPERANDO_INDICE
+PENDIENTE
+APLICADA
+```
+
+### AVISO
+
+A pending revision scheduled for the following month produces:
+
+```text
+AVISO
+```
+
+The monthly list displays:
+
+```text
+Aviso
+```
+
+and the prepared invoice includes an explanatory automatic note.
+
+### ESPERANDO_INDICE
+
+A pending revision scheduled for the current month whose index is not yet available produces:
+
+```text
+ESPERANDO_INDICE
+```
+
+The monthly list displays:
+
+```text
+Esperando índice
+```
+
+The previous rent remains applicable for that invoice.
+
+An automatic note explains that the index is unavailable and that the difference will be charged once it becomes known.
+
+### PENDIENTE
+
+When the revision requires resolution before billing can continue:
+
+```text
+PENDIENTE
+```
+
+Modify/accounting is blocked.
+
+The user must resolve the revision first.
+
+### APLICADA
+
+After the revision has been resolved and its effects belong in the current billing period:
+
+```text
+APLICADA
+```
+
+The monthly list displays:
+
+```text
+Aplicada
+```
+
+This is a period-specific billing state. It must not continue appearing indefinitely in later months.
+
+The revised `RentaContrato` supplies the new ordinary monthly rent.
+
+When the scheduled revision month was previously invoiced using the old rent while waiting for the index, the applicable following invoice also contains an arrears line for that month.
+
+Prepared lines therefore become, conceptually:
+
+```text
+revised current monthly rent
++ arrears for scheduled revision month
+```
+
+The same preparation also produces two automatic notes:
+
+```text
+index / percentage applied and resulting rent increase
+arrears explanation referring to the previous invoice
+```
+
+The applied revision, arrears line and notes have been tested through:
+
+```text
+monthly Preview
+Modify
+Preview after Modify
+final Contabilizar
+```
+
+The final persisted invoice retains both lines and the recalculated totals.
+
+Index descriptions include the currently required methods, including IRAV.
+
+Month-name formatting is centralized in the formatting utilities rather than maintaining repeated month tables in billing code.
+
+Do not generalize the revision workflow until a real contract requires behavior outside the current rules.
+
+## Billing: final accounting
+
+The definitive action from Preview is:
+
+```text
+Contabilizar
+```
+
+The accounting POST parses the exact `FacturaEditada` represented by the preview.
+
+It verifies that its recalculated amounts match the previsualized amounts before persistence.
+
+`emitir_factura()` then prepares:
 
 ```text
 Factura
@@ -572,6 +830,10 @@ MovimientoPrevisto
 ```
 
 The POST route owns the transaction and persists all of them atomically.
+
+When `FacturaEditada` is supplied, `crear_factura()` persists its lines rather than reconstructing a single rent line from the contract.
+
+This is important for invoices containing revision arrears or manually edited extra lines.
 
 Generated accounting data:
 
@@ -594,30 +856,41 @@ fecha_prevista_hasta = last day of month
 
 The deliberately broad expected interval avoids making reconciliation harder when a tenant pays late.
 
-After emission the route redirects to the same monthly preparation and the row becomes `Emitida`.
+After persistence the route redirects to the same monthly preparation and the row becomes `Emitida`.
 
-Physical invoice creation remains manual for now. Automatic ODS/PDF generation is postponed.
+## Billing: FacturaLinea.type technical debt
 
-## Billing: rent revision notices
-
-`situacion_revision()` currently recognizes pending revisions:
+`FacturaLinea` currently has a constrained `tipo` field:
 
 ```text
-revision scheduled next month → AVISO
-revision scheduled this month → ESPERANDO_INDICE
-otherwise                     → none
+RENTA
+DIFERENCIA_REVISION
+REPERCUSION_GASTO
+OTRO
 ```
 
-The monthly screen shows:
+This classification currently provides little useful behavior.
+
+It is especially questionable now that prepared invoice lines can be edited transiently before persistence: `crear_factura()` currently classifies the first edited line as `RENTA` and subsequent edited lines as `OTRO`, so the stored type does not necessarily preserve the semantic origin of a prepared line such as revision arrears.
+
+Do not refactor this immediately.
+
+Removing or simplifying `FacturaLinea.tipo` requires a database migration, and there is no operational reason to risk that change immediately before the October real run.
+
+Revisit after real use begins.
+
+Likely direction:
 
 ```text
-Aviso
-En espera del índice
+verify whether any real behavior depends on FacturaLinea.tipo
+    ↓
+if not
+    → remove field and CheckConstraint
+    → create Alembic migration
+    → simplify creation code/tests
 ```
 
-`emitir_factura()` recalculates the situation server-side rather than trusting the browser and stores the revision/notice on the emitted invoice.
-
-Actual revision calculation, new rent creation and arrears remain postponed until required by a real case.
+Do not undertake this migration merely for aesthetic cleanup before real billing starts.
 
 ## Billing: non-invoice rents
 
@@ -634,7 +907,7 @@ Estado/Acción
 
 Only holder names are displayed as recipient information; NIF/address would add noise to this control list.
 
-Each row is confirmed individually. This was chosen deliberately during initial parallel use because explicit confirmation gives the client confidence and there are very few rows.
+Each row is confirmed individually.
 
 Action:
 
@@ -704,56 +977,101 @@ The service also rejects a second accounting operation for the same contract/per
 
 ## Billing: intentionally postponed scope
 
-Do not implement without a real requirement:
+The ordinary October workflow is complete.
 
-* editable draft invoices;
-* a separate single-invoice workflow merely to prepare ordinary invoices;
-* manual `OTRO` lines;
-* extraordinary invoice UI;
+Do not implement the following merely because the model could support them:
+
+* persistent editable draft invoices;
+* a separate ordinary single-invoice preparation subsystem;
+* extraordinary invoice workflow;
 * replacement after annulment;
 * rectifying invoices;
-* automatic ODS/PDF generation;
-* full rent-revision calculation.
+* generalized rent-revision workflows for hypothetical contracts;
+* generic expense repercussion before a real use case requires it.
 
-`Factura` should be created only when the user confirms emission.
+Transient editing already handles simple exceptional invoice lines without creating persistent drafts.
 
-If manual extra lines become necessary, prefer transient preparation data rather than persisting draft invoices.
+## Billing: pending work
+
+The following items are known but are not blockers for October billing.
+
+### `FacturaLinea.tipo`
+
+Review whether line types have any continuing functional value.
+
+If not, remove/simplify them later with an explicit Alembic migration.
+
+Do not perform this schema change immediately before real use.
+
+### Expense repercussion
+
+Integrate real repercutible expenses with invoice preparation when the first concrete cases appear.
+
+Keep the distinction:
+
+```text
+distribuir = analytical allocation
+repercutir = charge to tenant
+```
+
+Reuse accounting data rather than entering the same economic fact again.
+
+### Annulment, replacement and rectification
+
+The model supports invoice state, but there is no complete operational workflow for replacement or rectification.
+
+Design this explicitly when required.
+
+Do not relax the ordinary duplicate-invoice protection as a shortcut.
+
+### More complex rent revisions
+
+The current revision workflow covers the known real case.
+
+Only generalize it if a contract requires different timing, index handling or arrears behavior.
+
+### Revision indices
+
+Current index descriptions include the methods required now, including IRAV.
+
+Add further index/territorial behavior only when real contracts require it.
+
+### Extraordinary lines
+
+Transient Modify already permits additional lines.
+
+Do not create a separate persistent draft/extra-line subsystem without a real operational requirement.
+
+### Invoice document improvements
+
+The current HTML template and printing workflow are sufficient for October.
+
+Further layout, format or document-generation work should be driven by real client use.
 
 ## September 2026 invoice bootstrap
 
-Before preparing the first real October 2026 invoices, import the real September 2026 invoices.
+The real September 2026 invoices provide the historical billing antecedent needed for October numbering.
 
-Purpose:
+The bootstrap is billing history only.
 
-* establish the actual last 2026 invoice sequence for each property;
-* preserve genuine invoice history instead of creating fake sequence records.
-
-Keep this as a deliberately simple one-off script.
-
-Expected approach:
-
-```text
-load real contracts
-call crear_factura() for each actual September invoice
-persist the resulting Factura and FacturaLinea records
-```
-
-Do **not** create September:
+It must not create September:
 
 ```text
 ApunteContable
 MovimientoPrevisto
 ```
 
-September remains historical billing bootstrap only.
+The purpose is:
 
-Do not build elaborate import infrastructure, dry-run systems or generic validation unless a concrete need appears. The user and client will review the imported result, and exceptional incorrect values can be corrected directly with DB Browser for SQLite.
+* preserve genuine September invoice history;
+* establish the actual last 2026 invoice sequence for each property;
+* allow October numbering to continue correctly.
 
-Before writing the script, inspect the repository for existing script conventions and reuse the normal database/configuration infrastructure.
+Keep any bootstrap/import tooling deliberately simple.
 
 ## Current stopping point
 
-The minimum functional block required to start real parallel use on 1 October 2026 is complete.
+The billing functionality required for the October 2026 real run is complete.
 
 Implemented and tested end-to-end:
 
@@ -761,12 +1079,49 @@ Implemented and tested end-to-end:
 monthly preparation
     ↓
 facturable contract
-    → review calculated data/revision notice
-    → Emitir
-    → Factura + ApunteContable + MovimientoPrevisto
+    → prepared definitive invoice lines
+    → automatic notes
+    → revision state/effects when applicable
+    → Preview directly
+       or
+      Modify → Preview
+    → printable invoice
+    → Contabilizar
+    → validate previewed totals
+    → Factura + FacturaLinea(s)
+    + ApunteContable
+    + MovimientoPrevisto
     → return to same month
     → Emitida
+```
 
+Revision workflow currently covers:
+
+```text
+month before revision
+    → AVISO
+    → automatic notice
+
+scheduled revision month while index unavailable
+    → ESPERANDO_INDICE
+    → old rent
+    → automatic explanation
+
+revision resolution
+    → new RentaContrato
+
+applicable following invoice
+    → APLICADA
+    → revised monthly rent
+    + arrears for scheduled revision month
+    + automatic revision notes
+```
+
+The `APLICADA` state and arrears are period-specific and do not continue into later ordinary invoices.
+
+The non-invoice path remains:
+
+```text
 monthly preparation
     ↓
 non-invoice contract
@@ -777,34 +1132,60 @@ non-invoice contract
     → Contabilizado
 ```
 
-The full pytest suite is green, and both monthly actions have been manually checked in the browser.
+The full pytest suite is green.
+
+Manual browser testing has covered the relevant billing paths, including:
+
+```text
+ordinary preview
+Modify
+Preview after Modify
+AVISO
+ESPERANDO_INDICE
+APLICADA
+revised rent
+arrears line
+automatic notes
+final accounting with multiple lines
+correct persisted totals
+```
+
+No known billing change is required before using Contab for the October invoices.
 
 The latest completed functional block is:
 
 ```text
-Contabilizar ingresos sin factura desde la preparación mensual
+Unificar los conceptos definitivos en FacturaPreparada.lineas
 ```
+
+This removed the last known difference in interpretation between the monthly list and Modify/Preview paths.
 
 ## Next change
 
-The immediate priority is preparing the September bootstrap and starting the October parallel run. Further billing work should be driven primarily by issues and needs found during real use.
+Do not start another speculative billing refactor before the October real run.
 
-Immediate sequence:
+The immediate priority is operational use with real client data.
 
-1. update `Facturacion.md` and this handoff;
-2. create the one-off September 2026 invoice bootstrap script;
-3. run it against a copy of the future real database;
-4. review the imported September invoices and resulting numbering;
-5. begin October parallel use.
+Use the current system and prioritize any problem that actually appears during:
 
-After real use begins, prioritize observed operational problems.
+```text
+October invoice preparation
+invoice review and printing
+accounting
+bank import
+reconciliation
+```
 
-Likely later work, only as needed:
+Further billing development should be driven primarily by observed needs.
 
-1. expenses, repercussion and analytical allocation, especially for grouped IBI work expected later in the year;
+Known later areas include:
+
+1. expense repercussion and analytical allocation, especially grouped property expenses;
 2. accounting completeness/integrity controls;
 3. fiscal/accounting reports needed for year-end and January;
-4. rent-revision completion when a real case reaches that stage;
-5. invoice document generation if it proves worthwhile.
+4. `FacturaLinea.tipo` cleanup if it remains unnecessary;
+5. invoice annulment/replacement/rectification when first required;
+6. rent-revision generalization only if another real contract needs it;
+7. invoice document/layout improvements if real use shows a need.
 
-Do not let these anticipated areas delay the September bootstrap or the October parallel test.
+Prefer fixing real operational friction over adding anticipated functionality.
