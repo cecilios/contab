@@ -119,9 +119,11 @@
                                 {% if local.revision_estado == "AVISO" %}
                                     Aviso
                                 {% elif local.revision_estado == "ESPERANDO_INDICE" %}
-                                    En espera del índice
+                                    Esperando índice
                                 {% elif local.revision_estado == "PENDIENTE" %}
-                                    Revisión pendiente
+                                    Pendiente
+                                {% elif local.revision_estado == "APLICADA" %}
+                                    <span>Aplicada</span>
                                 {% endif %}
                             </td>
 
@@ -158,6 +160,14 @@
                                                 type="hidden"
                                                 name="linea_importe"
                                                 value="{{ importe_a_texto_entrada(linea.importe) }}"
+                                            >
+                                        {% endfor %}
+
+                                        {% for nota in local.notas %}
+                                            <input
+                                                type="hidden"
+                                                name="nota_texto"
+                                                value="{{ nota }}"
                                             >
                                         {% endfor %}
 

@@ -31,6 +31,8 @@ from contab.facturacion.services import (
     contabilizar_ingreso_sin_factura,
     crear_factura,
     emitir_factura,
+    notas_automaticas_factura,
+    notas_revision_factura,
     preparar_datos_documento_factura,
     preparar_periodo_facturacion,
     preparar_registro_contable_factura,
@@ -1991,173 +1993,32 @@ def test_contabilizar_ingreso_sin_factura_rechaza_duplicado(
         )
 
 
-def test_preparar_datos_documento_factura_anade_nota_retencion_24() -> None:
-    """Añade la nota de no residente para una retención del 24 %."""
+def test_notas_automaticas_factura_no_anade_nota_otra_retencion() -> None:
+    """No añade la nota de no residente para otra retención."""
 
-    inmueble = Inmueble(
-        referencia="LOCAL-1",
-        tipo="L",
-        codigo_facturacion="A1",
-        descripcion="Local comercial",
-        direccion="Dirección de prueba",
-        poblacion="Pontevedra",
-        provincia="Pontevedra",
-    )
-
-    contrato = Contrato(
-        inmueble=inmueble,
-        fecha_inicio=date(2026, 1, 1),
-        fecha_vencimiento=date(2030, 12, 31),
-        genera_factura=True,
-        fecha_inicio_facturacion=date(2026, 1, 1),
-        fianza=100000,
-        iva_porcentaje=2100,
-        retencion_porcentaje=2400,
-        direccion_facturacion="Calle del Cliente 10",
-        codigo_postal_facturacion="36001",
-        poblacion_facturacion="Pontevedra",
-        provincia_facturacion="Pontevedra",
-        concepto_factura="Alquiler local",
-    )
-
-    factura = FacturaPreparada(
-        contrato=contrato,
-        inmueble=inmueble,
-        destinatario_nombre="Ana Pérez",
-        destinatario_nif="11111111A",
-        direccion_facturacion="Calle del Cliente 10",
-        codigo_postal_facturacion="36001",
-        poblacion_facturacion="Pontevedra",
-        provincia_facturacion="Pontevedra",
-        lineas=(
-            LineaFacturaPreparada(
-                concepto="Alquiler local",
-                importe=100000,
-            ),
-        ),
-        base=100000,
-        iva_importe=21000,
-        retencion_importe=24000,
-        total=97000,
-        factura=None,
-        numero_factura="2026-A1-10",
+    notas = notas_automaticas_factura(
+        retencion_porcentaje=1900,
         revision=None,
         revision_estado=None,
     )
 
-    factura_editada = FacturaEditada(
-        lineas=[
-            LineaFacturaEditada(
-                concepto="Alquiler local. Octubre de 2026",
-                importe=100000,
-            )
-        ],
-        notas=[
-            "Nota introducida por el usuario.",
-        ],
-        iva_porcentaje=2100,
+    assert notas == []
+
+
+def test_notas_automaticas_factura_anade_nota_retencion_24() -> None:
+    """Añade la nota de no residente para una retención del 24 %."""
+
+    notas = notas_automaticas_factura(
         retencion_porcentaje=2400,
-        base=100000,
-        iva_importe=21000,
-        retencion_importe=24000,
-        total=97000,
+        revision=None,
+        revision_estado=None,
     )
 
-    datos = preparar_datos_documento_factura(
-        factura=factura,
-        factura_editada=factura_editada,
-        fecha_emision=date(2026, 10, 1),
-    )
-
-    assert datos.notas == [
-        "Nota introducida por el usuario.",
+    assert notas == [
         (
             "Se aplica el 24% de retención por ser el emisor "
             "no residente en la UE ni el EEE"
         ),
-    ]
-
-
-def test_preparar_datos_documento_factura_no_anade_nota_otra_retencion() -> None:
-    """No añade la nota de no residente para otra retención."""
-
-    inmueble = Inmueble(
-        referencia="LOCAL-1",
-        tipo="L",
-        codigo_facturacion="A1",
-        descripcion="Local comercial",
-        direccion="Dirección de prueba",
-        poblacion="Pontevedra",
-        provincia="Pontevedra",
-    )
-
-    contrato = Contrato(
-        inmueble=inmueble,
-        fecha_inicio=date(2026, 1, 1),
-        fecha_vencimiento=date(2030, 12, 31),
-        genera_factura=True,
-        fecha_inicio_facturacion=date(2026, 1, 1),
-        fianza=100000,
-        iva_porcentaje=2100,
-        retencion_porcentaje=1900,
-        direccion_facturacion="Calle del Cliente 10",
-        codigo_postal_facturacion="36001",
-        poblacion_facturacion="Pontevedra",
-        provincia_facturacion="Pontevedra",
-        concepto_factura="Alquiler local",
-    )
-
-    factura = FacturaPreparada(
-        contrato=contrato,
-        inmueble=inmueble,
-        destinatario_nombre="Ana Pérez",
-        destinatario_nif="11111111A",
-        direccion_facturacion="Calle del Cliente 10",
-        codigo_postal_facturacion="36001",
-        poblacion_facturacion="Pontevedra",
-        provincia_facturacion="Pontevedra",
-        lineas=(
-            LineaFacturaPreparada(
-                concepto="Alquiler local",
-                importe=100000,
-            ),
-        ),
-        base=100000,
-        iva_importe=21000,
-        retencion_importe=19000,
-        total=102000,
-        factura=None,
-        numero_factura="2026-A1-10",
-        revision=None,
-        revision_estado=None,
-    )
-
-    factura_editada = FacturaEditada(
-        lineas=[
-            LineaFacturaEditada(
-                concepto="Alquiler local. Octubre de 2026",
-                importe=100000,
-            )
-        ],
-        notas=[
-            "Nota introducida por el usuario.",
-        ],
-        iva_porcentaje=2100,
-        retencion_porcentaje=1900,
-        base=100000,
-        iva_importe=21000,
-        retencion_importe=19000,
-        total=102000,
-    )
-
-    datos = preparar_datos_documento_factura(
-        factura=factura,
-        factura_editada=factura_editada,
-        fecha_emision=date(2026, 10, 1),
-    )
-
-    assert datos.notas == [
-        "Nota introducida por el usuario.",
     ]
 
 
@@ -2351,5 +2212,193 @@ def test_emitir_factura_usa_factura_editada(
 
     assert movimiento.importe_esperado == 105570
     assert movimiento.estado == "PENDIENTE"
+
+
+def test_notas_revision_factura_avisa_revision_mes_siguiente() -> None:
+    """Avisa de la revisión prevista para el mes siguiente."""
+
+    revision = RevisionRenta(
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    notas = notas_revision_factura(
+        revision,
+        "AVISO",
+    )
+
+    assert notas == [
+        (
+            "Según lo estipulado en el contrato, el próximo mes "
+            "de octubre corresponde actualizar el alquiler "
+            "conforme a la variación experimentada por el IPC "
+            "General de Precios al Consumo en los últimos doce "
+            "meses."
+        ),
+    ]
+
+
+def test_notas_revision_factura_espera_indice() -> None:
+    """Explica que se mantiene la renta mientras se espera el índice."""
+
+    revision = RevisionRenta(
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    notas = notas_revision_factura(
+        revision,
+        "ESPERANDO_INDICE",
+    )
+
+    assert notas == [
+        (
+            "Según lo estipulado en el contrato, corresponde este "
+            "mes actualizar el alquiler conforme a la variación "
+            "experimentada por el IPC General de Precios al "
+            "Consumo en los últimos doce meses. Como dicho dato "
+            "no está aún disponible, se mantiene en este mes el "
+            "alquiler del año anterior. Se pasará la diferencia "
+            "una vez que se conozca el dato del IPC General de "
+            "Precios al Consumo."
+        ),
+    ]
+
+
+def test_notas_revision_factura_revision_aplicada() -> None:
+    """Explica la revisión aplicada y los atrasos del mes anterior."""
+
+    revision = RevisionRenta(
+        fecha_prevista=date(2026, 10, 1),
+        fecha_resolucion=date(2026, 11, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=360,
+    )
+
+    notas = notas_revision_factura(
+        revision,
+        "APLICADA",
+    )
+
+    assert notas == [
+        (
+            "El IPC General de Precios al Consumo de octubre ha "
+            "sido del 3,6%, por lo que se incrementa el alquiler "
+            "en esta cuantía."
+        ),
+        (
+            "Atrasos de Octubre 2026 por la actualización de "
+            "renta, conforme se indicó en el recibo de dicho mes."
+        ),
+    ]
+
+
+def test_notas_revision_factura_adapta_descripcion_del_indice() -> None:
+    """Usa la denominación correspondiente al índice de revisión."""
+
+    revision = RevisionRenta(
+        fecha_prevista=date(2026, 8, 1),
+        metodo="IPC_AUTONOMICO",
+        estado="PENDIENTE",
+    )
+
+    notas = notas_revision_factura(
+        revision,
+        "AVISO",
+    )
+
+    assert notas == [
+        (
+            "Según lo estipulado en el contrato, el próximo mes "
+            "de agosto corresponde actualizar el alquiler "
+            "conforme a la variación experimentada por el IPC "
+            "General de la Comunidad de Madrid en los últimos doce meses."
+        ),
+    ]
+
+
+def test_notas_revision_factura_sin_revision() -> None:
+    """No genera notas cuando no existe revisión de renta."""
+
+    assert notas_revision_factura(
+        None,
+        None,
+    ) == []
+
+
+def test_preparar_periodo_facturacion_indica_revision_aplicada(
+    session,
+    contrato,
+) -> None:
+    """Indica la revisión aplicada durante el mes siguiente."""
+
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+
+    contrato.genera_factura = True
+    contrato.iva_porcentaje = 2100
+    contrato.retencion_porcentaje = 1900
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        fecha_resolucion=date(2026, 11, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=360,
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 11, 1),
+        fecha_emision=date(2026, 11, 1),
+    )
+
+    assert len(preparacion.locales) == 1
+
+    local = preparacion.locales[0]
+
+    assert local.revision is revision
+    assert local.revision_estado == "APLICADA"
+    assert local.notas == (
+        (
+            "El IPC General de Precios al Consumo de octubre ha "
+            "sido del 3,6%, por lo que se incrementa el alquiler "
+            "en esta cuantía."
+        ),
+        (
+            "Atrasos de Octubre 2026 por la actualización de "
+            "renta, conforme se indicó en el recibo de dicho mes."
+        ),
+    )
+
+    # Comprobar que al mes siguiente el estado de la revisión ya no muestra 'Aplicada'
+    preparacion_diciembre = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 12, 1),
+        fecha_emision=date(2026, 12, 1),
+    )
+
+    local_diciembre = preparacion_diciembre.locales[0]
+
+    assert local_diciembre.revision is None
+    assert local_diciembre.revision_estado is None
+    assert local_diciembre.notas == ()
 
 

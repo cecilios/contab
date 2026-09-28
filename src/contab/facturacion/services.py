@@ -18,6 +18,9 @@ from contab.models import (
 from contab.contratos.services import (
     renta_facturable,
 )
+from contab.formato import (
+    nombre_mes,
+)
 
 
 class CalculoFacturaError(Exception):
@@ -78,6 +81,7 @@ class FacturaPreparada:
     poblacion_facturacion: str
     provincia_facturacion: str
     lineas: tuple[LineaFacturaPreparada, ...]
+    notas: tuple[str, ...]
     base: int
     iva_importe: int
     retencion_importe: int
@@ -172,11 +176,30 @@ def _movimiento_ingreso_periodo(
     )
 
 
+def _descripcion_indice_revision(
+    metodo: str,
+) -> str:
+    """Devuelve la descripción del índice usado para revisar la renta."""
+
+    if metodo == "IPC_NACIONAL":
+        return "IPC General de Precios al Consumo"
+
+    if metodo == "IPC_AUTONOMICO":
+        return "IPC General de la Comunidad de Madrid"
+
+    if metodo == "IRAV":
+        return "Indice de Referencia de Arrendamientos de Vivienda"
+
+    raise FacturacionError(
+        f"Método de revisión no reconocido: {metodo}."
+    )
+
+
 def situacion_revision(
     contrato: Contrato,
     periodo: date,
 ) -> tuple[RevisionRenta | None, str | None]:
-    """Obtiene la revisión pendiente y su situación en el período."""
+    """Obtiene la revisión y su situación en el período."""
 
     if periodo.month == 12:
         siguiente_mes = date(
@@ -190,6 +213,29 @@ def situacion_revision(
             periodo.month + 1,
             1,
         )
+
+    if periodo.month == 1:
+        mes_anterior = date(
+            periodo.year - 1,
+            12,
+            1,
+        )
+    else:
+        mes_anterior = date(
+            periodo.year,
+            periodo.month - 1,
+            1,
+        )
+
+    # Una revisión aplicada el mes anterior debe reflejarse
+    # en la factura de este mes.
+    for revision in contrato.revisiones_renta:
+        if (
+            revision.estado == "APLICADA"
+            and revision.fecha_prevista.year == mes_anterior.year
+            and revision.fecha_prevista.month == mes_anterior.month
+        ):
+            return revision, "APLICADA"
 
     for revision in contrato.revisiones_renta:
         if revision.estado != "PENDIENTE":
@@ -641,6 +687,12 @@ def preparar_periodo_facturacion(
 
             destinatario_nombre, destinatario_nif = componer_destinatario(contrato)
 
+            notas = notas_automaticas_factura(
+                retencion_porcentaje=contrato.retencion_porcentaje,
+                revision=revision,
+                revision_estado=revision_estado,
+            )
+
             locales.append(
                 FacturaPreparada(
                     contrato=contrato,
@@ -653,6 +705,7 @@ def preparar_periodo_facturacion(
                     poblacion_facturacion=contrato.poblacion_facturacion,
                     provincia_facturacion=contrato.provincia_facturacion,
                     lineas=lineas,
+                    notas=tuple(notas),
                     base=base,
                     iva_importe=iva_importe,
                     retencion_importe=retencion_importe,
@@ -741,11 +794,6 @@ def preparar_datos_documento_factura(
     """Prepara los datos necesarios para renderizar una factura."""
 
     notas = list(factura_editada.notas)
-    if factura_editada.retencion_porcentaje == 2400:
-        notas.append(
-            "Se aplica el 24% de retención por ser el emisor "
-            "no residente en la UE ni el EEE"
-        )
 
     return DatosDocumentoFactura(
         titulo=factura.inmueble.descripcion,
@@ -782,5 +830,99 @@ def preparar_datos_documento_factura(
         total=factura_editada.total,
         notas=notas,
     )
+
+
+def notas_revision_factura(
+    revision: RevisionRenta | None,
+    revision_estado: str | None,
+) -> list[str]:
+    """Genera las notas automáticas asociadas a una revisión de renta."""
+
+    if revision is None:
+        return []
+
+    indice = _descripcion_indice_revision(
+        revision.metodo
+    )
+    mes = nombre_mes(revision.fecha_prevista)
+
+    if revision_estado == "AVISO":
+        return [
+            (
+                "Según lo estipulado en el contrato, el próximo "
+                f"mes de {mes} corresponde actualizar el alquiler "
+                "conforme a la variación experimentada por el "
+                f"{indice} en los últimos doce meses."
+            )
+        ]
+
+    if revision_estado == "ESPERANDO_INDICE":
+        return [
+            (
+                "Según lo estipulado en el contrato, corresponde "
+                "este mes actualizar el alquiler conforme a la "
+                "variación experimentada por el "
+                f"{indice} en los últimos doce meses. Como dicho "
+                "dato no está aún disponible, se mantiene en este "
+                "mes el alquiler del año anterior. Se pasará la "
+                "diferencia una vez que se conozca el dato del "
+                f"{indice}."
+            )
+        ]
+
+    if revision_estado == "APLICADA":
+        porcentaje = revision.porcentaje_aplicado
+
+        if porcentaje is None:
+            return []
+
+        porcentaje_texto = (
+            f"{porcentaje / 100:.2f}"
+            .rstrip("0")
+            .rstrip(".")
+            .replace(".", ",")
+        )
+
+        return [
+            (
+                f"El {indice} de {mes} ha sido del "
+                f"{porcentaje_texto}%, por lo que se incrementa "
+                "el alquiler en esta cuantía."
+            ),
+            (
+                f"Atrasos de {mes.capitalize()} "
+                f"{revision.fecha_prevista.year} por la "
+                "actualización de renta, conforme se indicó en "
+                "el recibo de dicho mes."
+            ),
+        ]
+
+    return []
+
+
+def notas_automaticas_factura(
+    *,
+    retencion_porcentaje: int,
+    revision: RevisionRenta | None,
+    revision_estado: str | None,
+) -> list[str]:
+    """Genera las notas automáticas de una factura."""
+
+    notas: list[str] = []
+
+    if retencion_porcentaje == 2400:
+        notas.append(
+            "Se aplica el 24% de retención por ser el emisor "
+            "no residente en la UE ni el EEE"
+        )
+
+    notas.extend(
+        notas_revision_factura(
+            revision,
+            revision_estado,
+        )
+    )
+
+    return notas
 
 

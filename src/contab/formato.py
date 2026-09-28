@@ -2,6 +2,26 @@ from decimal import Decimal, InvalidOperation
 from datetime import date, datetime
 
 
+_MESES = (
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+)
+
+
+def nombre_mes(fecha: date) -> str:
+    """Devuelve en español el nombre del mes de una fecha."""
+
+    return _MESES[fecha.month - 1]
 
 def fecha_a_texto(valor: date) -> str:
     """Convierte una fecha al formato usado por la interfaz."""
@@ -117,24 +137,9 @@ def porcentaje_a_texto_entrada(porcentaje: int) -> str:
 def fecha_a_texto_largo(fecha: date) -> str:
     """Devuelve una fecha con el mes escrito en español."""
 
-    meses = (
-        "enero",
-        "febrero",
-        "marzo",
-        "abril",
-        "mayo",
-        "junio",
-        "julio",
-        "agosto",
-        "septiembre",
-        "octubre",
-        "noviembre",
-        "diciembre",
-    )
-
     return (
         f"{fecha.day} de "
-        f"{meses[fecha.month - 1]} de "
+        f"{nombre_mes(fecha)} de "
         f"{fecha.year}"
     )
 
@@ -142,22 +147,7 @@ def fecha_a_texto_largo(fecha: date) -> str:
 def periodo_a_texto_largo(periodo: date) -> str:
     """Devuelve un período mensual con el mes escrito en español."""
 
-    meses = (
-        "enero",
-        "febrero",
-        "marzo",
-        "abril",
-        "mayo",
-        "junio",
-        "julio",
-        "agosto",
-        "septiembre",
-        "octubre",
-        "noviembre",
-        "diciembre",
-    )
-
-    mes = meses[periodo.month - 1]
+    mes = nombre_mes(periodo)
 
     return f"{mes.capitalize()} de {periodo.year}"
 

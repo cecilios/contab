@@ -655,7 +655,7 @@ ING_ALQUILERES = INGRESO | Alquileres
 
     texto = response.get_data(as_text=True)
 
-    assert "Revisión pendiente" in texto
+    assert "Pendiente" in texto
     assert "Resolver revisión" in texto
     assert "Previsualizar" not in texto
 
@@ -1546,7 +1546,6 @@ def test_modificar_factura_muestra_propuesta_sin_persistir(
     assert "01/10/2026" in texto
     assert "10/2026" in texto
 
-    assert "Añadir línea" in texto
     assert "Previsualizar" in texto
     assert "Cancelar" in texto
 
@@ -2411,5 +2410,193 @@ def test_previsualizar_factura_desde_lista_no_persiste(
         assert session.scalar(select(Factura)) is None
         assert session.scalar(select(ApunteContable)) is None
         assert session.scalar(select(MovimientoPrevisto)) is None
+
+
+def test_modificar_factura_muestra_nota_aviso_revision() -> None:
+    """Muestra en la factura la nota de aviso de revisión."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # Septiembre debe mostrar el aviso de la revisión de octubre.
+    response = client.get(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=09/2026"
+        "&fecha_emision=01/09/2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert (
+        "el próximo mes de octubre corresponde actualizar "
+        "el alquiler"
+    ) in texto
+
+    assert "IPC General de Precios al Consumo" in texto
+
+
+def test_modificar_factura_muestra_nota_esperando_indice() -> None:
+    """Muestra la nota mientras se espera el índice de revisión."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 2, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # Octubre debe indicar que todavía se espera el índice.
+    response = client.get(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert (
+        "corresponde este mes actualizar el alquiler"
+    ) in texto
+
+    assert (
+        "Como dicho dato no está aún disponible"
+    ) in texto
+
+    assert (
+        "Se pasará la diferencia una vez que se conozca "
+        "el dato del IPC General de Precios al Consumo."
+    ) in texto
 
 

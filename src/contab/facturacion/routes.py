@@ -19,6 +19,7 @@ from contab.formato import (
     fecha_a_texto_largo,
     importe_a_texto,
     importe_a_texto_entrada,
+    nombre_mes,
     periodo_a_texto,
     periodo_a_texto_largo,
     porcentaje_a_texto_entrada,
@@ -48,6 +49,7 @@ from contab.facturacion.services import (
     calcular_importes_factura,
     contabilizar_ingreso_sin_factura,
     emitir_factura,
+    notas_automaticas_factura,
     preparar_datos_documento_factura,
     preparar_periodo_facturacion,
     situacion_revision,
@@ -498,7 +500,10 @@ def modificar_factura(contrato_id: int):
                     }
                 )
 
-            notas_formulario = ["", "", ""]
+            notas_formulario = list(factura.notas)
+
+            while len(notas_formulario) < 4:
+                notas_formulario.append("")
 
             return render_template(
                 "facturacion/formulario.html",
