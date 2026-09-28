@@ -195,6 +195,36 @@ def _descripcion_indice_revision(
     )
 
 
+def _diferencia_revision_aplicada(
+    contrato: Contrato,
+    revision: RevisionRenta,
+) -> int:
+    """Calcula la diferencia de renta correspondiente a una revisión."""
+
+    rentas = sorted(
+        contrato.rentas,
+        key=lambda renta: renta.fecha_desde,
+    )
+
+    indice_revision = next(
+        (
+            indice
+            for indice, renta in enumerate(rentas)
+            if renta.fecha_desde == revision.fecha_prevista
+        ),
+        None,
+    )
+
+    if indice_revision is None or indice_revision == 0:
+        return 0
+
+    renta_nueva = rentas[indice_revision].importe
+    renta_anterior = rentas[indice_revision - 1].importe
+
+    return renta_nueva - renta_anterior
+
+
+
 def situacion_revision(
     contrato: Contrato,
     periodo: date,
@@ -655,22 +685,50 @@ def preparar_periodo_facturacion(
                     fecha_renta,
                 )
 
-                lineas = (
+                lineas = [
                     LineaFacturaPreparada(
                         concepto=contrato.concepto_factura,
                         importe=importe_renta,
-                    ),
-                )
+                    )
+                ]
+
+                if (
+                    revision is not None
+                    and revision_estado == "APLICADA"
+                ):
+                    diferencia_revision = _diferencia_revision_aplicada(
+                        contrato,
+                        revision,
+                    )
+
+                    if diferencia_revision != 0:
+                        lineas.append(
+                            LineaFacturaPreparada(
+                                concepto=(
+                                    f"Atrasos de "
+                                    f"{nombre_mes(revision.fecha_prevista).capitalize()} "
+                                    f"{revision.fecha_prevista.year} por actualización de renta"
+                                ),
+                                importe=diferencia_revision,
+                            )
+                        )
 
                 calculo = calcular_importes_factura(
-                    importes=[importe_renta],
+                    importes=[
+                        linea.importe
+                        for linea in lineas
+                    ],
                     iva_porcentaje=contrato.iva_porcentaje,
                     retencion_porcentaje=contrato.retencion_porcentaje,
                 )
+
+                lineas = tuple(lineas)
+
                 base = calculo.base
                 iva_importe = calculo.iva_importe
                 retencion_importe = calculo.retencion_importe
                 total = calculo.total
+
             else:
                 numero_factura = factura.numero_factura
                 lineas = tuple(

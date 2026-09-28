@@ -2345,11 +2345,17 @@ def test_preparar_periodo_facturacion_indica_revision_aplicada(
     contrato.iva_porcentaje = 2100
     contrato.retencion_porcentaje = 1900
 
-    contrato.rentas.append(
-        RentaContrato(
-            fecha_desde=contrato.fecha_inicio,
-            importe=100000,
-        )
+    contrato.rentas.extend(
+        [
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            ),
+            RentaContrato(
+                fecha_desde=date(2026, 10, 1),
+                importe=103600,
+            ),
+        ]
     )
 
     revision = RevisionRenta(
@@ -2376,6 +2382,26 @@ def test_preparar_periodo_facturacion_indica_revision_aplicada(
 
     assert local.revision is revision
     assert local.revision_estado == "APLICADA"
+
+    assert local.lineas == (
+        LineaFacturaPreparada(
+            concepto=contrato.concepto_factura,
+            importe=103600,
+        ),
+        LineaFacturaPreparada(
+            concepto=(
+                "Atrasos de Octubre 2026 "
+                "por actualización de renta"
+            ),
+            importe=3600,
+        ),
+    )
+
+    assert local.base == 107200
+    assert local.iva_importe == 22512
+    assert local.retencion_importe == 20368
+    assert local.total == 109344
+
     assert local.notas == (
         (
             "El IPC General de Precios al Consumo de octubre ha "
@@ -2400,5 +2426,6 @@ def test_preparar_periodo_facturacion_indica_revision_aplicada(
     assert local_diciembre.revision is None
     assert local_diciembre.revision_estado is None
     assert local_diciembre.notas == ()
+    assert len(local_diciembre.lineas) == 1
 
 

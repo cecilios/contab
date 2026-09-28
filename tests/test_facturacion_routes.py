@@ -2135,6 +2135,212 @@ def test_contabilizar_factura_persiste_factura_editada(
         assert movimiento.estado == "PENDIENTE"
 
 
+def test_contabilizar_factura_persiste_atrasos_revision_aplicada(
+    tmp_path,
+) -> None:
+    """Persiste la renta revisada y los atrasos de una revisión aplicada."""
+
+    ruta_db = tmp_path / "test.db"
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.extend(
+            [
+                RentaContrato(
+                    fecha_desde=contrato.fecha_inicio,
+                    importe=100000,
+                ),
+                RentaContrato(
+                    fecha_desde=date(2026, 10, 1),
+                    importe=103600,
+                ),
+            ]
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            fecha_resolucion=date(2026, 11, 1),
+            metodo="IPC_NACIONAL",
+            estado="APLICADA",
+            porcentaje_aplicado=360,
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/contabilizar",
+        data={
+            "periodo": "11/2026",
+            "fecha_emision": "01/11/2026",
+            "linea_concepto": [
+                "Alquiler local. Noviembre de 2026",
+                (
+                    "Atrasos de Octubre 2026 "
+                    "por actualización de renta"
+                ),
+            ],
+            "linea_importe": [
+                "1036,00",
+                "36,00",
+            ],
+            "iva_porcentaje": "21",
+            "retencion_porcentaje": "19",
+            "nota_texto": [
+                (
+                    "El IPC General de Precios al Consumo de "
+                    "octubre ha sido del 3,6%, por lo que se "
+                    "incrementa el alquiler en esta cuantía."
+                ),
+                (
+                    "Atrasos de Octubre 2026 por la actualización "
+                    "de renta, conforme se indicó en el recibo "
+                    "de dicho mes."
+                ),
+            ],
+            "base_previsualizada": "107200",
+            "iva_previsualizado": "22512",
+            "retencion_previsualizada": "20368",
+            "total_previsualizado": "109344",
+        },
+    )
+
+    assert response.status_code == 302
+
+    assert response.headers["Location"].endswith(
+        "/facturacion/?periodo=11/2026"
+        "&fecha_emision=01/11/2026"
+    )
+
+    with session_factory() as session:
+        factura = session.scalar(
+            select(Factura)
+        )
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+        movimiento = session.scalar(
+            select(MovimientoPrevisto)
+        )
+
+        assert factura is not None
+        assert factura.contrato_id == contrato_id
+        assert factura.periodo == date(2026, 11, 1)
+        assert factura.fecha_emision == date(2026, 11, 1)
+        assert factura.estado == "EMITIDA"
+
+        assert factura.revision_renta_id == revision_id
+        assert factura.aviso_revision == "APLICADA"
+
+        assert len(factura.lineas) == 2
+
+        assert (
+            factura.lineas[0].concepto
+            == "Alquiler local. Noviembre de 2026"
+        )
+        assert factura.lineas[0].importe == 103600
+
+        assert factura.lineas[1].concepto == (
+            "Atrasos de Octubre 2026 "
+            "por actualización de renta"
+        )
+        assert factura.lineas[1].importe == 3600
+
+        assert factura.base == 107200
+        assert factura.iva_porcentaje == 2100
+        assert factura.iva_importe == 22512
+        assert factura.retencion_porcentaje == 1900
+        assert factura.retencion_importe == 20368
+        assert factura.total == 109344
+
+        assert factura.notas == (
+            "El IPC General de Precios al Consumo de octubre "
+            "ha sido del 3,6%, por lo que se incrementa el "
+            "alquiler en esta cuantía.\n"
+            "Atrasos de Octubre 2026 por la actualización de "
+            "renta, conforme se indicó en el recibo de dicho mes."
+        )
+
+        assert apunte is not None
+        assert apunte.referencia_documento == factura.numero_factura
+        assert apunte.categoria == "ING_ALQUILERES"
+        assert apunte.base == factura.base
+        assert apunte.iva_importe == factura.iva_importe
+        assert (
+            apunte.retencion_importe
+            == factura.retencion_importe
+        )
+        assert apunte.total == factura.total
+
+        assert movimiento is not None
+        assert movimiento.apunte_id == apunte.id
+        assert movimiento.contrato_id == contrato_id
+        assert movimiento.importe_esperado == factura.total
+        assert movimiento.estado == "PENDIENTE"
+
+
 def test_contabilizar_factura_rechaza_importes_distintos(
     tmp_path,
 ) -> None:
@@ -2598,5 +2804,138 @@ def test_modificar_factura_muestra_nota_esperando_indice() -> None:
         "Se pasará la diferencia una vez que se conozca "
         "el dato del IPC General de Precios al Consumo."
     ) in texto
+
+
+def test_modificar_factura_muestra_atrasos_revision_aplicada(
+    tmp_path,
+) -> None:
+    """Muestra la renta revisada y los atrasos en el formulario."""
+
+    ruta_db = tmp_path / "test.db"
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.extend(
+            [
+                RentaContrato(
+                    fecha_desde=contrato.fecha_inicio,
+                    importe=100000,
+                ),
+                RentaContrato(
+                    fecha_desde=date(2026, 10, 1),
+                    importe=103600,
+                ),
+            ]
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            fecha_resolucion=date(2026, 11, 1),
+            metodo="IPC_NACIONAL",
+            estado="APLICADA",
+            porcentaje_aplicado=360,
+        )
+
+        session.add(contrato)
+        session.add(revision)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=11/2026"
+        "&fecha_emision=01/11/2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    # La renta revisada aparece como primera línea.
+    assert "Alquiler local. Noviembre de 2026" in texto
+    assert "1036,00" in texto
+
+    # Los atrasos aparecen como una línea independiente.
+    assert (
+        "Atrasos de Octubre 2026 "
+        "por actualización de renta"
+    ) in texto
+    assert "36,00" in texto
+
+    # También se muestran las notas de la revisión aplicada.
+    assert (
+        "El IPC General de Precios al Consumo de octubre "
+        "ha sido del 3,6%"
+    ) in texto
+
+    assert (
+        "Atrasos de Octubre 2026 por la actualización "
+        "de renta"
+    ) in texto
+
+    # El formulario muestra los totales incluyendo los atrasos.
+    assert "1.072,00" in texto
+    assert "225,12" in texto
+    assert "203,68" in texto
+    assert "1.093,44" in texto
 
 
