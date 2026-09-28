@@ -81,9 +81,11 @@ def _render_lista(
         preparacion=preparacion,
         periodo_texto=periodo_texto,
         fecha_emision_texto=fecha_emision_texto,
-        importe_a_texto=importe_a_texto,
         error=error,
         database_name=get_database_name(),
+        importe_a_texto=importe_a_texto,
+        importe_a_texto_entrada=importe_a_texto_entrada,
+        porcentaje_a_texto_entrada=porcentaje_a_texto_entrada,
     )
 
 

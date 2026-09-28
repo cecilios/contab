@@ -78,36 +78,40 @@
                 <tbody>
                     {% for local in preparacion.locales %}
                         <tr>
-                            <td>
+                            <td class="factura-inmueble">
                                 {{ local.inmueble.referencia }}
                             </td>
 
-                            <td>
+                            <td class="factura-numero">
                                 {{ local.numero_factura }}
                             </td>
 
-                            <td>
+                            <td class="factura-destinatario">
                                 {{ local.destinatario_nombre }}
                             </td>
 
-                            <td>
+                            <td class="factura-conceptos">
                                 {% for linea in local.lineas %}
                                     <div class="linea-factura">
-                                        <span>{{ linea.concepto }}</span>
-                                        <span>{{ importe_a_texto(linea.importe) }}</span>
+                                        <span class="linea-concepto">
+                                            {{ linea.concepto }}
+                                        </span>
+                                        <span class="linea-importe">
+                                            {{ importe_a_texto(linea.importe) }}
+                                        </span>
                                     </div>
                                 {% endfor %}
                             </td>
 
-                            <td>
+                            <td class="numero">
                                 {{ importe_a_texto(local.iva_importe) }}
                             </td>
 
-                            <td>
+                            <td class="numero">
                                 {{ importe_a_texto(local.retencion_importe) }}
                             </td>
 
-                            <td>
+                            <td class="numero">
                                 {{ importe_a_texto(local.total) }}
                             </td>
 
@@ -134,14 +138,60 @@
                                         Resolver revisión
                                     </a>
                                 {% else %}
-                                    <a href="{{ url_for(
-                                        'facturacion.modificar_factura',
-                                        contrato_id=local.contrato.id,
-                                        periodo=periodo_texto,
-                                        fecha_emision=fecha_emision_texto
-                                    ) }}">
-                                        Modificar
-                                    </a>
+                                    <form
+                                        method="post"
+                                        action="{{ url_for(
+                                            'facturacion.previsualizar_factura',
+                                            contrato_id=local.contrato.id,
+                                            periodo=periodo_texto,
+                                            fecha_emision=fecha_emision_texto
+                                        ) }}"
+                                        class="acciones-factura"
+                                    >
+                                        {% for linea in local.lineas %}
+                                            <input
+                                                type="hidden"
+                                                name="linea_concepto"
+                                                value="{{ linea.concepto }}"
+                                            >
+                                            <input
+                                                type="hidden"
+                                                name="linea_importe"
+                                                value="{{ importe_a_texto_entrada(linea.importe) }}"
+                                            >
+                                        {% endfor %}
+
+                                        <input
+                                            type="hidden"
+                                            name="iva_porcentaje"
+                                            value="{{ porcentaje_a_texto_entrada(
+                                                local.contrato.iva_porcentaje
+                                            ) }}"
+                                        >
+                                        <input
+                                            type="hidden"
+                                            name="retencion_porcentaje"
+                                            value="{{ porcentaje_a_texto_entrada(
+                                                local.contrato.retencion_porcentaje
+                                            ) }}"
+                                        >
+
+                                        <a
+                                            href="#"
+                                            onclick="this.closest('form').requestSubmit(); return false;"
+                                        >
+                                            Previsualizar
+                                        </a>
+
+                                        <a href="{{ url_for(
+                                            'facturacion.modificar_factura',
+                                            contrato_id=local.contrato.id,
+                                            periodo=periodo_texto,
+                                            fecha_emision=fecha_emision_texto
+                                        ) }}">
+                                            Modificar
+                                        </a>
+                                    </form>
                                 {% endif %}
                             </td>
                         </tr>

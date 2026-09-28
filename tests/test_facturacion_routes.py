@@ -2256,3 +2256,160 @@ def test_contabilizar_factura_rechaza_importes_distintos(
         assert session.scalar(select(MovimientoPrevisto)) is None
 
 
+def test_previsualizar_factura_desde_lista_no_persiste(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Previsualiza desde el resumen sin persistir la factura."""
+
+    ruta_db = tmp_path / "test.db"
+    ruta_plantilla = tmp_path / "test-factura.html"
+
+    ruta_plantilla.write_text(
+        """
+        <!doctype html>
+        <html>
+        <body>
+            {% for linea in factura.lineas %}
+                <p>
+                    {{ linea.concepto }}:
+                    {{ importe_a_texto(linea.importe) }}
+                </p>
+            {% endfor %}
+
+            <p>
+                IVA:
+                {{ importe_a_texto(factura.iva_importe) }}
+            </p>
+
+            <p>
+                Retención:
+                {{ importe_a_texto(factura.retencion_importe) }}
+            </p>
+
+            <p>
+                Total:
+                {{ importe_a_texto(factura.total) }}
+            </p>
+        </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+
+    app = create_app(
+        databases={
+            "test": f"sqlite:///{ruta_db}",
+        },
+        secret_key="test-secret-key",
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El resumen ofrece la previsualización directa.
+    response = client.get(
+        "/facturacion/"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
+    )
+
+    assert response.status_code == 200
+    assert "Previsualizar" in response.get_data(as_text=True)
+
+    # El usuario previsualiza directamente los datos preparados
+    # en el resumen, sin pasar por Modificar.
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026",
+        data={
+            "linea_concepto": [
+                "Alquiler local",
+            ],
+            "linea_importe": [
+                "1000,00",
+            ],
+            "iva_porcentaje": "21",
+            "retencion_porcentaje": "19",
+        },
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Alquiler local" in texto
+    assert "1.000,00" in texto
+    assert "210,00" in texto
+    assert "190,00" in texto
+    assert "1.020,00" in texto
+
+    # Previsualizar nunca persiste ni contabiliza.
+    with session_factory() as session:
+        assert session.scalar(select(Factura)) is None
+        assert session.scalar(select(ApunteContable)) is None
+        assert session.scalar(select(MovimientoPrevisto)) is None
+
+
