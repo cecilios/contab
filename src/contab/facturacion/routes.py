@@ -588,6 +588,7 @@ def previsualizar_factura(contrato_id: int):
                 factura=factura,
                 factura_editada=factura_editada,
                 fecha_emision=fecha_emision,
+                periodo=periodo,
             )
 
             ruta_plantilla = get_invoice_template_path()

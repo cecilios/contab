@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Facturación - Contab{% endblock %}
+{% block title %}
+    {%- if preparacion -%}
+        {{ preparacion.periodo.strftime("%Y-%m") }} Facturación del mes
+    {%- else -%}
+        Facturación - Contab
+    {%- endif -%}
+{% endblock %}
 
 {% block content %}
     {% set meses = (

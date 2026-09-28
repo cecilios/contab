@@ -124,7 +124,9 @@ class DestinatarioDocumentoFactura:
 @dataclass
 class DatosDocumentoFactura:
     titulo: str
+    referencia_inmueble: str
     numero: str
+    periodo: date
     fecha_emision: date
     destinatario: DestinatarioDocumentoFactura
     lineas: list[LineaFacturaPreparada]
@@ -135,7 +137,6 @@ class DatosDocumentoFactura:
     retencion_importe: int
     total: int
     notas: list[str]
-
 
 
 def _ultimo_dia_mes(periodo: date) -> date:
@@ -852,6 +853,7 @@ def emitir_factura(
 def preparar_datos_documento_factura(
     factura: FacturaPreparada,
     factura_editada: FacturaEditada,
+    periodo: date,
     fecha_emision: date,
 ) -> DatosDocumentoFactura:
     """Prepara los datos necesarios para renderizar una factura."""
@@ -860,7 +862,9 @@ def preparar_datos_documento_factura(
 
     return DatosDocumentoFactura(
         titulo=factura.inmueble.descripcion,
+        referencia_inmueble=factura.inmueble.referencia,
         numero=factura.numero_factura,
+        periodo=periodo,
         fecha_emision=fecha_emision,
         destinatario=DestinatarioDocumentoFactura(
             nombre=factura.destinatario_nombre,

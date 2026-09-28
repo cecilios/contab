@@ -1,6 +1,7 @@
 """Pruebas de las rutas web del módulo de facturación."""
 
 from datetime import date
+from types import SimpleNamespace
 
 from sqlalchemy import select
 
@@ -203,11 +204,11 @@ def test_listar_facturacion_respeta_fecha_emision(
         nonlocal fecha_recibida
         fecha_recibida = fecha_emision
 
-        class Preparacion:
-            locales = []
-            otros = []
-
-        return Preparacion()
+        return SimpleNamespace(
+            periodo=periodo,
+            locales=[],
+            otros=[],
+        )
 
     monkeypatch.setattr(
         "contab.facturacion.routes.preparar_periodo_facturacion",
