@@ -33,6 +33,11 @@ class FacturacionError(Exception):
 
 
 @dataclass
+class TitularDocumentoFactura:
+    nombre: str
+    nif: str
+
+@dataclass
 class LineaFacturaPreparada:
     concepto: str
     importe: int
@@ -113,8 +118,7 @@ class PreparacionPeriodo:
 
 @dataclass
 class DestinatarioDocumentoFactura:
-    nombre: str
-    nif: str
+    titulares: list[TitularDocumentoFactura]
     direccion: str
     codigo_postal: str | None
     poblacion: str
@@ -805,10 +809,19 @@ def preparar_periodo_facturacion(
     return PreparacionPeriodo(
         periodo=periodo,
         fecha_emision=fecha_emision,
-        locales=tuple(locales),
-        otros=tuple(otros),
+        locales=tuple(
+            sorted(
+                locales,
+                key=lambda local: local.inmueble.referencia,
+            )
+        ),
+        otros=tuple(
+            sorted(
+                otros,
+                key=lambda otro: otro.inmueble.referencia,
+            )
+        ),
     )
-
 
 def emitir_factura(
     *,
@@ -867,8 +880,16 @@ def preparar_datos_documento_factura(
         periodo=periodo,
         fecha_emision=fecha_emision,
         destinatario=DestinatarioDocumentoFactura(
-            nombre=factura.destinatario_nombre,
-            nif=factura.destinatario_nif,
+            titulares=[
+                TitularDocumentoFactura(
+                    nombre=titular.inquilino.nombre,
+                    nif=titular.inquilino.nif,
+                )
+                for titular in sorted(
+                    factura.contrato.titulares,
+                    key=lambda titular: titular.orden,
+                )
+            ],
             direccion=factura.direccion_facturacion,
             codigo_postal=(
                 factura.codigo_postal_facturacion

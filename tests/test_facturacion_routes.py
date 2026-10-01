@@ -153,9 +153,7 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
 
     # El usuario consulta la preparación de octubre.
     response = client.get(
-        "/facturacion/"
-        "?periodo=10/2026"
-        "&fecha_emision=01/10/2026"
+        "/facturacion/?periodo=10/2026"
     )
 
     assert response.status_code == 200
@@ -180,10 +178,10 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     assert "Contabilizar" in texto
 
 
-def test_listar_facturacion_respeta_fecha_emision(
+def test_listar_facturacion_inicializa_fecha_emision_desde_periodo(
     monkeypatch,
 ) -> None:
-    """Prepara la facturación con la fecha de emisión indicada."""
+    """Inicializa la fecha de emisión con el primer día del período."""
 
     app = crear_app_test()
     client = app.test_client()
@@ -215,16 +213,17 @@ def test_listar_facturacion_respeta_fecha_emision(
         preparar_periodo_facturacion_falso,
     )
 
-    # El usuario prepara octubre con una fecha de emisión
-    # distinta del primer día del período.
     response = client.get(
-        "/facturacion/"
-        "?periodo=10/2026"
-        "&fecha_emision=15/10/2026"
+        "/facturacion/?periodo=10/2026"
     )
 
     assert response.status_code == 200
-    assert fecha_recibida == date(2026, 10, 15)
+    assert fecha_recibida == date(2026, 10, 1)
+
+    texto = response.get_data(as_text=True)
+
+    assert 'value="10/2026"' in texto
+    assert 'value="01/10/2026"' in texto
 
 
 def test_valores_iniciales_facturacion_proponen_mes_siguiente() -> None:
@@ -261,9 +260,7 @@ def test_listar_facturacion_rechaza_periodo_invalido() -> None:
     )
 
     response = client.get(
-        "/facturacion/"
-        "?periodo=2026-10"
-        "&fecha_emision=01/10/2026"
+        "/facturacion/?periodo=2026-10"
     )
 
     texto = response.get_data(as_text=True)
@@ -271,32 +268,6 @@ def test_listar_facturacion_rechaza_periodo_invalido() -> None:
     assert response.status_code == 400
     assert "El período no es válido" in texto
     assert 'value="2026-10"' in texto
-    assert 'value="01/10/2026"' in texto
-
-
-def test_listar_facturacion_rechaza_fecha_emision_invalida() -> None:
-    """Rechaza una fecha de emisión inválida."""
-
-    app = crear_app_test()
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    response = client.get(
-        "/facturacion/"
-        "?periodo=10/2026"
-        "&fecha_emision=30/02/2026"
-    )
-
-    texto = response.get_data(as_text=True)
-
-    assert response.status_code == 400
-    assert "La fecha indicada no es válida" in texto
-    assert 'value="10/2026"' in texto
-    assert 'value="30/02/2026"' in texto
 
 
 def test_contabilizar_factura_conserva_aviso_revision(
@@ -1409,7 +1380,6 @@ def test_listar_facturacion_ofrece_modificar_factura() -> None:
     assert (
         f"/facturacion/facturas/{contrato_id}/modificar"
         "?periodo=10/2026"
-        "&amp;fecha_emision=01/10/2026"
         in texto
     )
 
@@ -2940,3 +2910,146 @@ def test_modificar_factura_muestra_atrasos_revision_aplicada(
     assert "1.093,44" in texto
 
 
+def test_listar_facturacion_desacopla_fecha_emision_de_preparar() -> None:
+    """La fecha de emisión puede cambiarse sin volver a preparar."""
+
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/?periodo=10/2026"
+    )
+
+    assert response.status_code == 200
+
+    html = response.get_data(as_text=True)
+
+    assert 'id="periodo"' in html
+    assert 'name="periodo"' in html
+
+    assert 'id="periodo"' in html
+    assert 'name="periodo"' in html
+
+    assert 'id="fecha_emision"' in html
+    assert 'value="01/10/2026"' in html
+
+    # La fecha de emisión no forma parte del formulario
+    # GET que vuelve a preparar el período.
+    inicio_formulario = html.index("<form")
+    fin_formulario = html.index(
+        "</form>",
+        inicio_formulario,
+    )
+
+    formulario_preparar = html[
+        inicio_formulario:fin_formulario
+    ]
+
+    assert 'name="periodo"' in formulario_preparar
+    assert (
+        'name="fecha_emision"'
+        not in formulario_preparar
+    )
+
+
+def test_listar_facturacion_propaga_fecha_emision_a_acciones() -> None:
+    """Las acciones usan la fecha de emisión editable del resumen."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle del Cliente 10",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/?periodo=10/2026"
+    )
+
+    assert response.status_code == 200
+
+    html = response.get_data(as_text=True)
+
+    assert 'id="fecha_emision"' in html
+    assert 'value="01/10/2026"' in html
+
+    assert (
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        in html
+    )
+
+    assert (
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&amp;fecha_emision="
+        not in html
+    )
+
+    assert "data-usa-fecha-emision" in html
+
+    assert (
+        'url.searchParams.set(\n'
+        '                            "fecha_emision",'
+        in html
+    )

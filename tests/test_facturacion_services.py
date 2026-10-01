@@ -2432,3 +2432,204 @@ def test_preparar_periodo_facturacion_indica_revision_aplicada(
     assert len(local_diciembre.lineas) == 1
 
 
+def test_preparar_periodo_facturacion_ordena_por_referencia(
+    session,
+) -> None:
+    """Ordena locales y otros ingresos por referencia del inmueble."""
+
+    def crear_contrato(
+        referencia: str,
+        *,
+        genera_factura: bool,
+    ) -> Contrato:
+        inmueble = Inmueble(
+            referencia=referencia,
+            tipo="L",
+            codigo_facturacion=referencia,
+            descripcion=f"Inmueble {referencia}",
+            direccion="Dirección de prueba",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=genera_factura,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=2100 if genera_factura else 0,
+            retencion_porcentaje=1900 if genera_factura else 0,
+            direccion_facturacion="Dirección de prueba",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre=f"Inquilino {referencia}",
+                    nif=f"NIF-{referencia}",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=date(2026, 1, 1),
+                importe=100000,
+            )
+        )
+
+        session.add(contrato)
+
+        return contrato
+
+    local_c = crear_contrato(
+        "LOCAL-C",
+        genera_factura=True,
+    )
+    local_a = crear_contrato(
+        "LOCAL-A",
+        genera_factura=True,
+    )
+    local_b = crear_contrato(
+        "LOCAL-B",
+        genera_factura=True,
+    )
+
+    otro_c = crear_contrato(
+        "OTRO-C",
+        genera_factura=False,
+    )
+    otro_a = crear_contrato(
+        "OTRO-A",
+        genera_factura=False,
+    )
+    otro_b = crear_contrato(
+        "OTRO-B",
+        genera_factura=False,
+    )
+
+    session.flush()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[
+            local_c,
+            otro_b,
+            local_a,
+            otro_c,
+            local_b,
+            otro_a,
+        ],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert [
+        local.inmueble.referencia
+        for local in preparacion.locales
+    ] == [
+        "LOCAL-A",
+        "LOCAL-B",
+        "LOCAL-C",
+    ]
+
+    assert [
+        otro.inmueble.referencia
+        for otro in preparacion.otros
+    ] == [
+        "OTRO-A",
+        "OTRO-B",
+        "OTRO-C",
+    ]
+
+
+def test_preparar_datos_documento_factura_conserva_titulares(
+    contrato,
+) -> None:
+    """Conserva cada titular con su NIF y respeta su orden."""
+
+    _anadir_titular(
+        contrato,
+        nombre="María López",
+        nif="22222222B",
+        orden=2,
+    )
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
+        orden=1,
+    )
+
+    factura = FacturaPreparada(
+        contrato=contrato,
+        inmueble=contrato.inmueble,
+        destinatario_nombre="Ana Pérez / María López",
+        destinatario_nif="11111111A / 22222222B",
+        direccion_facturacion="Calle del Cliente 10",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        lineas=(
+            LineaFacturaPreparada(
+                concepto="Alquiler local. Octubre de 2026",
+                importe=100000,
+            ),
+        ),
+        notas=(),
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+        factura=None,
+        numero_factura="01/2026A1",
+        revision=None,
+        revision_estado=None,
+    )
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto="Alquiler local. Octubre de 2026",
+                importe=100000,
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+    )
+
+    datos = preparar_datos_documento_factura(
+        factura=factura,
+        factura_editada=factura_editada,
+        fecha_emision=date(2026, 10, 1),
+        periodo=date(2026, 10, 1),
+    )
+
+    assert len(datos.destinatario.titulares) == 2
+
+    assert datos.destinatario.titulares[0].nombre == (
+        "Ana Pérez"
+    )
+    assert datos.destinatario.titulares[0].nif == (
+        "11111111A"
+    )
+
+    assert datos.destinatario.titulares[1].nombre == (
+        "María López"
+    )
+    assert datos.destinatario.titulares[1].nif == (
+        "22222222B"
+    )
+
+

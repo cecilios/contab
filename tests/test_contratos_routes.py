@@ -1727,41 +1727,51 @@ def test_editar_contrato_vigente_no_muestra_fecha_resolucion() -> None:
     assert "Fecha de resolución" not in response.text
 
 
-def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
-    """Comprueba que la lista separa contratos vigentes y finalizados."""
+def test_lista_contratos_separa_y_ordena_por_inmueble() -> None:
+    """Separa contratos vigentes y finalizados y los ordena por inmueble."""
+
     app = crear_app_test()
     client = app.test_client()
     seleccionar_base(client)
 
-    session_factory = app.extensions["contab_databases"]["test"]
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
 
-    with session_factory() as session:
-        vigente = _crear_contrato_para_test(session)
-
+    def crear_contrato_lista(
+        session,
+        *,
+        referencia: str,
+        codigo_facturacion: str,
+        nombre: str,
+        nif: str,
+        fecha_inicio: date,
+        fecha_fin: date | None = None,
+    ) -> Contrato:
         inmueble = Inmueble(
-            referencia="LOCAL-FINALIZADO",
+            referencia=referencia,
             tipo="L",
-            codigo_facturacion="AF",
-            descripcion="Local finalizado",
+            codigo_facturacion=codigo_facturacion,
+            descripcion=f"Local {referencia}",
             direccion="Dirección",
             poblacion="Pontevedra",
             provincia="Pontevedra",
         )
         inquilino = Inquilino(
-            nombre="Luis García",
-            nif="88888888Q",
+            nombre=nombre,
+            nif=nif,
         )
 
         session.add_all([inmueble, inquilino])
         session.flush()
 
-        finalizado = crear_contrato(
+        contrato = crear_contrato(
             inmueble=inmueble,
             titulares=[inquilino],
-            fecha_inicio=date(2024, 1, 1),
-            fecha_vencimiento=date(2029, 12, 31),
-            genera_factura = True,
-            fecha_inicio_facturacion=date(2024, 1, 1),
+            fecha_inicio=fecha_inicio,
+            fecha_vencimiento=date(2031, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=fecha_inicio,
             fianza=100000,
             iva_porcentaje=2100,
             retencion_porcentaje=1900,
@@ -1771,13 +1781,76 @@ def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
             provincia_facturacion="Pontevedra",
             concepto_factura="Alquiler",
             renta_inicial=100000,
-            fecha_primera_revision=date(2025, 1, 1),
+            fecha_primera_revision=date(
+                fecha_inicio.year + 1,
+                fecha_inicio.month,
+                1,
+            ),
             metodo_revision="IPC_NACIONAL",
         )
 
-        finalizado.fecha_fin = date(2026, 6, 30)
+        contrato.fecha_fin = fecha_fin
 
-        session.add(finalizado)
+        session.add(contrato)
+
+        return contrato
+
+    with session_factory() as session:
+        # Se crean deliberadamente en un orden distinto
+        # del orden alfabético esperado.
+        crear_contrato_lista(
+            session,
+            referencia="LOCAL-C",
+            codigo_facturacion="AC",
+            nombre="Inquilino C",
+            nif="33333333C",
+            fecha_inicio=date(2026, 3, 1),
+        )
+        crear_contrato_lista(
+            session,
+            referencia="LOCAL-A",
+            codigo_facturacion="AA",
+            nombre="Inquilino A",
+            nif="11111111A",
+            fecha_inicio=date(2026, 1, 1),
+        )
+        crear_contrato_lista(
+            session,
+            referencia="LOCAL-B",
+            codigo_facturacion="AB",
+            nombre="Inquilino B",
+            nif="22222222B",
+            fecha_inicio=date(2026, 2, 1),
+        )
+
+        crear_contrato_lista(
+            session,
+            referencia="FINAL-C",
+            codigo_facturacion="FC",
+            nombre="Inquilino Final C",
+            nif="66666666F",
+            fecha_inicio=date(2024, 3, 1),
+            fecha_fin=date(2026, 6, 30),
+        )
+        crear_contrato_lista(
+            session,
+            referencia="FINAL-A",
+            codigo_facturacion="FA",
+            nombre="Inquilino Final A",
+            nif="44444444D",
+            fecha_inicio=date(2024, 1, 1),
+            fecha_fin=date(2026, 4, 30),
+        )
+        crear_contrato_lista(
+            session,
+            referencia="FINAL-B",
+            codigo_facturacion="FB",
+            nombre="Inquilino Final B",
+            nif="55555555E",
+            fecha_inicio=date(2024, 2, 1),
+            fecha_fin=date(2026, 5, 31),
+        )
+
         session.commit()
 
     response = client.get("/contratos/")
@@ -1791,13 +1864,33 @@ def test_lista_contratos_separa_vigentes_y_finalizados() -> None:
 
     posicion_vigentes = html.index("Vigentes")
     posicion_finalizados = html.index("Finalizados")
-    posicion_contrato_vigente = html.index("LOCAL-ANEXO")
-    posicion_contrato_finalizado = html.index("LOCAL-FINALIZADO")
 
-    assert posicion_vigentes < posicion_contrato_vigente < posicion_finalizados
-    assert posicion_finalizados < posicion_contrato_finalizado
+    posicion_local_a = html.index("LOCAL-A")
+    posicion_local_b = html.index("LOCAL-B")
+    posicion_local_c = html.index("LOCAL-C")
+
+    assert (
+        posicion_vigentes
+        < posicion_local_a
+        < posicion_local_b
+        < posicion_local_c
+        < posicion_finalizados
+    )
+
+    posicion_final_a = html.index("FINAL-A")
+    posicion_final_b = html.index("FINAL-B")
+    posicion_final_c = html.index("FINAL-C")
+
+    assert (
+        posicion_finalizados
+        < posicion_final_a
+        < posicion_final_b
+        < posicion_final_c
+    )
 
     assert "Resolución:" in html
+    assert "30/04/2026" in html
+    assert "31/05/2026" in html
     assert "30/06/2026" in html
 
 

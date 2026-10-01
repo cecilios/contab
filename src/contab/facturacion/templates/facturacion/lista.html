@@ -41,26 +41,30 @@
             required
         >
 
-        <label for="fecha_emision">Fecha de emisión</label>
-        <input
-            id="fecha_emision"
-            name="fecha_emision"
-            value="{{ fecha_emision_texto }}"
-            placeholder="dd-mm-aaaa"
-            required
-        >
-
         <button type="submit" class="no-imprimir">
             Preparar
         </button>
-
-        &nbsp;&nbsp;
-
-        <a href="#" onclick="window.print(); return false;" class="no-imprimir">
-            Imprimir
-        </a>
-
     </form>
+
+    {% if preparacion %}
+        <div class="no-imprimir">
+            <label for="fecha_emision">
+                Fecha de emisión
+            </label>
+            <input
+                id="fecha_emision"
+                value="{{ fecha_emision_texto }}"
+                placeholder="dd-mm-aaaa"
+                required
+            >
+
+            &nbsp;&nbsp;
+
+            <a href="#" onclick="window.print(); return false;">
+                Imprimir
+            </a>
+        </div>
+    {% endif %}
 
     {% if preparacion %}
         <h2>Locales</h2>
@@ -137,12 +141,14 @@
                                 {% if local.factura %}
                                     Emitida
                                 {% elif local.revision_estado == "PENDIENTE" %}
-                                    <a href="{{ url_for(
-                                        'facturacion.resolver_revision',
-                                        revision_id=local.revision.id,
-                                        periodo=periodo_texto,
-                                        fecha_emision=fecha_emision_texto
-                                    ) }}">
+                                    <a
+                                        href="{{ url_for(
+                                            'facturacion.resolver_revision',
+                                            revision_id=local.revision.id,
+                                            periodo=periodo_texto,
+                                        ) }}"
+                                        data-usa-fecha-emision
+                                    >
                                         Resolver revisión
                                     </a>
                                 {% else %}
@@ -152,9 +158,9 @@
                                             'facturacion.previsualizar_factura',
                                             contrato_id=local.contrato.id,
                                             periodo=periodo_texto,
-                                            fecha_emision=fecha_emision_texto
                                         ) }}"
                                         class="acciones-factura"
+                                        data-usa-fecha-emision
                                     >
                                         {% for linea in local.lineas %}
                                             <input
@@ -199,12 +205,14 @@
                                             Previsualizar
                                         </a>
 
-                                        <a href="{{ url_for(
-                                            'facturacion.modificar_factura',
-                                            contrato_id=local.contrato.id,
-                                            periodo=periodo_texto,
-                                            fecha_emision=fecha_emision_texto
-                                        ) }}">
+                                        <a
+                                            href="{{ url_for(
+                                                'facturacion.modificar_factura',
+                                                contrato_id=local.contrato.id,
+                                                periodo=periodo_texto,
+                                            ) }}"
+                                            data-usa-fecha-emision
+                                        >
                                             Modificar
                                         </a>
                                     </form>
@@ -253,6 +261,7 @@
                                             'facturacion.contabilizar',
                                             contrato_id=ingreso.contrato.id
                                         ) }}"
+                                        data-usa-fecha-emision
                                     >
                                         <input
                                             type="hidden"
@@ -281,5 +290,77 @@
             <p>No hay otros ingresos preparados para este período.</p>
         {% endif %}
     {% endif %}
+
+<script>
+    (() => {
+        const campoFecha = document.getElementById(
+            "fecha_emision"
+        );
+
+        if (!campoFecha) {
+            return;
+        }
+
+        function fechaEmisionActual() {
+            return campoFecha.value.trim();
+        }
+
+        document
+            .querySelectorAll(
+                "form[data-usa-fecha-emision]"
+            )
+            .forEach((formulario) => {
+                formulario.addEventListener(
+                    "submit",
+                    () => {
+                        const fecha = fechaEmisionActual();
+
+                        const campoOculto =
+                            formulario.querySelector(
+                                'input[name="fecha_emision"]'
+                            );
+
+                        if (campoOculto) {
+                            campoOculto.value = fecha;
+                            return;
+                        }
+
+                        const url = new URL(
+                            formulario.action
+                        );
+
+                        url.searchParams.set(
+                            "fecha_emision",
+                            fecha
+                        );
+
+                        formulario.action = url.toString();
+                    }
+                );
+            });
+
+        document
+            .querySelectorAll(
+                "a[data-usa-fecha-emision]"
+            )
+            .forEach((enlace) => {
+                enlace.addEventListener(
+                    "click",
+                    () => {
+                        const url = new URL(
+                            enlace.href
+                        );
+
+                        url.searchParams.set(
+                            "fecha_emision",
+                            fechaEmisionActual()
+                        );
+
+                        enlace.href = url.toString();
+                    }
+                );
+            });
+    })();
+</script>
 
 {% endblock %}

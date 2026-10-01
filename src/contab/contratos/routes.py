@@ -471,17 +471,29 @@ def listar_contratos():
             )
         ).all()
 
-        vigentes = [
-            contrato
-            for contrato in contratos
-            if contrato.fecha_fin is None
-        ]
+        vigentes = sorted(
+            (
+                contrato
+                for contrato in contratos
+                if contrato.fecha_fin is None
+            ),
+            key=lambda contrato: (
+                contrato.inmueble.referencia,
+                contrato.fecha_inicio,
+            )
+        )
 
-        finalizados = [
-            contrato
-            for contrato in contratos
-            if contrato.fecha_fin is not None
-        ]
+        finalizados = sorted(
+            (
+                contrato
+                for contrato in contratos
+                if contrato.fecha_fin is not None
+            ),
+            key=lambda contrato: (
+                contrato.inmueble.referencia,
+                contrato.fecha_inicio,
+            )
+        )
 
         return render_template(
             "contratos/lista.html",

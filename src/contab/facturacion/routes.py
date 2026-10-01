@@ -208,38 +208,31 @@ def listar():
         "",
     ).strip()
 
-    fecha_emision_texto = request.args.get(
-        "fecha_emision",
-        "",
-    ).strip()
-
-    if not periodo_texto and not fecha_emision_texto:
-        periodo, fecha_emision = (
-            _valores_iniciales_facturacion(
-                date.today()
-            )
+    if not periodo_texto:
+        periodo, _ = _valores_iniciales_facturacion(
+            date.today()
         )
-
         periodo_texto = periodo_a_texto(periodo)
-        fecha_emision_texto = fecha_a_texto(fecha_emision)
     else:
         try:
             periodo = texto_a_periodo(
                 periodo_texto
-            )
-            fecha_emision = texto_a_fecha(
-                fecha_emision_texto
             )
         except ValueError as exc:
             return (
                 _render_lista(
                     preparacion=None,
                     periodo_texto=periodo_texto,
-                    fecha_emision_texto=fecha_emision_texto,
+                    fecha_emision_texto="",
                     error=str(exc),
                 ),
                 400,
             )
+
+    fecha_emision = periodo
+    fecha_emision_texto = fecha_a_texto(
+        fecha_emision
+    )
 
     session_factory = get_session_factory()
 
