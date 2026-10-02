@@ -163,7 +163,13 @@ button {
 }
 
 
-/* pantalla-resumen de facturación */
+/* Pantalla de preparación de facturación */
+
+.facturacion-preparacion {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
 
 .facturacion-locales {
     width: 100%;
@@ -213,6 +219,7 @@ button {
 .acciones-factura a {
     display: block;
 }
+
 
 /* Formulario para crear/modificar una factura */
 

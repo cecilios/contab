@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Factura {{ factura.numero_factura }} - Contab
+{% endblock %}
+
+{% block content %}
+
+    <h1>Factura {{ factura.numero_factura }}</h1>
+
+    <div class="enlaces-acciones no-imprimir">
+        <a href="{{ url_for('facturacion.listar_facturas') }}">
+            Volver a Facturas
+        </a>
+    </div>
+
+    <div class="formulario-factura">
+
+        <div class="factura-cabecera">
+            <div>
+                <p>
+                    <strong>Inmueble:</strong>
+                    {{ factura.contrato.inmueble.referencia }}
+                </p>
+
+                <p>
+                    <strong>Destinatario:</strong>
+                    {{ destinatario_nombre }}<br>
+
+                    <strong>NIF:</strong>
+                    {{ destinatario_nif }}<br>
+
+                    {{ factura.contrato.direccion_facturacion }}<br>
+
+                    {% if factura.contrato.codigo_postal_facturacion %}
+                        {{ factura.contrato.codigo_postal_facturacion }}
+                    {% endif %}
+
+                    {{ factura.contrato.poblacion_facturacion }}
+
+                    {% if factura.contrato.provincia_facturacion %}
+                        ({{ factura.contrato.provincia_facturacion }})
+                    {% endif %}
+                </p>
+            </div>
+
+            <div class="factura-datos">
+                <p>
+                    <strong>Nº factura:</strong>
+                    {{ factura.numero_factura }}
+                </p>
+
+                <p>
+                    <strong>Fecha:</strong>
+                    {{ fecha_a_texto(factura.fecha_emision) }}
+                </p>
+
+                <p>
+                    <strong>Período:</strong>
+                    {{ periodo_a_texto_largo(factura.periodo) }}
+                </p>
+
+                <p>
+                    <strong>Estado:</strong>
+
+                    {% if factura.estado == "EMITIDA" %}
+                        Emitida
+                    {% elif factura.estado == "ANULADA" %}
+                        Anulada
+                    {% else %}
+                        {{ factura.estado }}
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+
+        <h2>Líneas</h2>
+
+        <div class="factura-lineas">
+
+            <div class="factura-linea factura-linea-cabecera">
+                <span>Concepto</span>
+                <span>Importe</span>
+            </div>
+
+            {% for linea in lineas %}
+                <div class="factura-linea">
+                    <span>
+                        {{ linea.concepto }}
+                    </span>
+
+                    <span class="factura-importe">
+                        {{ importe_a_texto(linea.importe) }}
+                    </span>
+                </div>
+            {% endfor %}
+
+        </div>
+
+        <div class="factura-totales">
+
+            <div>
+                <span>Base</span>
+                <span>
+                    {{ importe_a_texto(factura.base) }}
+                </span>
+            </div>
+
+            <div>
+                <span>
+                    IVA
+                    {{ porcentaje_a_texto(
+                        factura.iva_porcentaje
+                    ) }} %
+                </span>
+
+                <span>
+                    {{ importe_a_texto(
+                        factura.iva_importe
+                    ) }}
+                </span>
+            </div>
+
+            <div>
+                <span>
+                    Retención
+                    {{ porcentaje_a_texto(
+                        factura.retencion_porcentaje
+                    ) }} %
+                </span>
+
+                <span>
+                    {{ importe_a_texto(
+                        factura.retencion_importe
+                    ) }}
+                </span>
+            </div>
+
+            <div class="factura-total">
+                <span>Total</span>
+
+                <span>
+                    {{ importe_a_texto(factura.total) }}
+                </span>
+            </div>
+
+        </div>
+
+        {% if notas %}
+            <h2>Notas</h2>
+
+            <div class="factura-notas">
+                {% for nota in notas %}
+                    <div>
+                        {{ nota }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+    </div>
+
+{% endblock %}

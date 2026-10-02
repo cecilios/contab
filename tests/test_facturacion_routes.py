@@ -12,6 +12,8 @@ from contab.models import (
     Contrato,
     ContratoInquilino,
     Factura,
+    FacturaDestinatario,
+    FacturaLinea,
     Inmueble,
     Inquilino,
     MovimientoPrevisto,
@@ -43,6 +45,112 @@ def crear_app_test():
     )
 
     return app
+
+
+def _crear_factura_emitida_para_test(
+    session,
+    *,
+    referencia: str = "LOCAL-1",
+    codigo_facturacion: str = "A1",
+    numero_secuencia: int = 1,
+    anio: int = 2026,
+    mes: int = 10,
+    destinatario: str = "Ana Pérez",
+    nif: str = "11111111A",
+) -> Factura:
+    """Crea una factura persistida para probar su consulta."""
+
+    inmueble = Inmueble(
+        referencia=referencia,
+        tipo="L",
+        codigo_facturacion=codigo_facturacion,
+        descripcion=f"Local {referencia}",
+        direccion="Dirección del local",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2025, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2025, 1, 1),
+        fianza=100000,
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        direccion_facturacion="Calle del Cliente 10",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler local",
+    )
+
+    contrato.titulares.append(
+        ContratoInquilino(
+            inquilino=Inquilino(
+                nombre=destinatario,
+                nif=nif,
+            ),
+            orden=1,
+        )
+    )
+
+    numero_factura = (
+        f"{numero_secuencia:02d}/"
+        f"{anio}{codigo_facturacion}"
+    )
+
+    factura = Factura(
+        contrato=contrato,
+        numero_secuencia=numero_secuencia,
+        anio=anio,
+        numero_factura=numero_factura,
+        fecha_emision=date(anio, mes, 1),
+        periodo=date(anio, mes, 1),
+        referencia_inmueble=inmueble.referencia,
+        descripcion_inmueble=inmueble.descripcion,
+        direccion_facturacion=contrato.direccion_facturacion,
+        codigo_postal_facturacion=contrato.codigo_postal_facturacion,
+        poblacion_facturacion=contrato.poblacion_facturacion,
+        provincia_facturacion=contrato.provincia_facturacion,
+        base=103500,
+        iva_porcentaje=2100,
+        iva_importe=21735,
+        retencion_porcentaje=1900,
+        retencion_importe=19665,
+        total=105570,
+        estado="EMITIDA",
+        notas="Factura de prueba.",
+    )
+
+    factura.destinatarios.append(
+        FacturaDestinatario(
+            orden=1,
+            nombre=destinatario,
+            nif=nif,
+        )
+    )
+
+    factura.lineas.extend(
+        [
+            FacturaLinea(
+                orden=1,
+                concepto="Alquiler local",
+                importe=100000,
+            ),
+            FacturaLinea(
+                orden=2,
+                concepto="Consumo de agua",
+                importe=3500,
+            ),
+        ]
+    )
+
+    session.add(factura)
+    session.commit()
+
+    return factura
 
 
 def test_listar_facturacion_muestra_datos_del_periodo() -> None:
@@ -3053,3 +3161,235 @@ def test_listar_facturacion_propaga_fecha_emision_a_acciones() -> None:
         '                            "fecha_emision",'
         in html
     )
+
+
+def test_listar_facturas_muestra_facturas_emitidas() -> None:
+    """Muestra las facturas persistidas y permite consultar su detalle."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        factura = _crear_factura_emitida_para_test(
+            session
+        )
+        factura_id = factura.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/facturas"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Facturas" in texto
+    assert "01/10/2026" in texto
+    assert "01/2026A1" in texto
+    assert "LOCAL-1" in texto
+    assert "Ana Pérez" in texto
+    assert "1.055,70" in texto
+    assert "Emitida" in texto
+
+    assert (
+        f'/facturacion/facturas/{factura_id}'
+        in texto
+    )
+
+
+def test_ver_factura_muestra_datos_persistidos() -> None:
+    """Muestra el contenido de una factura ya emitida."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        factura = _crear_factura_emitida_para_test(
+            session
+        )
+        factura_id = factura.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        f"/facturacion/facturas/{factura_id}"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Factura 01/2026A1" in texto
+    assert "LOCAL-1" in texto
+    assert "Ana Pérez" in texto
+    assert "11111111A" in texto
+
+    assert "01/10/2026" in texto
+    assert "Octubre de 2026" in texto
+    assert "Emitida" in texto
+
+    assert "Alquiler local" in texto
+    assert "1.000,00" in texto
+
+    assert "Consumo de agua" in texto
+    assert "35,00" in texto
+
+    assert "1.035,00" in texto
+    assert "217,35" in texto
+    assert "196,65" in texto
+    assert "1.055,70" in texto
+
+    assert "Factura de prueba." in texto
+
+
+def test_ver_factura_inexistente_devuelve_404() -> None:
+    """Devuelve 404 al consultar una factura inexistente."""
+
+    app = crear_app_test()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/facturas/999"
+    )
+
+    assert response.status_code == 404
+    assert (
+        "Factura no encontrada."
+        in response.get_data(as_text=True)
+    )
+
+
+def test_listar_facturas_filtra_por_anio() -> None:
+    """Muestra únicamente las facturas del ejercicio seleccionado."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        _crear_factura_emitida_para_test(
+            session,
+            referencia="LOCAL-2025",
+            codigo_facturacion="A1",
+            anio=2025,
+            destinatario="Cliente 2025",
+            nif="11111111A",
+        )
+
+        _crear_factura_emitida_para_test(
+            session,
+            referencia="LOCAL-2026",
+            codigo_facturacion="B1",
+            anio=2026,
+            destinatario="Cliente 2026",
+            nif="22222222B",
+        )
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/facturas?anio=2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "LOCAL-2026" in texto
+    assert "Cliente 2026" in texto
+
+    assert "Cliente 2025" not in texto
+
+    assert 'value="2026"' in texto
+
+
+def test_listar_facturas_filtra_por_inmueble() -> None:
+    """Muestra únicamente las facturas del inmueble seleccionado."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        factura_a = _crear_factura_emitida_para_test(
+            session,
+            referencia="LOCAL-A",
+            codigo_facturacion="A1",
+            anio=2026,
+            destinatario="Cliente A",
+            nif="11111111A",
+        )
+
+        _crear_factura_emitida_para_test(
+            session,
+            referencia="LOCAL-B",
+            codigo_facturacion="B1",
+            anio=2026,
+            destinatario="Cliente B",
+            nif="22222222B",
+        )
+
+        inmueble_id = (
+            factura_a.contrato.inmueble.id
+        )
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/facturas"
+        f"?anio=2026&inmueble_id={inmueble_id}"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "LOCAL-A" in texto
+    assert "Cliente A" in texto
+
+    assert "Cliente B" not in texto
+
+    assert (
+        f'value="{inmueble_id}" selected'
+        in texto
+    )
+
+

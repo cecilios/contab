@@ -11,6 +11,7 @@ from contab.models import (
     ApunteContable,
     Contrato,
     Factura,
+    FacturaDestinatario,
     FacturaLinea,
     MovimientoPrevisto,
     RevisionRenta,
@@ -431,7 +432,6 @@ def crear_factura(
 
     linea_renta = FacturaLinea(
         orden=1,
-        tipo="RENTA",
         concepto=contrato.concepto_factura,
         importe=importe_renta,
     )
@@ -446,7 +446,6 @@ def crear_factura(
         lineas.append(
             FacturaLinea(
                 orden=2,
-                tipo="DIFERENCIA_REVISION",
                 concepto="Diferencia de revisión de renta",
                 importe=diferencia_revision,
             )
@@ -467,7 +466,6 @@ def crear_factura(
             lineas.append(
                 FacturaLinea(
                     orden=len(lineas) + 1,
-                    tipo="REPERCUSION_GASTO",
                     concepto=repercusion.concepto,
                     importe=repercusion.importe,
                 )
@@ -477,7 +475,6 @@ def crear_factura(
         lineas = [
             FacturaLinea(
                 orden=orden,
-                tipo="RENTA" if orden == 1 else "OTRO",
                 concepto=linea.concepto,
                 importe=linea.importe,
             )
@@ -509,6 +506,12 @@ def crear_factura(
         numero_secuencia=secuencia,
         anio=periodo.year,
         numero_factura=numero,
+        referencia_inmueble=contrato.inmueble.referencia,
+        descripcion_inmueble=contrato.inmueble.descripcion,
+        direccion_facturacion=contrato.direccion_facturacion,
+        codigo_postal_facturacion=contrato.codigo_postal_facturacion,
+        poblacion_facturacion=contrato.poblacion_facturacion,
+        provincia_facturacion=contrato.provincia_facturacion,
         fecha_emision=fecha_emision,
         periodo=periodo,
         base=calculo.base,
@@ -529,6 +532,20 @@ def crear_factura(
         ),
     )
 
+    factura.destinatarios.extend(
+        [
+            FacturaDestinatario(
+                orden=titular.orden,
+                nombre=titular.inquilino.nombre,
+                nif=titular.inquilino.nif,
+            )
+            for titular in sorted(
+                contrato.titulares,
+                key=lambda titular: titular.orden,
+            )
+        ]
+    )
+
     factura.lineas.extend(lineas)
 
     return factura
@@ -543,7 +560,9 @@ def preparar_registro_contable_factura(
 
     contrato = factura.contrato
 
-    tercero_nombre, tercero_nif = componer_destinatario(contrato)
+    tercero_nombre, tercero_nif = componer_destinatario(
+        contrato
+    )
 
     periodo_desde = factura.periodo
     periodo_hasta = _ultimo_dia_mes(periodo_desde)
@@ -859,6 +878,8 @@ def emitir_factura(
         factura=factura,
         categorias=categorias,
     )
+
+    factura.apunte_contable = apunte
 
     return factura, apunte, movimiento
 

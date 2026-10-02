@@ -27,12 +27,29 @@
 
     <h1>Facturación</h1>
 
+    <div class="no-imprimir">
+        <a href="{{ url_for('facturacion.listar_facturas') }}">
+            Facturas
+        </a>
+
+        {% if preparacion %}
+            &nbsp;&middot;&nbsp;
+
+            <a href="#" onclick="window.print(); return false;">
+                Imprimir
+            </a>
+        {% endif %}
+    </div>
+
     {% if error %}
         <p class="error">{{ error }}</p>
     {% endif %}
 
-    <form method="get">
-        <label for="periodo">Período</label>
+    <form method="get" class="facturacion-preparacion">
+        <label for="periodo">
+            Período
+        </label>
+
         <input
             id="periodo"
             name="periodo"
@@ -44,27 +61,20 @@
         <button type="submit" class="no-imprimir">
             Preparar
         </button>
-    </form>
 
-    {% if preparacion %}
-        <div class="no-imprimir">
+        {% if preparacion %}
             <label for="fecha_emision">
                 Fecha de emisión
             </label>
+
             <input
                 id="fecha_emision"
                 value="{{ fecha_emision_texto }}"
                 placeholder="dd-mm-aaaa"
                 required
             >
-
-            &nbsp;&nbsp;
-
-            <a href="#" onclick="window.print(); return false;">
-                Imprimir
-            </a>
-        </div>
-    {% endif %}
+        {% endif %}
+    </form>
 
     {% if preparacion %}
         <h2>Locales</h2>

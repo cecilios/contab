@@ -546,6 +546,43 @@ class Factura(Base):
         unique=True,
     )
 
+    referencia_inmueble: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    descripcion_inmueble: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    direccion_facturacion: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    codigo_postal_facturacion: Mapped[str | None] = mapped_column(
+        Text,
+    )
+
+    poblacion_facturacion: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    provincia_facturacion: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    apunte_contable_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "apunte_contable.id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+    )
+
     fecha_emision: Mapped[date] = mapped_column(Date, nullable=False)
     periodo: Mapped[date] = mapped_column(Date, nullable=False)
 
@@ -592,6 +629,64 @@ class Factura(Base):
         passive_deletes="all",
     )
 
+    destinatarios: Mapped[list["FacturaDestinatario"]] = relationship(
+        back_populates="factura",
+        order_by="FacturaDestinatario.orden",
+        passive_deletes="all",
+    )
+
+    apunte_contable: Mapped["ApunteContable | None"] = relationship()
+
+
+class FacturaDestinatario(Base):
+    """Conserva un destinatario tal como figuraba en una factura emitida."""
+
+    __tablename__ = "factura_destinatario"
+
+    __table_args__ = (
+        CheckConstraint(
+            "orden > 0",
+            name="ck_factura_destinatario_orden",
+        ),
+        UniqueConstraint(
+            "factura_id",
+            "orden",
+            name="uq_factura_destinatario_orden",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    factura_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "factura.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    orden: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    nombre: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    nif: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    factura: Mapped["Factura"] = relationship(
+        back_populates="destinatarios",
+    )
+
 
 class FacturaLinea(Base):
     """Representa un concepto económico incluido en una factura."""
@@ -599,15 +694,6 @@ class FacturaLinea(Base):
     __tablename__ = "factura_linea"
 
     __table_args__ = (
-        CheckConstraint(
-            "tipo IN ("
-            "'RENTA', "
-            "'DIFERENCIA_REVISION', "
-            "'REPERCUSION_GASTO', "
-            "'OTRO'"
-            ")",
-            name="ck_factura_linea_tipo",
-        ),
         UniqueConstraint(
             "factura_id",
             "orden",
@@ -623,7 +709,6 @@ class FacturaLinea(Base):
     )
 
     orden: Mapped[int] = mapped_column(Integer, nullable=False)
-    tipo: Mapped[str] = mapped_column(Text, nullable=False)
     concepto: Mapped[str] = mapped_column(Text, nullable=False)
     importe: Mapped[int] = mapped_column(Integer, nullable=False)
 

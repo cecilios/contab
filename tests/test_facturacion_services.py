@@ -64,6 +64,40 @@ def _anadir_titular(
     return inquilino
 
 
+def _crear_factura_persistida(
+    contrato: Contrato,
+    **cambios,
+) -> Factura:
+    """Crea una factura válida para tests de facturación."""
+
+    datos = {
+        "contrato": contrato,
+        "numero_secuencia": 1,
+        "anio": 2026,
+        "numero_factura": "01/2026A1",
+        "fecha_emision": date(2026, 2, 1),
+        "periodo": date(2026, 2, 1),
+        "referencia_inmueble": contrato.inmueble.referencia,
+        "descripcion_inmueble": contrato.inmueble.descripcion,
+        "direccion_facturacion": contrato.direccion_facturacion,
+        "codigo_postal_facturacion": (
+            contrato.codigo_postal_facturacion
+        ),
+        "poblacion_facturacion": contrato.poblacion_facturacion,
+        "provincia_facturacion": contrato.provincia_facturacion,
+        "base": 100000,
+        "iva_porcentaje": 0,
+        "iva_importe": 0,
+        "retencion_porcentaje": 0,
+        "retencion_importe": 0,
+        "total": 100000,
+    }
+
+    datos.update(cambios)
+
+    return Factura(**datos)
+
+
 def test_primera_factura_del_ano_comienza_en_uno(contrato) -> None:
     """Comprueba que la primera factura anual de un inmueble tiene secuencia 1."""
     secuencia, numero = siguiente_numero_factura(contrato, 2026)
@@ -74,22 +108,8 @@ def test_primera_factura_del_ano_comienza_en_uno(contrato) -> None:
 
 def test_siguiente_factura_incrementa_secuencia(session, contrato) -> None:
     """Comprueba que la numeración continúa después de la última factura."""
-    factura = Factura(
-        contrato=contrato,
-        numero_secuencia=1,
-        anio=2026,
-        numero_factura="01/2026A1",
-        fecha_emision=date(2026, 2, 1),
-        periodo=date(2026, 2, 1),
-        base=100000,
-        iva_porcentaje=0,
-        iva_importe=0,
-        retencion_porcentaje=0,
-        retencion_importe=0,
-        total=100000,
-        ruta_pdf="factura.pdf",
-    )
 
+    factura = _crear_factura_persistida(contrato)
     session.add(factura)
     session.commit()
 
@@ -101,20 +121,13 @@ def test_siguiente_factura_incrementa_secuencia(session, contrato) -> None:
 
 def test_numeracion_se_reinicia_cada_ano(session, contrato) -> None:
     """Comprueba que cada inmueble reinicia su secuencia al cambiar de año."""
-    factura = Factura(
-        contrato=contrato,
+
+    factura = _crear_factura_persistida(
+        contrato,
         numero_secuencia=7,
-        anio=2026,
         numero_factura="07/2026A1",
         fecha_emision=date(2026, 12, 1),
         periodo=date(2026, 12, 1),
-        base=100000,
-        iva_porcentaje=0,
-        iva_importe=0,
-        retencion_porcentaje=0,
-        retencion_importe=0,
-        total=100000,
-        ruta_pdf="factura.pdf",
     )
 
     session.add(factura)
@@ -157,20 +170,12 @@ def test_numeracion_continua_entre_contratos_del_mismo_inmueble(
         concepto_factura="Alquiler",
     )
 
-    factura = Factura(
-        contrato=contrato_anterior,
+    factura = _crear_factura_persistida(
+        contrato_anterior,
         numero_secuencia=6,
-        anio=2026,
         numero_factura="06/2026A1",
         fecha_emision=date(2026, 6, 1),
         periodo=date(2026, 6, 1),
-        base=100000,
-        iva_porcentaje=0,
-        iva_importe=0,
-        retencion_porcentaje=0,
-        retencion_importe=0,
-        total=100000,
-        ruta_pdf="factura.pdf",
     )
 
     session.add_all([contrato_anterior, contrato_nuevo, factura])
@@ -184,21 +189,10 @@ def test_numeracion_continua_entre_contratos_del_mismo_inmueble(
 
 def test_factura_anulada_sigue_consumiento_numero(session, contrato) -> None:
     """Comprueba que una factura anulada no libera su número de secuencia."""
-    factura = Factura(
-        contrato=contrato,
-        numero_secuencia=1,
-        anio=2026,
-        numero_factura="01/2026A1",
-        fecha_emision=date(2026, 2, 1),
-        periodo=date(2026, 2, 1),
-        base=100000,
-        iva_porcentaje=0,
-        iva_importe=0,
-        retencion_porcentaje=0,
-        retencion_importe=0,
-        total=100000,
+
+    factura = _crear_factura_persistida(
+        contrato,
         estado="ANULADA",
-        ruta_pdf="factura.pdf",
     )
 
     session.add(factura)
@@ -215,7 +209,6 @@ def test_calcular_factura_sin_impuestos() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=100000,
         )
@@ -241,7 +234,6 @@ def test_calcular_factura_con_iva_y_retencion() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=100000,
         )
@@ -267,19 +259,16 @@ def test_calcular_factura_suma_todas_las_lineas() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=100000,
         ),
         FacturaLinea(
             orden=2,
-            tipo="DIFERENCIA_REVISION",
             concepto="Diferencia revisión",
             importe=2300,
         ),
         FacturaLinea(
             orden=3,
-            tipo="REPERCUSION_GASTO",
             concepto="Agua",
             importe=8347,
         ),
@@ -307,13 +296,11 @@ def test_calcular_factura_admite_diferencia_revision_negativa() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=100000,
         ),
         FacturaLinea(
             orden=2,
-            tipo="DIFERENCIA_REVISION",
             concepto="Diferencia revisión",
             importe=-2500,
         ),
@@ -337,7 +324,6 @@ def test_calcular_factura_redondea_impuestos_al_centimo() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=10001,
         )
@@ -362,7 +348,6 @@ def test_calcular_factura_rechaza_base_negativa() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="DIFERENCIA_REVISION",
             concepto="Diferencia revisión",
             importe=-10001,
         )
@@ -384,7 +369,6 @@ def test_calcular_factura_redondea_iva_hacia_arriba() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=10001,
         )
@@ -407,7 +391,6 @@ def test_calcular_factura_redondea_iva_hacia_abajo() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=10001,
         )
@@ -431,7 +414,6 @@ def test_calcular_factura_redondea_retencion_al_centimo() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=10001,
         )
@@ -455,7 +437,6 @@ def test_calcular_factura_rechaza_iva_negativo() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=100000,
         )
@@ -477,7 +458,6 @@ def test_calcular_factura_rechaza_retencion_negativa() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=100000,
         )
@@ -499,7 +479,6 @@ def test_calcular_factura_admite_base_cero() -> None:
     lineas = [
         FacturaLinea(
             orden=1,
-            tipo="RENTA",
             concepto="Alquiler",
             importe=0,
         )
@@ -545,7 +524,6 @@ def test_crear_factura_ordinaria(session, contrato) -> None:
     assert factura.fecha_emision == date(2026, 9, 1)
 
     assert len(factura.lineas) == 1
-    assert factura.lineas[0].tipo == "RENTA"
     assert factura.lineas[0].importe == 100000
 
     assert factura.base == 100000
@@ -578,7 +556,6 @@ def test_factura_admite_ruta_pdf_vacia_por_defecto(session, contrato) -> None:
     assert factura.fecha_emision == date(2026, 9, 1)
 
     assert len(factura.lineas) == 1
-    assert factura.lineas[0].tipo == "RENTA"
     assert factura.lineas[0].importe == 100000
 
     assert factura.base == 100000
@@ -718,8 +695,6 @@ def test_crear_factura_con_diferencia_revision_positiva(
     )
 
     assert len(factura.lineas) == 2
-    assert factura.lineas[0].tipo == "RENTA"
-    assert factura.lineas[1].tipo == "DIFERENCIA_REVISION"
     assert factura.lineas[1].importe == 2300
 
     assert factura.base == 102300
@@ -784,7 +759,6 @@ def test_crear_factura_sin_diferencia_no_anade_linea(
     )
 
     assert len(factura.lineas) == 1
-    assert factura.lineas[0].tipo == "RENTA"
 
 
 def test_crear_factura_con_revision_sin_diferencia(
@@ -865,7 +839,6 @@ def test_crear_factura_con_gasto_repercutido(session, contrato) -> None:
     )
 
     assert len(factura.lineas) == 2
-    assert factura.lineas[1].tipo == "REPERCUSION_GASTO"
     assert factura.lineas[1].importe == 8347
     assert factura.base == 108347
 
@@ -1541,7 +1514,6 @@ def test_emitir_factura_prepara_operacion_completa(
     assert factura.estado == "EMITIDA"
 
     assert len(factura.lineas) == 1
-    assert factura.lineas[0].tipo == "RENTA"
     assert factura.lineas[0].importe == 100000
 
     assert factura.base == 100000
@@ -2094,12 +2066,10 @@ def test_crear_factura_usa_datos_editados() -> None:
     assert len(factura.lineas) == 2
 
     assert factura.lineas[0].orden == 1
-    assert factura.lineas[0].tipo == "RENTA"
     assert factura.lineas[0].concepto == "Alquiler octubre"
     assert factura.lineas[0].importe == 100000
 
     assert factura.lineas[1].orden == 2
-    assert factura.lineas[1].tipo == "OTRO"
     assert factura.lineas[1].concepto == "Consumo de agua"
     assert factura.lineas[1].importe == 3500
 
@@ -2184,15 +2154,15 @@ def test_emitir_factura_usa_factura_editada(
         factura_editada=factura_editada,
     )
 
+    assert factura.apunte_contable is apunte
+
     assert len(factura.lineas) == 2
 
     assert factura.lineas[0].orden == 1
-    assert factura.lineas[0].tipo == "RENTA"
     assert factura.lineas[0].concepto == "Alquiler octubre"
     assert factura.lineas[0].importe == 100000
 
     assert factura.lineas[1].orden == 2
-    assert factura.lineas[1].tipo == "OTRO"
     assert factura.lineas[1].concepto == "Consumo de agua"
     assert factura.lineas[1].importe == 3500
 
@@ -2631,5 +2601,61 @@ def test_preparar_datos_documento_factura_conserva_titulares(
     assert datos.destinatario.titulares[1].nif == (
         "22222222B"
     )
+
+
+def test_crear_factura_conserva_snapshot_documental(
+    contrato,
+) -> None:
+
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
+        orden=1,
+    )
+
+    _anadir_titular(
+        contrato,
+        nombre="Luis Pérez",
+        nif="22222222B",
+        orden=2,
+    )
+
+    contrato.inmueble.referencia = "LOCAL-1"
+    contrato.inmueble.descripcion = "Local comercial"
+    contrato.direccion_facturacion = "Calle Antigua 10"
+    contrato.codigo_postal_facturacion = "36001"
+    contrato.poblacion_facturacion = "Pontevedra"
+    contrato.provincia_facturacion = "Pontevedra"
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=date(2026, 2, 1),
+            importe=100000,
+        )
+    )
+
+    factura = crear_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert factura.referencia_inmueble == "LOCAL-1"
+    assert factura.descripcion_inmueble == "Local comercial"
+
+    assert factura.direccion_facturacion == (
+        "Calle Antigua 10"
+    )
+    assert factura.codigo_postal_facturacion == "36001"
+    assert factura.poblacion_facturacion == "Pontevedra"
+    assert factura.provincia_facturacion == "Pontevedra"
+
+    assert [
+        (destinatario.nombre, destinatario.nif)
+        for destinatario in factura.destinatarios
+    ] == [
+        ("Ana Pérez", "11111111A"),
+        ("Luis Pérez", "22222222B"),
+    ]
 
 

@@ -30,6 +30,8 @@ from contab.formato import (
 )
 from contab.models import (
     Contrato,
+    Factura,
+    Inmueble,
     RevisionRenta,
 )
 from contab.config import (
@@ -47,6 +49,7 @@ from contab.facturacion.services import (
     FacturaEditada,
     LineaFacturaEditada,
     calcular_importes_factura,
+    componer_destinatario,
     contabilizar_ingreso_sin_factura,
     emitir_factura,
     notas_automaticas_factura,
@@ -261,9 +264,137 @@ def listar():
         return str(exc), 400
 
 
+@bp.get("/facturas")
+def listar_facturas():
+    """Muestra la tabla con las facturas persistidas."""
+
+    anio_texto = request.args.get(
+        "anio",
+        str(date.today().year),
+    ).strip()
+
+    try:
+        anio = int(anio_texto)
+    except ValueError:
+        return "El año no es válido.", 400
+
+    inmueble_id_texto = request.args.get(
+        "inmueble_id",
+        "",
+    ).strip()
+
+    inmueble_id = None
+
+    if inmueble_id_texto:
+        try:
+            inmueble_id = int(
+                inmueble_id_texto
+            )
+        except ValueError:
+            return "El inmueble no es válido.", 400
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        consulta = (
+            select(Factura)
+            .join(Factura.contrato)
+            .join(Contrato.inmueble)
+            .where(Factura.anio == anio)
+        )
+
+        if inmueble_id is not None:
+            consulta = consulta.where(
+                Contrato.inmueble_id
+                == inmueble_id
+            )
+
+        consulta = consulta.order_by(
+            Factura.fecha_emision.desc(),
+            Factura.id.desc(),
+        )
+
+        facturas = list(
+            session.scalars(consulta)
+        )
+
+        inmuebles = list(
+            session.scalars(
+                select(Inmueble)
+                .where(Inmueble.tipo != "T")
+                .order_by(Inmueble.referencia)
+            )
+        )
+
+        destinatarios = {
+            factura.id: componer_destinatario(
+                factura.contrato
+            )[0]
+            for factura in facturas
+        }
+
+        return render_template(
+            "facturacion/facturas.html",
+            facturas=facturas,
+            destinatarios=destinatarios,
+            inmuebles=inmuebles,
+            anio_texto=anio_texto,
+            inmueble_id=inmueble_id,
+            database_name=get_database_name(),
+            fecha_a_texto=fecha_a_texto,
+            importe_a_texto=importe_a_texto,
+        )
+
+
+@bp.get("/facturas/<int:factura_id>")
+def ver_factura(factura_id: int):
+    """Muestra una factura persistida. Solo lectura."""
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        factura = session.get(
+            Factura,
+            factura_id,
+        )
+
+        if factura is None:
+            return "Factura no encontrada.", 404
+
+        destinatario_nombre, destinatario_nif = (
+            componer_destinatario(
+                factura.contrato
+            )
+        )
+
+        lineas = sorted(
+            factura.lineas,
+            key=lambda linea: linea.orden,
+        )
+
+        notas = (
+            factura.notas.splitlines()
+            if factura.notas
+            else []
+        )
+
+        return render_template(
+            "facturacion/factura_detalle.html",
+            factura=factura,
+            lineas=lineas,
+            notas=notas,
+            destinatario_nombre=destinatario_nombre,
+            destinatario_nif=destinatario_nif,
+            database_name=get_database_name(),
+            fecha_a_texto=fecha_a_texto,
+            periodo_a_texto_largo=periodo_a_texto_largo,
+            importe_a_texto=importe_a_texto,
+            porcentaje_a_texto=porcentaje_a_texto_entrada,
+        )
+
 @bp.post("/contabilizar/<int:contrato_id>")
 def contabilizar(contrato_id: int):
-    """Contabiliza un ingreso de alquiler que no genera factura."""
+    """Contabiliza un ingreso de alquiler 'Otros' que no genera factura."""
 
     periodo_texto = request.form["periodo"]
     fecha_emision_texto = request.form["fecha_emision"]
@@ -413,7 +544,7 @@ def aplicar_revision(revision_id: int):
 
 @bp.get("/facturas/<int:contrato_id>/modificar")
 def modificar_factura(contrato_id: int):
-    """Muestra el formulario de una factura preparada."""
+    """Muestra el formulario editable de una factura preparada."""
 
     periodo_texto = request.args.get(
         "periodo",
