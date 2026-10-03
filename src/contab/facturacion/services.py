@@ -81,6 +81,8 @@ class FacturaPreparada:
 
     contrato: Contrato
     inmueble: object
+    referencia_inmueble: str
+    descripcion_inmueble: str
     destinatario_nombre: str
     destinatario_nif: str
     direccion_facturacion: str
@@ -758,6 +760,26 @@ def preparar_periodo_facturacion(
                 retencion_importe = calculo.retencion_importe
                 total = calculo.total
 
+                referencia_inmueble = contrato.inmueble.referencia
+                descripcion_inmueble = contrato.inmueble.descripcion
+
+                destinatario_nombre, destinatario_nif = (
+                    componer_destinatario(contrato)
+                )
+
+                direccion_facturacion = (
+                    contrato.direccion_facturacion
+                )
+                codigo_postal_facturacion = (
+                    contrato.codigo_postal_facturacion
+                )
+                poblacion_facturacion = (
+                    contrato.poblacion_facturacion
+                )
+                provincia_facturacion = (
+                    contrato.provincia_facturacion
+                )
+
             else:
                 numero_factura = factura.numero_factura
                 lineas = tuple(
@@ -772,7 +794,37 @@ def preparar_periodo_facturacion(
                 retencion_importe = factura.retencion_importe
                 total = factura.total
 
-            destinatario_nombre, destinatario_nif = componer_destinatario(contrato)
+                referencia_inmueble = factura.referencia_inmueble
+                descripcion_inmueble = factura.descripcion_inmueble
+
+                destinatarios = sorted(
+                    factura.destinatarios,
+                    key=lambda destinatario: destinatario.orden,
+                )
+
+                destinatario_nombre = " / ".join(
+                    destinatario.nombre
+                    for destinatario in destinatarios
+                )
+
+                destinatario_nif = " / ".join(
+                    destinatario.nif
+                    for destinatario in destinatarios
+                )
+
+                direccion_facturacion = (
+                    factura.direccion_facturacion
+                )
+                codigo_postal_facturacion = (
+                    factura.codigo_postal_facturacion
+                )
+                poblacion_facturacion = (
+                    factura.poblacion_facturacion
+                )
+                provincia_facturacion = (
+                    factura.provincia_facturacion
+                )
+
 
             notas = notas_automaticas_factura(
                 retencion_porcentaje=contrato.retencion_porcentaje,
@@ -784,13 +836,15 @@ def preparar_periodo_facturacion(
                 FacturaPreparada(
                     contrato=contrato,
                     inmueble=contrato.inmueble,
+                    referencia_inmueble=referencia_inmueble,
+                    descripcion_inmueble=descripcion_inmueble,
                     factura=factura,
                     destinatario_nombre=destinatario_nombre,
                     destinatario_nif=destinatario_nif,
-                    direccion_facturacion=contrato.direccion_facturacion,
-                    codigo_postal_facturacion=contrato.codigo_postal_facturacion,
-                    poblacion_facturacion=contrato.poblacion_facturacion,
-                    provincia_facturacion=contrato.provincia_facturacion,
+                    direccion_facturacion=direccion_facturacion,
+                    codigo_postal_facturacion=codigo_postal_facturacion,
+                    poblacion_facturacion=poblacion_facturacion,
+                    provincia_facturacion=provincia_facturacion,
                     lineas=lineas,
                     notas=tuple(notas),
                     base=base,
@@ -894,27 +948,39 @@ def preparar_datos_documento_factura(
 
     notas = list(factura_editada.notas)
 
+    if factura.factura is not None:
+        titulares = [
+            TitularDocumentoFactura(
+                nombre=destinatario.nombre,
+                nif=destinatario.nif,
+            )
+            for destinatario in sorted(
+                factura.factura.destinatarios,
+                key=lambda destinatario: destinatario.orden,
+            )
+        ]
+    else:
+        titulares = [
+            TitularDocumentoFactura(
+                nombre=titular.inquilino.nombre,
+                nif=titular.inquilino.nif,
+            )
+            for titular in sorted(
+                factura.contrato.titulares,
+                key=lambda titular: titular.orden,
+            )
+        ]
+
     return DatosDocumentoFactura(
-        titulo=factura.inmueble.descripcion,
-        referencia_inmueble=factura.inmueble.referencia,
+        titulo=factura.descripcion_inmueble,
+        referencia_inmueble=factura.referencia_inmueble,
         numero=factura.numero_factura,
         periodo=periodo,
         fecha_emision=fecha_emision,
         destinatario=DestinatarioDocumentoFactura(
-            titulares=[
-                TitularDocumentoFactura(
-                    nombre=titular.inquilino.nombre,
-                    nif=titular.inquilino.nif,
-                )
-                for titular in sorted(
-                    factura.contrato.titulares,
-                    key=lambda titular: titular.orden,
-                )
-            ],
+            titulares=titulares,
             direccion=factura.direccion_facturacion,
-            codigo_postal=(
-                factura.codigo_postal_facturacion
-            ),
+            codigo_postal=factura.codigo_postal_facturacion,
             poblacion=factura.poblacion_facturacion,
             provincia=factura.provincia_facturacion,
         ),

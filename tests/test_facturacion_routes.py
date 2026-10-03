@@ -3393,3 +3393,116 @@ def test_listar_facturas_filtra_por_inmueble() -> None:
     )
 
 
+def test_ver_factura_usa_snapshot_historico() -> None:
+    """La consulta de una factura no depende del contrato actual."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        factura = _crear_factura_emitida_para_test(
+            session,
+            referencia="LOCAL-HIST",
+            codigo_facturacion="A1",
+            destinatario="Cliente Histórico",
+            nif="11111111A",
+        )
+
+        contrato = factura.contrato
+
+        contrato.inmueble.referencia = "LOCAL-NUEVO"
+        contrato.direccion_facturacion = "Dirección nueva"
+        contrato.codigo_postal_facturacion = "99999"
+        contrato.poblacion_facturacion = "Vigo"
+        contrato.provincia_facturacion = "A Coruña"
+
+        contrato.titulares[0].inquilino.nombre = (
+            "Cliente Nuevo"
+        )
+        contrato.titulares[0].inquilino.nif = (
+            "99999999Z"
+        )
+
+        factura_id = factura.id
+
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        f"/facturacion/facturas/{factura_id}"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "LOCAL-HIST" in texto
+    assert "Cliente Histórico" in texto
+    assert "11111111A" in texto
+    assert "Calle del Cliente 10" in texto
+    assert "36001" in texto
+    assert "Pontevedra" in texto
+
+    assert "LOCAL-NUEVO" not in texto
+    assert "Cliente Nuevo" not in texto
+    assert "99999999Z" not in texto
+    assert "Dirección nueva" not in texto
+
+
+def test_listar_facturas_usa_snapshot_historico() -> None:
+    """El listado muestra datos históricos de la factura."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        factura = _crear_factura_emitida_para_test(
+            session,
+            referencia="LOCAL-HIST",
+            codigo_facturacion="A1",
+            destinatario="Cliente Histórico",
+            nif="11111111A",
+        )
+
+        factura.contrato.inmueble.referencia = (
+            "LOCAL-NUEVO"
+        )
+        factura.contrato.titulares[
+            0
+        ].inquilino.nombre = "Cliente Nuevo"
+
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/facturas?anio=2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "LOCAL-HIST" in texto
+    assert "Cliente Histórico" in texto
+
+    assert "Cliente Nuevo" not in texto
+
+

@@ -20,26 +20,27 @@
             <div>
                 <p>
                     <strong>Inmueble:</strong>
-                    {{ factura.contrato.inmueble.referencia }}
+                    {{ factura.referencia_inmueble }}
                 </p>
 
                 <p>
-                    <strong>Destinatario:</strong>
-                    {{ destinatario_nombre }}<br>
+                    <strong>Destinatario:</strong><br>
 
-                    <strong>NIF:</strong>
-                    {{ destinatario_nif }}<br>
+                    {% for destinatario in destinatarios %}
+                        {{ destinatario.nombre }},
+                        NIF. {{ destinatario.nif }}<br>
+                    {% endfor %}
 
-                    {{ factura.contrato.direccion_facturacion }}<br>
+                    {{ factura.direccion_facturacion }}<br>
 
-                    {% if factura.contrato.codigo_postal_facturacion %}
-                        {{ factura.contrato.codigo_postal_facturacion }}
+                    {% if factura.codigo_postal_facturacion %}
+                        {{ factura.codigo_postal_facturacion }}
                     {% endif %}
 
-                    {{ factura.contrato.poblacion_facturacion }}
+                    {{ factura.poblacion_facturacion }}
 
-                    {% if factura.contrato.provincia_facturacion %}
-                        ({{ factura.contrato.provincia_facturacion }})
+                    {% if factura.provincia_facturacion %}
+                        ({{ factura.provincia_facturacion }})
                     {% endif %}
                 </p>
             </div>

@@ -327,9 +327,10 @@ def listar_facturas():
         )
 
         destinatarios = {
-            factura.id: componer_destinatario(
-                factura.contrato
-            )[0]
+            factura.id: " / ".join(
+                destinatario.nombre
+                for destinatario in factura.destinatarios
+            )
             for factura in facturas
         }
 
@@ -361,10 +362,9 @@ def ver_factura(factura_id: int):
         if factura is None:
             return "Factura no encontrada.", 404
 
-        destinatario_nombre, destinatario_nif = (
-            componer_destinatario(
-                factura.contrato
-            )
+        destinatarios = sorted(
+            factura.destinatarios,
+            key=lambda destinatario: destinatario.orden,
         )
 
         lineas = sorted(
@@ -383,14 +383,14 @@ def ver_factura(factura_id: int):
             factura=factura,
             lineas=lineas,
             notas=notas,
-            destinatario_nombre=destinatario_nombre,
-            destinatario_nif=destinatario_nif,
+            destinatarios=destinatarios,
             database_name=get_database_name(),
             fecha_a_texto=fecha_a_texto,
             periodo_a_texto_largo=periodo_a_texto_largo,
             importe_a_texto=importe_a_texto,
             porcentaje_a_texto=porcentaje_a_texto_entrada,
         )
+
 
 @bp.post("/contabilizar/<int:contrato_id>")
 def contabilizar(contrato_id: int):

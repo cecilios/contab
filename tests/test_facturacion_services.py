@@ -11,6 +11,7 @@ from contab.models import (
     Contrato,
     ContratoInquilino,
     Factura,
+    FacturaDestinatario,
     FacturaLinea,
     Inmueble,
     Inquilino,
@@ -2540,6 +2541,8 @@ def test_preparar_datos_documento_factura_conserva_titulares(
     factura = FacturaPreparada(
         contrato=contrato,
         inmueble=contrato.inmueble,
+        referencia_inmueble=contrato.inmueble.referencia,
+        descripcion_inmueble=contrato.inmueble.descripcion,
         destinatario_nombre="Ana Pérez / María López",
         destinatario_nif="11111111A / 22222222B",
         direccion_facturacion="Calle del Cliente 10",
@@ -2603,6 +2606,118 @@ def test_preparar_datos_documento_factura_conserva_titulares(
     )
 
 
+def test_preparar_datos_documento_factura_emitida_usa_snapshot_historico(
+    contrato,
+) -> None:
+    """Una factura emitida conserva sus destinatarios históricos."""
+
+    inquilino = _anadir_titular(
+        contrato,
+        nombre="Cliente Actual",
+        nif="99999999Z",
+    )
+
+    factura_persistida = _crear_factura_persistida(
+        contrato,
+        referencia_inmueble="LOCAL-HIST",
+        descripcion_inmueble="Local histórico",
+        direccion_facturacion="Dirección histórica",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+    )
+
+    factura_persistida.destinatarios.extend(
+        [
+            FacturaDestinatario(
+                orden=1,
+                nombre="Ana Histórica",
+                nif="11111111A",
+            ),
+            FacturaDestinatario(
+                orden=2,
+                nombre="Luis Histórico",
+                nif="22222222B",
+            ),
+        ]
+    )
+
+    preparada = FacturaPreparada(
+        contrato=contrato,
+        inmueble=contrato.inmueble,
+        referencia_inmueble="LOCAL-HIST",
+        descripcion_inmueble="Local histórico",
+        destinatario_nombre=(
+            "Ana Histórica / Luis Histórico"
+        ),
+        destinatario_nif=(
+            "11111111A / 22222222B"
+        ),
+        direccion_facturacion="Dirección histórica",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        lineas=(
+            LineaFacturaPreparada(
+                concepto="Alquiler histórico",
+                importe=100000,
+            ),
+        ),
+        notas=(),
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+        factura=factura_persistida,
+        numero_factura="01/2026A1",
+        revision=None,
+        revision_estado=None,
+    )
+
+    editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto="Alquiler histórico",
+                importe=100000,
+            )
+        ],
+        notas=[],
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+    )
+
+    # El contrato cambia después de emitirse la factura.
+    inquilino.nombre = "Cliente Modificado"
+    inquilino.nif = "88888888Y"
+
+    datos = preparar_datos_documento_factura(
+        factura=preparada,
+        factura_editada=editada,
+        periodo=date(2026, 2, 1),
+        fecha_emision=date(2026, 2, 1),
+    )
+
+    assert datos.titulo == "Local histórico"
+    assert datos.referencia_inmueble == "LOCAL-HIST"
+
+    assert [
+        (titular.nombre, titular.nif)
+        for titular in datos.destinatario.titulares
+    ] == [
+        ("Ana Histórica", "11111111A"),
+        ("Luis Histórico", "22222222B"),
+    ]
+
+    assert datos.destinatario.direccion == "Dirección histórica"
+    assert datos.destinatario.codigo_postal == "36001"
+    assert datos.destinatario.poblacion == "Pontevedra"
+    assert datos.destinatario.provincia == "Pontevedra"
+
+
 def test_crear_factura_conserva_snapshot_documental(
     contrato,
 ) -> None:
@@ -2657,5 +2772,88 @@ def test_crear_factura_conserva_snapshot_documental(
         ("Ana Pérez", "11111111A"),
         ("Luis Pérez", "22222222B"),
     ]
+
+
+def test_preparar_periodo_con_factura_emitida_usa_snapshot_historico(
+    session,
+    contrato,
+) -> None:
+    """Una factura emitida se prepara desde su snapshot histórico."""
+
+    inquilino = _anadir_titular(
+        contrato,
+        nombre="Cliente Histórico",
+        nif="11111111A",
+    )
+
+    factura = _crear_factura_persistida(
+        contrato,
+        referencia_inmueble="LOCAL-HIST",
+        descripcion_inmueble="Local histórico",
+        direccion_facturacion="Dirección histórica",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+    )
+
+    factura.destinatarios.append(
+        FacturaDestinatario(
+            orden=1,
+            nombre="Cliente Histórico",
+            nif="11111111A",
+        )
+    )
+
+    factura.lineas.append(
+        FacturaLinea(
+            orden=1,
+            concepto="Alquiler histórico",
+            importe=100000,
+        )
+    )
+
+    session.add(factura)
+    session.commit()
+
+    # El contrato cambia después de emitir la factura.
+    contrato.inmueble.referencia = "LOCAL-NUEVO"
+    contrato.inmueble.descripcion = "Local nuevo"
+
+    contrato.direccion_facturacion = "Dirección nueva"
+    contrato.codigo_postal_facturacion = "99999"
+    contrato.poblacion_facturacion = "Vigo"
+    contrato.provincia_facturacion = "A Coruña"
+
+    inquilino.nombre = "Cliente Nuevo"
+    inquilino.nif = "99999999Z"
+
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 2, 1),
+        fecha_emision=date(2026, 2, 1),
+    )
+
+    assert len(preparacion.locales) == 1
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.factura is factura
+    assert preparada.numero_factura == "01/2026A1"
+
+    assert preparada.destinatario_nombre == "Cliente Histórico"
+    assert preparada.destinatario_nif == "11111111A"
+
+    assert preparada.direccion_facturacion == "Dirección histórica"
+    assert preparada.codigo_postal_facturacion == "36001"
+    assert preparada.poblacion_facturacion == "Pontevedra"
+    assert preparada.provincia_facturacion == "Pontevedra"
+
+    assert preparada.lineas[0].concepto == "Alquiler histórico"
+    assert preparada.lineas[0].importe == 100000
+
+    assert preparada.referencia_inmueble == "LOCAL-HIST"
+    assert preparada.descripcion_inmueble == "Local histórico"
 
 
