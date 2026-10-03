@@ -57,6 +57,7 @@
                     <th>Destinatario</th>
                     <th>Total</th>
                     <th>Estado</th>
+                    <th>Acciones</th>
                 </tr>
             </thead>
 
@@ -99,6 +100,47 @@
                                 {{ factura.estado }}
                             {% endif %}
                         </td>
+
+                        <td class="acciones-factura">
+                            <details>
+                                <summary title="Acciones">⋮</summary>
+
+                                <div class="menu-acciones">
+                                    <a
+                                        href="{{ url_for(
+                                            'facturacion.ver_factura',
+                                            factura_id=factura.id
+                                        ) }}"
+                                    >
+                                        Ver factura
+                                    </a>
+
+                                    {% if factura.estado == "EMITIDA" %}
+                                        <form
+                                            method="post"
+                                            action="{{ url_for(
+                                                'facturacion.eliminar_factura',
+                                                factura_id=factura.id
+                                            ) }}"
+                                            onsubmit="return confirm(
+                                                '¿Eliminar definitivamente esta factura?'
+                                            );"
+                                        >
+                                            <button type="submit">
+                                                Eliminar
+                                            </button>
+                                        </form>
+
+                                        <span>Anular</span>
+                                        <span>Hacer factura rectificativa</span>
+
+                                    {% endif %}
+
+                                    <span>Nueva factura excepcional</span>
+                                </div>
+                            </details>
+                        </td>
+
                     </tr>
                 {% endfor %}
             </tbody>
@@ -106,5 +148,35 @@
     {% else %}
         <p>No hay facturas registradas.</p>
     {% endif %}
+
+<script>
+    document.addEventListener("click", function (event) {
+        document.querySelectorAll(
+            ".acciones-factura details[open]"
+        ).forEach(function (details) {
+            if (!details.contains(event.target)) {
+                details.removeAttribute("open");
+            }
+        });
+    });
+
+    document.querySelectorAll(
+        ".acciones-factura details"
+    ).forEach(function (details) {
+        details.addEventListener("toggle", function () {
+            if (!details.open) {
+                return;
+            }
+
+            document.querySelectorAll(
+                ".acciones-factura details[open]"
+            ).forEach(function (otro) {
+                if (otro !== details) {
+                    otro.removeAttribute("open");
+                }
+            });
+        });
+    });
+</script>
 
 {% endblock %}

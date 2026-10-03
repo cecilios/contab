@@ -24,6 +24,10 @@ from contab.facturacion.routes import (
     _valores_iniciales_facturacion,
 )
 
+from contab.facturacion.services import (
+    siguiente_numero_factura,
+)
+
 
 
 def crear_app_test():
@@ -151,6 +155,52 @@ def _crear_factura_emitida_para_test(
     session.commit()
 
     return factura
+
+
+def _anadir_registro_contable_factura_para_test(
+    session,
+    factura: Factura,
+) -> tuple[ApunteContable, MovimientoPrevisto]:
+    """Añade apunte y movimiento previsto asociados a una factura."""
+
+    apunte = ApunteContable(
+        inmueble=factura.contrato.inmueble,
+        fecha=factura.fecha_emision,
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        tratamiento="CONTABILIZAR",
+        concepto="Alquiler local",
+        periodo_desde=factura.periodo,
+        periodo_hasta=date(2026, 10, 31),
+        base=factura.base,
+        iva_importe=factura.iva_importe,
+        retencion_importe=factura.retencion_importe,
+        total=factura.total,
+        tercero_nombre="Ana Pérez",
+        tercero_nif="11111111A",
+        referencia_documento=factura.numero_factura,
+    )
+
+    movimiento = MovimientoPrevisto(
+        inmueble=factura.contrato.inmueble,
+        contrato=factura.contrato,
+        apunte=apunte,
+        fecha_prevista_desde=factura.periodo,
+        fecha_prevista_hasta=date(2026, 10, 31),
+        naturaleza="INGRESO",
+        concepto="Alquiler local",
+        importe_esperado=factura.total,
+        contraparte="Ana Pérez",
+        estado="PENDIENTE",
+    )
+
+    factura.apunte_contable = apunte
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    return apunte, movimiento
+
 
 
 def test_listar_facturacion_muestra_datos_del_periodo() -> None:
@@ -3504,5 +3554,225 @@ def test_listar_facturas_usa_snapshot_historico() -> None:
     assert "Cliente Histórico" in texto
 
     assert "Cliente Nuevo" not in texto
+
+
+def test_eliminar_factura_borra_factura_y_registro_contable() -> None:
+    """Elimina factura, detalle, apunte y movimiento previsto."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        factura = _crear_factura_emitida_para_test(
+            session
+        )
+
+        apunte, movimiento = (
+            _anadir_registro_contable_factura_para_test(
+                session,
+                factura,
+            )
+        )
+
+        factura_id = factura.id
+        apunte_id = apunte.id
+        movimiento_id = movimiento.id
+
+        linea_ids = [
+            linea.id
+            for linea in factura.lineas
+        ]
+
+        destinatario_ids = [
+            destinatario.id
+            for destinatario in factura.destinatarios
+        ]
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{factura_id}/eliminar"
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(
+        "/facturacion/facturas"
+    )
+
+    with session_factory() as session:
+        assert session.get(
+            Factura,
+            factura_id,
+        ) is None
+
+        assert session.get(
+            ApunteContable,
+            apunte_id,
+        ) is None
+
+        assert session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        ) is None
+
+        for linea_id in linea_ids:
+            assert session.get(
+                FacturaLinea,
+                linea_id,
+            ) is None
+
+        for destinatario_id in destinatario_ids:
+            assert session.get(
+                FacturaDestinatario,
+                destinatario_id,
+            ) is None
+
+
+def test_eliminar_factura_inexistente_devuelve_404() -> None:
+    """Devuelve 404 al intentar eliminar una factura inexistente."""
+
+    app = crear_app_test()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        "/facturacion/facturas/999/eliminar"
+    )
+
+    assert response.status_code == 404
+    assert (
+        "Factura no encontrada."
+        in response.get_data(as_text=True)
+    )
+
+
+def test_eliminar_factura_conciliada_devuelve_400_y_no_borra() -> None:
+    """No modifica datos cuando la factura no puede eliminarse."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        factura = _crear_factura_emitida_para_test(
+            session
+        )
+
+        apunte, movimiento = (
+            _anadir_registro_contable_factura_para_test(
+                session,
+                factura,
+            )
+        )
+
+        movimiento.estado = "CONCILIADO"
+
+        factura_id = factura.id
+        apunte_id = apunte.id
+        movimiento_id = movimiento.id
+
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{factura_id}/eliminar"
+    )
+
+    assert response.status_code == 400
+    assert (
+        "conciliado"
+        in response.get_data(
+            as_text=True
+        ).lower()
+    )
+
+    with session_factory() as session:
+        assert session.get(
+            Factura,
+            factura_id,
+        ) is not None
+
+        assert session.get(
+            ApunteContable,
+            apunte_id,
+        ) is not None
+
+        assert session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        ) is not None
+
+
+def test_eliminar_factura_permite_reutilizar_su_numero() -> None:
+    """Al eliminar la última factura, su número vuelve a quedar disponible."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        factura = _crear_factura_emitida_para_test(
+            session,
+            numero_secuencia=1,
+        )
+
+        _anadir_registro_contable_factura_para_test(
+            session,
+            factura,
+        )
+
+        factura_id = factura.id
+        contrato_id = factura.contrato_id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{factura_id}/eliminar"
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        numero, literal = siguiente_numero_factura(
+            contrato=contrato,
+            anio=2026,
+        )
+
+        assert numero == 1
+        assert literal == "01/2026A1"
+
 
 

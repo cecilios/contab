@@ -35,6 +35,7 @@ from contab.facturacion.services import (
     notas_automaticas_factura,
     notas_revision_factura,
     preparar_datos_documento_factura,
+    preparar_eliminacion_factura,
     preparar_periodo_facturacion,
     preparar_registro_contable_factura,
     siguiente_numero_factura,
@@ -97,6 +98,35 @@ def _crear_factura_persistida(
     datos.update(cambios)
 
     return Factura(**datos)
+
+
+def _emitir_factura_para_eliminacion(
+    session,
+    contrato,
+    categorias,
+    *,
+    periodo=date(2026, 10, 1),
+):
+    """Crea y persiste una factura ordinaria con apunte y movimiento."""
+
+    factura, apunte, movimiento = emitir_factura(
+        contrato=contrato,
+        periodo=periodo,
+        fecha_emision=periodo,
+        categorias=categorias,
+    )
+
+    session.add_all(
+        [
+            factura,
+            apunte,
+            movimiento,
+        ]
+    )
+    session.commit()
+
+    return factura, apunte, movimiento
+
 
 
 def test_primera_factura_del_ano_comienza_en_uno(contrato) -> None:
@@ -2855,5 +2885,309 @@ def test_preparar_periodo_con_factura_emitida_usa_snapshot_historico(
 
     assert preparada.referencia_inmueble == "LOCAL-HIST"
     assert preparada.descripcion_inmueble == "Local histórico"
+
+
+def test_preparar_eliminacion_factura_devuelve_elementos_a_eliminar(
+    session,
+    contrato,
+) -> None:
+    """Prepara la eliminación completa de una factura pendiente de cobro."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = True
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    factura, apunte, movimiento = (
+        _emitir_factura_para_eliminacion(
+            session,
+            contrato,
+            categorias,
+        )
+    )
+
+    eliminacion = preparar_eliminacion_factura(
+        factura
+    )
+
+    assert eliminacion.factura is factura
+    assert eliminacion.apunte is apunte
+    assert eliminacion.movimiento is movimiento
+
+
+def test_preparar_eliminacion_factura_sin_movimiento_previsto_es_valida(
+    session,
+    contrato,
+) -> None:
+    """Admite temporalmente una factura histórica sin movimiento previsto."""
+
+    factura = _crear_factura_persistida(
+        contrato,
+    )
+
+    apunte = ApunteContable(
+        inmueble=contrato.inmueble,
+        fecha=factura.fecha_emision,
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        tratamiento="CONTABILIZAR",
+        concepto="Apunte técnico",
+        base=0,
+        iva_importe=0,
+        retencion_importe=0,
+        total=0,
+        tercero_nombre="",
+        tercero_nif="",
+        referencia_documento=factura.numero_factura,
+    )
+
+    factura.apunte_contable = apunte
+
+    session.add(factura)
+    session.commit()
+
+    eliminacion = preparar_eliminacion_factura(
+        factura
+    )
+
+    assert eliminacion.factura is factura
+    assert eliminacion.apunte is apunte
+    assert eliminacion.movimiento is None
+
+
+def test_preparar_eliminacion_factura_rechaza_movimiento_parcial(
+    session,
+    contrato,
+) -> None:
+    """No permite eliminar una factura parcialmente conciliada."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = True
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    factura, _, movimiento = (
+        _emitir_factura_para_eliminacion(
+            session,
+            contrato,
+            categorias,
+        )
+    )
+
+    movimiento.estado = "PARCIAL"
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="parcial",
+    ):
+        preparar_eliminacion_factura(
+            factura
+        )
+
+
+def test_preparar_eliminacion_factura_rechaza_movimiento_conciliado(
+    session,
+    contrato,
+) -> None:
+    """No permite eliminar una factura ya conciliada."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = True
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    factura, _, movimiento = (
+        _emitir_factura_para_eliminacion(
+            session,
+            contrato,
+            categorias,
+        )
+    )
+
+    movimiento.estado = "CONCILIADO"
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="conciliad",
+    ):
+        preparar_eliminacion_factura(
+            factura
+        )
+
+
+def test_preparar_eliminacion_factura_rechaza_si_no_es_la_ultima_del_inmueble_y_ano(
+    session,
+    contrato,
+) -> None:
+    """Sólo puede eliminarse la última factura anual del inmueble."""
+
+    factura_1 = _crear_factura_persistida(
+        contrato,
+        numero_secuencia=1,
+        numero_factura="01/2026A1",
+        periodo=date(2026, 2, 1),
+        fecha_emision=date(2026, 2, 1),
+    )
+
+    factura_2 = _crear_factura_persistida(
+        contrato,
+        numero_secuencia=2,
+        numero_factura="02/2026A1",
+        periodo=date(2026, 3, 1),
+        fecha_emision=date(2026, 3, 1),
+    )
+
+    session.add_all(
+        [
+            factura_1,
+            factura_2,
+        ]
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="última",
+    ):
+        preparar_eliminacion_factura(
+            factura_1
+        )
+
+
+def test_preparar_eliminacion_factura_rechaza_factura_anulada(
+    session,
+    contrato,
+) -> None:
+    """Eliminar sólo se aplica a facturas emitidas."""
+
+    factura = _crear_factura_persistida(
+        contrato,
+        estado="ANULADA",
+    )
+
+    session.add(factura)
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="emitida",
+    ):
+        preparar_eliminacion_factura(
+            factura
+        )
+
+
+def test_preparar_eliminacion_factura_rechaza_varios_movimientos_previstos(
+    session,
+    contrato,
+) -> None:
+    """No elimina automáticamente una factura con varios movimientos asociados."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = True
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    factura, apunte, _ = (
+        _emitir_factura_para_eliminacion(
+            session,
+            contrato,
+            categorias,
+        )
+    )
+
+    apunte.movimientos_previstos.append(
+        MovimientoPrevisto(
+            inmueble=contrato.inmueble,
+            contrato=contrato,
+            fecha_prevista_desde=date(2026, 10, 1),
+            fecha_prevista_hasta=date(2026, 10, 31),
+            naturaleza="INGRESO",
+            concepto="Segundo movimiento",
+            importe_esperado=100000,
+            contraparte="Ana Pérez",
+            estado="PENDIENTE",
+        )
+    )
+
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="más de un movimiento",
+    ):
+        preparar_eliminacion_factura(
+            factura
+        )
 
 

@@ -54,6 +54,7 @@ from contab.facturacion.services import (
     emitir_factura,
     notas_automaticas_factura,
     preparar_datos_documento_factura,
+    preparar_eliminacion_factura,
     preparar_periodo_facturacion,
     situacion_revision,
 )
@@ -390,6 +391,62 @@ def ver_factura(factura_id: int):
             importe_a_texto=importe_a_texto,
             porcentaje_a_texto=porcentaje_a_texto_entrada,
         )
+
+
+@bp.post("/facturas/<int:factura_id>/eliminar")
+def eliminar_factura(factura_id: int):
+    """Elimina una factura emitida y su registro contable asociado."""
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                factura = session.get(
+                    Factura,
+                    factura_id,
+                )
+
+                if factura is None:
+                    return "Factura no encontrada.", 404
+
+                eliminacion = preparar_eliminacion_factura(
+                    factura
+                )
+
+                if eliminacion.movimiento is not None:
+                    session.delete(
+                        eliminacion.movimiento
+                    )
+
+                for linea in list(
+                    eliminacion.factura.lineas
+                ):
+                    session.delete(linea)
+
+                for destinatario in list(
+                    eliminacion.factura.destinatarios
+                ):
+                    session.delete(destinatario)
+
+                session.delete(
+                    eliminacion.factura
+                )
+
+                session.flush()
+
+                session.delete(
+                    eliminacion.apunte
+                )
+
+    except FacturacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "facturacion.listar_facturas"
+        )
+    )
 
 
 @bp.post("/contabilizar/<int:contrato_id>")

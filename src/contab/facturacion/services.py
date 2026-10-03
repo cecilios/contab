@@ -101,6 +101,14 @@ class FacturaPreparada:
     revision_estado: str | None
 
 @dataclass(frozen=True)
+class EliminacionFactura:
+    """Elementos asociados que deben eliminarse con una factura."""
+
+    factura: Factura
+    apunte: ApunteContable
+    movimiento: MovimientoPrevisto | None
+
+@dataclass(frozen=True)
 class IngresoPreparado:
     """Datos calculados de un ingreso que no genera factura."""
 
@@ -1099,5 +1107,89 @@ def notas_automaticas_factura(
     )
 
     return notas
+
+
+def preparar_eliminacion_factura(
+    factura: Factura,
+) -> EliminacionFactura:
+    """Valida y prepara los elementos asociados a una factura que se elimina."""
+
+    if factura.estado != "EMITIDA":
+        raise FacturacionError(
+            "Sólo puede eliminarse una factura emitida."
+        )
+
+    inmueble = factura.contrato.inmueble
+
+    facturas_mismo_inmueble_anio = [
+        otra_factura
+        for contrato in inmueble.contratos
+        for otra_factura in contrato.facturas
+        if otra_factura.anio == factura.anio
+    ]
+
+    ultima_secuencia = max(
+        (
+            otra_factura.numero_secuencia
+            for otra_factura in facturas_mismo_inmueble_anio
+        ),
+        default=0,
+    )
+
+    if factura.numero_secuencia != ultima_secuencia:
+        raise FacturacionError(
+            "Sólo puede eliminarse la última factura "
+            "del inmueble en el ejercicio."
+        )
+
+    apunte = factura.apunte_contable
+
+    if apunte is None:
+        raise FacturacionError(
+            "La factura emitida no tiene apunte contable asociado."
+        )
+
+    movimientos = list(
+        apunte.movimientos_previstos
+    )
+
+    if len(movimientos) > 1:
+        raise FacturacionError(
+            "La factura tiene más de un movimiento previsto asociado."
+        )
+
+    movimiento = (
+        movimientos[0]
+        if movimientos
+        else None
+    )
+
+    if (
+        movimiento is not None
+        and movimiento.estado
+        not in {"PENDIENTE", "CANCELADO"}
+    ):
+        if movimiento.estado == "PARCIAL":
+            raise FacturacionError(
+                "No puede eliminarse una factura con un "
+                "movimiento parcialmente conciliado."
+            )
+
+        if movimiento.estado == "CONCILIADO":
+            raise FacturacionError(
+                "No puede eliminarse una factura con un "
+                "movimiento conciliado."
+            )
+
+        raise FacturacionError(
+            "El estado del movimiento previsto no permite "
+            "eliminar la factura."
+        )
+
+    return EliminacionFactura(
+        factura=factura,
+        apunte=apunte,
+        movimiento=movimiento,
+    )
 
 

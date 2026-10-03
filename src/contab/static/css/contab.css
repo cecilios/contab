@@ -163,6 +163,73 @@ button {
 }
 
 
+/* Pantalla con la lista de facturas emitidas */
+
+tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+tbody tr:has(
+    .acciones-factura details[open]
+) {
+    background-color: #eef3f8;
+}
+
+.acciones-factura {
+    position: relative;
+    width: 1%;
+    white-space: nowrap;
+}
+
+.acciones-factura details {
+    position: relative;
+}
+
+.acciones-factura summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 1.25rem;
+    text-align: center;
+}
+
+.menu-acciones {
+    position: absolute;
+    right: 0;
+    z-index: 10;
+    min-width: 12rem;
+    padding: 0.5rem;
+    background: white;
+    border: 1px solid #ccc;
+}
+
+.menu-acciones > a,
+.menu-acciones > span,
+.menu-acciones > form {
+    display: block;
+    margin: 0;
+    padding: 0;
+}
+
+.menu-acciones > a,
+.menu-acciones > span,
+.menu-acciones button {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.35rem 0.5rem;
+    text-align: left;
+}
+
+.menu-acciones button {
+    background: none;
+    border: 0;
+    font: inherit;
+    color: #0000ee;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+
 /* Pantalla de preparación de facturación */
 
 .facturacion-preparacion {
