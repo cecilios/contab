@@ -56,6 +56,7 @@ from contab.facturacion.services import (
     preparar_datos_documento_factura,
     preparar_eliminacion_factura,
     preparar_periodo_facturacion,
+    preparar_revisiones_renta,
     situacion_revision,
 )
 from contab.contratos.services import (
@@ -933,5 +934,37 @@ def contabilizar_factura(contrato_id: int):
             fecha_emision=fecha_emision_texto,
         )
     )
+
+
+@bp.get("/revisiones")
+def listar_revisiones():
+    """Muestra el estado de las revisiones de renta de contratos activos."""
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        contratos = list(
+            session.scalars(
+                select(Contrato)
+                .order_by(Contrato.id)
+            )
+        )
+
+        hoy = date.today()      #hoy = date(2026, 9, 1)
+
+        preparacion = preparar_revisiones_renta(
+            contratos=contratos,
+            fecha=hoy,
+        )
+
+        return render_template(
+            "facturacion/revisiones.html",
+            preparacion=preparacion,
+            database_name=get_database_name(),
+            fecha_a_texto=fecha_a_texto,
+            porcentaje_a_texto=porcentaje_a_texto_entrada,
+            periodo_texto = f"{hoy.month:02d}/{hoy.year}",
+            fecha_emision_texto = hoy.strftime("%d/%m/%Y"),
+        )
 
 

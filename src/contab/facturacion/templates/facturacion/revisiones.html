@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% macro tabla_revisiones(
+    revisiones,
+    fecha_a_texto,
+    porcentaje_a_texto,
+    periodo_texto,
+    fecha_emision_texto
+) %}
+    <table class="revisiones-renta__tabla">
+        <thead class="revisiones-renta__cabecera">
+            <tr class="revisiones-renta__fila">
+                <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
+                    Inmueble
+                </th>
+                <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
+                    Última revisión
+                </th>
+                <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
+                    Próxima revisión
+                </th>
+                <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
+                    Método
+                </th>
+                <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
+                    Estado
+                </th>
+            </tr>
+        </thead>
+
+        <tbody class="revisiones-renta__cuerpo">
+            {% for item in revisiones %}
+                <tr class="revisiones-renta__fila">
+                    <td class="revisiones-renta__celda">
+                        {{ item.contrato.inmueble.referencia }}
+                    </td>
+
+                    <td class="revisiones-renta__celda">
+                        {% if item.ultima_revision %}
+                            {{ fecha_a_texto(
+                                item.ultima_revision.fecha_prevista
+                            ) }}
+
+                            ·
+
+                            {% if item.ultima_revision.estado == "APLICADA" %}
+                                Aplicada
+
+                                {% if item.ultima_revision.porcentaje_aplicado is not none %}
+                                    ·
+                                    {{ porcentaje_a_texto(
+                                        item.ultima_revision.porcentaje_aplicado
+                                    ) }} %
+                                {% endif %}
+                            {% elif item.ultima_revision.estado == "NO_APLICADA" %}
+                                No aplicada
+                            {% endif %}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+
+                    <td class="revisiones-renta__celda">
+                        {% if item.proxima_revision %}
+                            {{ fecha_a_texto(
+                                item.proxima_revision.fecha_prevista
+                            ) }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+
+                    <td class="revisiones-renta__celda">
+                        {% if item.proxima_revision %}
+                            {% if item.proxima_revision.metodo == "IPC_NACIONAL" %}
+                                IPC Nacional
+                            {% elif item.proxima_revision.metodo == "IPC_AUTONOMICO" %}
+                                IPC Autonómico
+                            {% elif item.proxima_revision.metodo == "IRAV" %}
+                                IRAV
+                            {% elif item.proxima_revision.metodo == "FIJO" %}
+                                Fijo
+                            {% endif %}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+
+                    <td class="revisiones-renta__celda">
+                        {% if item.situacion_proxima == "AVISO" %}
+                            Aviso
+                        {% elif item.situacion_proxima == "ESPERANDO_INDICE" %}
+                            Esperando índice
+                        {% elif item.situacion_proxima == "RESOLVER" %}
+                            <a href="{{ url_for(
+                                'facturacion.resolver_revision',
+                                revision_id=item.proxima_revision.id,
+                                periodo=periodo_texto,
+                                fecha_emision=fecha_emision_texto
+                            ) }}">
+                                Resolver revisión
+                            </a>
+                        {% elif item.situacion_proxima == "PENDIENTE" %}
+                            Pendiente
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endmacro %}
+
+{% block title %}Revisiones de renta{% endblock %}
+
+{% block content %}
+<div class="revisiones-renta">
+    <h1 class="revisiones-renta__titulo">
+        Revisiones de renta
+    </h1>
+
+    <section class="revisiones-renta__seccion">
+        <h2 class="revisiones-renta__subtitulo">
+            Locales
+        </h2>
+
+        {{ tabla_revisiones(
+            preparacion.locales,
+            fecha_a_texto,
+            porcentaje_a_texto,
+            periodo_texto,
+            fecha_emision_texto
+        ) }}
+    </section>
+
+    <section class="revisiones-renta__seccion">
+        <h2 class="revisiones-renta__subtitulo">
+            Otros
+        </h2>
+
+        {{ tabla_revisiones(
+            preparacion.otros,
+            fecha_a_texto,
+            porcentaje_a_texto,
+            periodo_texto,
+            fecha_emision_texto
+        ) }}
+    </section>
+</div>
+{% endblock %}

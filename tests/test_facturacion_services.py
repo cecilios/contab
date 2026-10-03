@@ -38,6 +38,7 @@ from contab.facturacion.services import (
     preparar_eliminacion_factura,
     preparar_periodo_facturacion,
     preparar_registro_contable_factura,
+    preparar_revisiones_renta,
     siguiente_numero_factura,
 )
 
@@ -3189,5 +3190,270 @@ def test_preparar_eliminacion_factura_rechaza_varios_movimientos_previstos(
         preparar_eliminacion_factura(
             factura
         )
+
+
+def test_preparar_revisiones_renta_obtiene_ultima_y_proxima(
+    session,
+    contrato,
+) -> None:
+    """Muestra la última revisión resuelta y la próxima pendiente."""
+
+    revision_anterior = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2025, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=320,
+        fecha_resolucion=date(2025, 10, 15),
+    )
+
+    revision_proxima = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            revision_anterior,
+            revision_proxima,
+        ]
+    )
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 6, 1),
+    )
+
+    assert len(preparacion.locales) == 1
+    assert preparacion.otros == ()
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.contrato is contrato
+    assert preparada.ultima_revision is revision_anterior
+    assert preparada.proxima_revision is revision_proxima
+
+
+def test_preparar_revisiones_renta_considera_no_aplicada_como_resuelta(
+    session,
+    contrato,
+) -> None:
+    """Una revisión no aplicada también cuenta como última revisión resuelta."""
+
+    revision_anterior = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2025, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="NO_APLICADA",
+        fecha_resolucion=date(2025, 10, 10),
+    )
+
+    revision_proxima = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            revision_anterior,
+            revision_proxima,
+        ]
+    )
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 6, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.ultima_revision is revision_anterior
+    assert preparada.proxima_revision is revision_proxima
+
+
+def test_preparar_revisiones_renta_admite_solo_revision_pendiente(
+    session,
+    contrato,
+) -> None:
+    """Un contrato puede no tener todavía ninguna revisión resuelta."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 6, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.ultima_revision is None
+    assert preparada.proxima_revision is revision
+
+
+def test_preparar_revisiones_renta_separa_y_ordena_por_inmueble(
+    session,
+    contrato,
+) -> None:
+    """Separa locales de otros contratos y ordena por referencia."""
+
+    contrato.inmueble.referencia = "LOCAL-B"
+
+    inmueble_local_a = Inmueble(
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="A2",
+        descripcion="Local A",
+        direccion="Dirección A",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato_local_a = Contrato(
+        inmueble=inmueble_local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=100000,
+        direccion_facturacion="Dirección A",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+    )
+
+    inmueble_otro = Inmueble(
+        referencia="PISO-A",
+        tipo="P",
+        codigo_facturacion="B1",
+        descripcion="Piso A",
+        direccion="Dirección B",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato_otro = Contrato(
+        inmueble=inmueble_otro,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=100000,
+        direccion_facturacion="Dirección B",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+    )
+
+    session.add_all(
+        [
+            contrato_local_a,
+            contrato_otro,
+        ]
+    )
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[
+            contrato,
+            contrato_otro,
+            contrato_local_a,
+        ],
+        fecha=date(2026, 6, 1),
+    )
+
+    assert [
+        item.contrato.inmueble.referencia
+        for item in preparacion.locales
+    ] == [
+        "LOCAL-A",
+        "LOCAL-B",
+    ]
+
+    assert [
+        item.contrato.inmueble.referencia
+        for item in preparacion.otros
+    ] == [
+        "PISO-A",
+    ]
+
+
+def test_preparar_revisiones_renta_excluye_contratos_inactivos(
+    session,
+    contrato,
+) -> None:
+    """No muestra contratos que ya han finalizado."""
+
+    contrato.fecha_fin = date(2026, 5, 31)
+
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 6, 1),
+    )
+
+    assert preparacion.locales == ()
+    assert preparacion.otros == ()
+
+
+def test_preparar_revisiones_renta_excluye_contratos_futuros(
+    session,
+    contrato,
+) -> None:
+    """No muestra contratos que todavía no han comenzado."""
+
+    contrato.fecha_inicio = date(2026, 7, 1)
+    contrato.fecha_inicio_facturacion = date(2026, 7, 1)
+
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 6, 1),
+    )
+
+    assert preparacion.locales == ()
+    assert preparacion.otros == ()
+
+
+def test_preparar_revisiones_renta_sigue_esperando_indice_durante_el_mes(
+    session,
+    contrato,
+) -> None:
+    """Una revisión del mes actual espera índice durante todo el mes."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 3),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "ESPERANDO_INDICE"
 
 

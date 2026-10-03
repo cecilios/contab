@@ -3775,4 +3775,386 @@ def test_eliminar_factura_permite_reutilizar_su_numero() -> None:
         assert literal == "01/2026A1"
 
 
+def test_listar_revisiones_separa_locales_y_otros() -> None:
+    """Muestra revisiones de contratos activos separadas por tipo."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        local = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección local",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        piso = Inmueble(
+            referencia="PISO-1",
+            tipo="P",
+            codigo_facturacion="B1",
+            descripcion="Vivienda",
+            direccion="Dirección piso",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato_local = Contrato(
+            inmueble=local,
+            fecha_inicio=date(2025, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2025, 1, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato_piso = Contrato(
+            inmueble=piso,
+            fecha_inicio=date(2025, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=False,
+            fecha_inicio_facturacion=date(2025, 1, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato_local.revisiones_renta.append(
+            RevisionRenta(
+                fecha_prevista=date(2026, 10, 1),
+                metodo="IPC_NACIONAL",
+                estado="PENDIENTE",
+            )
+        )
+
+        contrato_piso.revisiones_renta.append(
+            RevisionRenta(
+                fecha_prevista=date(2027, 2, 1),
+                metodo="IRAV",
+                estado="PENDIENTE",
+            )
+        )
+
+        session.add_all(
+            [
+                contrato_local,
+                contrato_piso,
+            ]
+        )
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/revisiones"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(
+        as_text=True
+    )
+
+    assert "Locales" in texto
+    assert "Otros" in texto
+
+    assert "LOCAL-1" in texto
+    assert "PISO-1" in texto
+
+
+def test_listar_revisiones_muestra_ultima_y_proxima_revision() -> None:
+    """Muestra el último resultado y la próxima revisión prevista."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección local",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2024, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2024, 1, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.revisiones_renta.extend(
+            [
+                RevisionRenta(
+                    fecha_prevista=date(2025, 10, 1),
+                    metodo="IPC_NACIONAL",
+                    estado="APLICADA",
+                    porcentaje_aplicado=320,
+                    fecha_resolucion=date(2025, 10, 15),
+                ),
+                RevisionRenta(
+                    fecha_prevista=date(2026, 10, 1),
+                    metodo="IPC_NACIONAL",
+                    estado="PENDIENTE",
+                ),
+            ]
+        )
+
+        session.add(contrato)
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/revisiones"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(
+        as_text=True
+    )
+
+    assert "LOCAL-1" in texto
+    assert "01/10/2025" in texto
+    assert "Aplicada" in texto
+    assert "3,2" in texto
+
+    assert "01/10/2026" in texto
+    assert "Esperando índice" in texto
+    assert "IPC Nacional" in texto
+
+
+def test_listar_revisiones_no_muestra_contratos_finalizados() -> None:
+    """No muestra contratos que ya han terminado."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-ANTIGUO",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local antiguo",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2024, 1, 1),
+            fecha_vencimiento=date(2025, 12, 31),
+            fecha_fin=date(2025, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2024, 1, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.revisiones_renta.append(
+            RevisionRenta(
+                fecha_prevista=date(2025, 10, 1),
+                metodo="IPC_NACIONAL",
+                estado="APLICADA",
+                porcentaje_aplicado=300,
+                fecha_resolucion=date(2025, 10, 1),
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/revisiones"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(
+        as_text=True
+    )
+
+    assert "LOCAL-ANTIGUO" not in texto
+
+
+def test_listar_revisiones_enlaza_revision_que_debe_resolverse() -> None:
+    """Permite resolver desde el listado una revisión pendiente vencida."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2025, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2025, 1, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 9, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add_all([contrato, revision])
+        session.commit()
+
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/revisiones"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Resolver revisión" in texto
+    assert (
+        f"/facturacion/revisiones/{revision_id}/resolver"
+        in texto
+    )
+
+
+def test_listar_revisiones_no_enlaza_revision_que_espera_indice() -> None:
+    """No ofrece resolver mientras la revisión espera el índice."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2025, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2025, 1, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add_all([contrato, revision])
+        session.commit()
+
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/revisiones"
+    )
+
+    texto = response.get_data(as_text=True)
+
+    assert "Esperando índice" in texto
+    assert (
+        f"/facturacion/revisiones/{revision_id}/resolver"
+        not in texto
+    )
+
 

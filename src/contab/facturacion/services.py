@@ -135,7 +135,6 @@ class DestinatarioDocumentoFactura:
     poblacion: str
     provincia: str
 
-
 @dataclass
 class DatosDocumentoFactura:
     titulo: str
@@ -152,6 +151,21 @@ class DatosDocumentoFactura:
     retencion_importe: int
     total: int
     notas: list[str]
+
+@dataclass(frozen=True)
+class RevisionContratoPreparada:
+    """Resume las revisiones relevantes de un contrato activo."""
+    contrato: Contrato
+    ultima_revision: RevisionRenta | None
+    proxima_revision: RevisionRenta | None
+    situacion_proxima: str | None
+
+@dataclass(frozen=True)
+class PreparacionRevisionesRenta:
+    """Agrupa las revisiones de renta de los contratos activos."""
+    locales: tuple[RevisionContratoPreparada, ...]
+    otros: tuple[RevisionContratoPreparada, ...]
+
 
 
 def _ultimo_dia_mes(periodo: date) -> date:
@@ -1191,5 +1205,242 @@ def preparar_eliminacion_factura(
         apunte=apunte,
         movimiento=movimiento,
     )
+
+
+def preparar_revisiones_renta(
+    contratos: list[Contrato],
+    fecha: date,
+) -> PreparacionRevisionesRenta:
+    """Prepara el estado de revisiones de los contratos activos."""
+
+    preparadas = []
+
+    for contrato in contratos:
+        if contrato.fecha_inicio > fecha:
+            continue
+
+        if (
+            contrato.fecha_fin is not None
+            and contrato.fecha_fin < fecha
+        ):
+            continue
+
+        revisiones_resueltas = [
+            revision
+            for revision in contrato.revisiones_renta
+            if revision.estado in {
+                "APLICADA",
+                "NO_APLICADA",
+            }
+        ]
+
+        revisiones_pendientes = [
+            revision
+            for revision in contrato.revisiones_renta
+            if revision.estado == "PENDIENTE"
+        ]
+
+        ultima_revision = (
+            max(
+                revisiones_resueltas,
+                key=lambda revision: revision.fecha_prevista,
+            )
+            if revisiones_resueltas
+            else None
+        )
+
+        proxima_revision = (
+            min(
+                revisiones_pendientes,
+                key=lambda revision: revision.fecha_prevista,
+            )
+            if revisiones_pendientes
+            else None
+        )
+
+        situacion_proxima = None
+
+        if proxima_revision is not None:
+            if fecha.month == 12:
+                siguiente_mes = date(
+                    fecha.year + 1,
+                    1,
+                    1,
+                )
+            else:
+                siguiente_mes = date(
+                    fecha.year,
+                    fecha.month + 1,
+                    1,
+                )
+
+        if proxima_revision is not None:
+            if fecha.month == 12:
+                siguiente_mes = date(
+                    fecha.year + 1,
+                    1,
+                    1,
+                )
+            else:
+                siguiente_mes = date(
+                    fecha.year,
+                    fecha.month + 1,
+                    1,
+                )
+
+            if (
+                proxima_revision.fecha_prevista.year == fecha.year
+                and proxima_revision.fecha_prevista.month == fecha.month
+            ):
+                situacion_proxima = "ESPERANDO_INDICE"
+            elif (
+                proxima_revision.fecha_prevista.year
+                == siguiente_mes.year
+                and proxima_revision.fecha_prevista.month
+                == siguiente_mes.month
+            ):
+                situacion_proxima = "AVISO"
+            elif proxima_revision.fecha_prevista < fecha:
+                situacion_proxima = "RESOLVER"
+            else:
+                situacion_proxima = "PENDIENTE"
+
+        preparadas.append(
+            RevisionContratoPreparada(
+                contrato=contrato,
+                ultima_revision=ultima_revision,
+                proxima_revision=proxima_revision,
+                situacion_proxima=situacion_proxima,
+            )
+        )
+
+    preparadas.sort(
+        key=lambda item: item.contrato.inmueble.referencia
+    )
+
+    locales = tuple(
+        item
+        for item in preparadas
+        if item.contrato.inmueble.tipo == "L"
+    )
+
+    otros = tuple(
+        item
+        for item in preparadas
+        if item.contrato.inmueble.tipo != "L"
+    )
+
+    return PreparacionRevisionesRenta(
+        locales=locales,
+        otros=otros,
+    )
+
+
+def test_preparar_revisiones_renta_indica_aviso(
+    session,
+    contrato,
+) -> None:
+    """Indica aviso cuando la revisión corresponde al mes siguiente."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 11, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "AVISO"
+
+
+def test_preparar_revisiones_renta_indica_esperando_indice(
+    session,
+    contrato,
+) -> None:
+    """Indica espera de índice cuando la revisión corresponde al mes actual."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "ESPERANDO_INDICE"
+
+
+def test_preparar_revisiones_renta_indica_revision_a_resolver(
+    session,
+    contrato,
+) -> None:
+    """Indica que debe resolverse una revisión pendiente ya vencida."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 9, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "RESOLVER"
+
+
+def test_preparar_revisiones_renta_indica_pendiente_fuera_del_ciclo(
+    session,
+    contrato,
+) -> None:
+    """Mantiene pendiente una revisión que todavía no entra en el ciclo."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 3, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "PENDIENTE"
 
 

@@ -163,6 +163,22 @@ button {
 }
 
 
+/* Pantalla con las revisiones de renta */
+
+.revisiones-renta__tabla {
+    border-collapse: collapse;
+}
+
+.revisiones-renta__celda {
+    border: 1px solid #ccc;
+    padding: 0.4rem 0.6rem;
+}
+
+.revisiones-renta__celda--cabecera {
+    font-weight: bold;
+}
+
+
 /* Pantalla con la lista de facturas emitidas */
 
 tbody tr:hover {
