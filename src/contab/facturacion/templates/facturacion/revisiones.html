@@ -134,11 +134,26 @@
 
                                     {% if (
                                         item.ultima_revision
-                                        and item.ultima_revision.estado == "APLICADA"
+                                        and item.ultima_revision_reabrible
                                     ) %}
-                                        <span>
-                                            Corregir porcentaje
-                                        </span>
+                                        <form
+                                            method="post"
+                                            action="{{ url_for(
+                                                'facturacion.reabrir_revision',
+                                                revision_id=item.ultima_revision.id
+                                            ) }}"
+                                            onsubmit="
+                                                return confirm(
+                                                    '¿Corregir esta revisión? '
+                                                    + 'Se eliminará la renta generada '
+                                                    + 'y deberá resolverse de nuevo.'
+                                                );
+                                            "
+                                        >
+                                            <button type="submit">
+                                                Corregir revisión
+                                            </button>
+                                        </form>
                                     {% endif %}
                                 </div>
                             </details>

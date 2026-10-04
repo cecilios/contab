@@ -37,8 +37,10 @@ from contab.facturacion.services import (
     preparar_datos_documento_factura,
     preparar_eliminacion_factura,
     preparar_periodo_facturacion,
+    preparar_reapertura_revision,
     preparar_registro_contable_factura,
     preparar_revisiones_renta,
+    reabrir_revision_renta,
     siguiente_numero_factura,
 )
 from contab.contratos.services import (
@@ -3599,5 +3601,796 @@ def test_resolver_revision_renta_no_aplicada_crea_siguiente_revision(
     assert siguiente_revision.fecha_prevista == date(2027, 10, 1)
     assert siguiente_revision.metodo == "IPC_NACIONAL"
     assert siguiente_revision.estado == "PENDIENTE"
+
+
+def test_preparar_reapertura_revision_aplicada(
+    session,
+    contrato,
+) -> None:
+    """Prepara la reapertura de una revisión aplicada sin efectos posteriores."""
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+        ]
+    )
+    session.commit()
+
+    reapertura = preparar_reapertura_revision(
+        revision
+    )
+
+    assert reapertura.revision is revision
+    assert reapertura.renta is renta_revision
+    assert reapertura.siguiente_revision is siguiente_revision
+
+
+def test_preparar_reapertura_revision_requiere_aplicada(
+    contrato,
+) -> None:
+    """Sólo puede reabrirse una revisión aplicada."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    with pytest.raises(
+        FacturacionError,
+        match="aplicada",
+    ):
+        preparar_reapertura_revision(
+            revision
+        )
+
+
+def test_preparar_reapertura_revision_requiere_renta_generada(
+    session,
+    contrato,
+) -> None:
+    """Una revisión aplicada debe conservar la renta que generó."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            revision,
+            siguiente_revision,
+        ]
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="renta",
+    ):
+        preparar_reapertura_revision(
+            revision
+        )
+
+
+def test_preparar_reapertura_revision_rechaza_factura_de_aplicacion(
+    session,
+    contrato,
+) -> None:
+    """La factura que materializa la revisión debe eliminarse primero."""
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    factura = _crear_factura_persistida(
+        contrato,
+        periodo=date(2026, 5, 1),
+        fecha_emision=date(2026, 5, 1),
+        revision_renta=revision,
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+            factura,
+        ]
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="factura",
+    ):
+        preparar_reapertura_revision(
+            revision
+        )
+
+
+def test_preparar_reapertura_revision_admite_factura_del_mes_previsto(
+    session,
+    contrato,
+) -> None:
+    """La factura del mes de revisión no impide reabrirla."""
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    factura_abril = _crear_factura_persistida(
+        contrato,
+        periodo=date(2026, 4, 1),
+        fecha_emision=date(2026, 4, 1),
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+            factura_abril,
+        ]
+    )
+    session.commit()
+
+    reapertura = preparar_reapertura_revision(
+        revision
+    )
+
+    assert reapertura.renta is renta_revision
+    assert reapertura.siguiente_revision is siguiente_revision
+
+
+def test_preparar_reapertura_revision_rechaza_factura_posterior(
+    session,
+    contrato,
+) -> None:
+    """No reabre una revisión cuando ya existe facturación posterior."""
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    factura_junio = _crear_factura_persistida(
+        contrato,
+        periodo=date(2026, 6, 1),
+        fecha_emision=date(2026, 6, 1),
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+            factura_junio,
+        ]
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="factura",
+    ):
+        preparar_reapertura_revision(
+            revision
+        )
+
+
+def test_preparar_reapertura_revision_requiere_siguiente_pendiente(
+    session,
+    contrato,
+) -> None:
+    """No reabre una revisión si la revisión anual siguiente ya se resolvió."""
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=150,
+        fecha_resolucion=date(2027, 5, 1),
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+        ]
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="revisión posterior",
+    ):
+        preparar_reapertura_revision(
+            revision
+        )
+
+
+def test_preparar_reapertura_revision_requiere_siguiente_revision(
+    session,
+    contrato,
+) -> None:
+    """Una revisión aplicada debe conservar la revisión anual siguiente."""
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+        ]
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="revisión siguiente",
+    ):
+        preparar_reapertura_revision(
+            revision
+        )
+
+
+def test_preparar_reapertura_revision_rechaza_apunte_de_aplicacion(
+    session,
+    contrato,
+    categorias,
+) -> None:
+    """No reabre una revisión con efectos contables ya registrados."""
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = False
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+        ]
+    )
+    session.flush()
+
+    apunte, movimiento = contabilizar_ingreso_sin_factura(
+        contrato=contrato,
+        periodo=date(2026, 5, 1),
+        fecha=date(2026, 5, 1),
+        categorias=categorias,
+    )
+
+    session.add_all(
+        [
+            apunte,
+            movimiento,
+        ]
+    )
+    session.commit()
+
+    with pytest.raises(
+        FacturacionError,
+        match="apunte contable",
+    ):
+        preparar_reapertura_revision(
+            revision
+        )
+
+
+def test_preparar_reapertura_revision_admite_apunte_del_mes_previsto(
+    session,
+    contrato,
+    categorias,
+) -> None:
+    """El apunte anterior a la aplicación de la revisión no la bloquea."""
+
+    _anadir_titular(contrato)
+
+    contrato.genera_factura = False
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+        ]
+    )
+    session.flush()
+
+    apunte, movimiento = contabilizar_ingreso_sin_factura(
+        contrato=contrato,
+        periodo=date(2026, 4, 1),
+        fecha=date(2026, 4, 1),
+        categorias=categorias,
+    )
+
+    session.add_all(
+        [
+            apunte,
+            movimiento,
+        ]
+    )
+    session.commit()
+
+    reapertura = preparar_reapertura_revision(
+        revision
+    )
+
+    assert reapertura.revision is revision
+
+
+def test_reabrir_revision_renta_restaurar_estado_pendiente(
+    session,
+    contrato,
+) -> None:
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            revision,
+            renta_revision,
+            siguiente_revision,
+        ]
+    )
+    session.commit()
+
+    reapertura = preparar_reapertura_revision(
+        revision
+    )
+
+    reabrir_revision_renta(
+        reapertura
+    )
+
+    assert revision.estado == "PENDIENTE"
+    assert revision.porcentaje_aplicado is None
+    assert revision.fecha_resolucion is None
+
+
+def test_reabrir_revision_renta_no_elimina_objetos(
+    session,
+    contrato,
+) -> None:
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            revision,
+            renta_revision,
+            siguiente_revision,
+        ]
+    )
+    session.commit()
+
+    reapertura = preparar_reapertura_revision(
+        revision
+    )
+
+    reabrir_revision_renta(
+        reapertura
+    )
+
+    assert reapertura.renta in session
+    assert reapertura.siguiente_revision in session
+
+
+def test_preparar_revisiones_renta_indica_ultima_revision_reabrible(
+    session,
+    contrato,
+) -> None:
+    """Indica que la última revisión aplicada puede corregirse."""
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+        ]
+    )
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 5, 15),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.ultima_revision is revision
+    assert preparada.ultima_revision_reabrible is True
+
+
+def test_preparar_revisiones_renta_no_indica_reabrible_con_factura_afectada(
+    session,
+    contrato,
+) -> None:
+    """No ofrece corregir mientras exista una factura afectada por la revisión."""
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    factura = _crear_factura_persistida(
+        contrato,
+        periodo=date(2026, 5, 1),
+        fecha_emision=date(2026, 5, 1),
+        revision_renta=revision,
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+            factura,
+        ]
+    )
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 5, 15),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.ultima_revision is revision
+    assert preparada.ultima_revision_reabrible is False
+
+
+def test_preparar_revisiones_renta_no_indica_no_aplicada_como_reabrible(
+    session,
+    contrato,
+) -> None:
+    """Una revisión no aplicada no puede corregirse mediante reapertura."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="NO_APLICADA",
+        porcentaje_aplicado=None,
+        fecha_resolucion=date(2026, 4, 15),
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            revision,
+            siguiente_revision,
+        ]
+    )
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 5, 15),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.ultima_revision is revision
+    assert preparada.ultima_revision_reabrible is False
 
 

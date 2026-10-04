@@ -56,7 +56,9 @@ from contab.facturacion.services import (
     preparar_datos_documento_factura,
     preparar_eliminacion_factura,
     preparar_periodo_facturacion,
+    preparar_reapertura_revision,
     preparar_revisiones_renta,
+    reabrir_revision_renta,
     situacion_revision,
 )
 from contab.contratos.services import (
@@ -995,6 +997,49 @@ def no_aplicar_revision(revision_id: int):
                 session.add(siguiente_revision)
 
     except RevisionRentaError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "facturacion.listar_revisiones"
+        )
+    )
+
+
+@bp.post("/revisiones/<int:revision_id>/reabrir")
+def reabrir_revision(revision_id: int):
+    """Reabre una revisión aplicada para que pueda resolverse de nuevo."""
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                revision = session.get(
+                    RevisionRenta,
+                    revision_id,
+                )
+
+                if revision is None:
+                    return "Revisión de renta no encontrada.", 404
+
+                reapertura = preparar_reapertura_revision(
+                    revision
+                )
+
+                reabrir_revision_renta(
+                    reapertura
+                )
+
+                session.delete(
+                    reapertura.renta
+                )
+
+                session.delete(
+                    reapertura.siguiente_revision
+                )
+
+    except FacturacionError as exc:
         return str(exc), 400
 
     return redirect(

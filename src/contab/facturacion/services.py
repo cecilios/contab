@@ -14,6 +14,7 @@ from contab.models import (
     FacturaDestinatario,
     FacturaLinea,
     MovimientoPrevisto,
+    RentaContrato,
     RevisionRenta,
 )
 from contab.contratos.services import (
@@ -159,12 +160,21 @@ class RevisionContratoPreparada:
     ultima_revision: RevisionRenta | None
     proxima_revision: RevisionRenta | None
     situacion_proxima: str | None
+    ultima_revision_reabrible: bool
 
 @dataclass(frozen=True)
 class PreparacionRevisionesRenta:
     """Agrupa las revisiones de renta de los contratos activos."""
     locales: tuple[RevisionContratoPreparada, ...]
     otros: tuple[RevisionContratoPreparada, ...]
+
+@dataclass(frozen=True)
+class ReaperturaRevision:
+    """Agrupa los objetos que deben deshacerse al reabrir una revisión."""
+
+    revision: RevisionRenta
+    renta: RentaContrato
+    siguiente_revision: RevisionRenta
 
 
 
@@ -254,6 +264,16 @@ def _diferencia_revision_aplicada(
 
     return renta_nueva - renta_anterior
 
+
+
+def reabrir_revision_renta(
+    reapertura: ReaperturaRevision,
+) -> None:
+    """Devuelve una revisión aplicada al estado previo a su resolución."""
+
+    reapertura.revision.estado = "PENDIENTE"
+    reapertura.revision.porcentaje_aplicado = None
+    reapertura.revision.fecha_resolucion = None
 
 
 def situacion_revision(
@@ -1305,12 +1325,28 @@ def preparar_revisiones_renta(
             else:
                 situacion_proxima = "PENDIENTE"
 
+        ultima_revision_reabrible = False
+
+        if (
+            ultima_revision is not None
+            and ultima_revision.estado == "APLICADA"
+        ):
+            try:
+                preparar_reapertura_revision(
+                    ultima_revision
+                )
+            except FacturacionError:
+                pass
+            else:
+                ultima_revision_reabrible = True
+
         preparadas.append(
             RevisionContratoPreparada(
                 contrato=contrato,
                 ultima_revision=ultima_revision,
                 proxima_revision=proxima_revision,
                 situacion_proxima=situacion_proxima,
+                ultima_revision_reabrible=ultima_revision_reabrible,
             )
         )
 
@@ -1334,3 +1370,103 @@ def preparar_revisiones_renta(
         locales=locales,
         otros=otros,
     )
+
+
+def preparar_reapertura_revision(
+    revision: RevisionRenta,
+) -> ReaperturaRevision:
+    """Valida y prepara la reapertura de una revisión de renta aplicada."""
+
+    if revision.estado != "APLICADA":
+        raise FacturacionError(
+            "Sólo puede reabrirse una revisión aplicada."
+        )
+
+    contrato = revision.contrato
+
+    renta_revision = next(
+        (
+            renta
+            for renta in contrato.rentas
+            if renta.fecha_desde == revision.fecha_prevista
+        ),
+        None,
+    )
+
+    if renta_revision is None:
+        raise FacturacionError(
+            "La revisión aplicada no tiene asociada la renta "
+            "que debería haber generado."
+        )
+
+    siguiente_fecha = revision.fecha_prevista.replace(
+        year=revision.fecha_prevista.year + 1,
+    )
+
+    siguiente_revision = next(
+        (
+            otra
+            for otra in contrato.revisiones_renta
+            if otra.fecha_prevista == siguiente_fecha
+        ),
+        None,
+    )
+
+    if siguiente_revision is None:
+        raise FacturacionError(
+            "La revisión aplicada no tiene la revisión siguiente."
+        )
+
+    if siguiente_revision.estado != "PENDIENTE":
+        raise FacturacionError(
+            "No puede reabrirse una revisión porque existe "
+            "una revisión posterior ya resuelta."
+        )
+
+    if revision.fecha_prevista.month == 12:
+        periodo_aplicacion = date(
+            revision.fecha_prevista.year + 1,
+            1,
+            1,
+        )
+    else:
+        periodo_aplicacion = date(
+            revision.fecha_prevista.year,
+            revision.fecha_prevista.month + 1,
+            1,
+        )
+
+    if any(
+        factura.periodo >= periodo_aplicacion
+        for factura in contrato.facturas
+    ):
+        raise FacturacionError(
+            "No puede reabrirse la revisión mientras exista "
+            "una factura afectada por ella o una factura posterior."
+        )
+
+    for movimiento in contrato.movimientos_previstos:
+        apunte = movimiento.apunte
+
+        if apunte is None:
+            continue
+
+        if (
+            apunte.naturaleza == "INGRESO"
+            and apunte.categoria == "ING_ALQUILERES"
+            and apunte.periodo_desde is not None
+            and apunte.periodo_desde >= periodo_aplicacion
+        ):
+            raise FacturacionError(
+                "No puede reabrirse la revisión mientras exista "
+                "un apunte contable de alquiler afectado por ella "
+                "o posterior."
+            )
+
+    return ReaperturaRevision(
+        revision=revision,
+        renta=renta_revision,
+        siguiente_revision=siguiente_revision,
+    )
+
+

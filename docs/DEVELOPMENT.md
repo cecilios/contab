@@ -19,6 +19,7 @@ Before proposing changes or code:
    * `docs/Importacion-bancaria.md`
    * `docs/Conciliacion.md`
    * `docs/Facturacion.md`
+
 3. inspect the current project structure and the code relevant to the next change;
 4. briefly summarize:
 
@@ -29,8 +30,10 @@ Before proposing changes or code:
 
 Repository:
 
+```text
 cecilios/contab
 branch: develop
+```
 
 The user's local tree may be ahead of GitHub between commits. Once the user says changes have been committed and pushed, `develop` can again be treated as current.
 
@@ -62,11 +65,15 @@ TDD-style development is preferred when practical, but strict test-first work is
 
 Long integration tests should contain short comments explaining the user actions being simulated.
 
-Automated pytest/integration tests are preferred over time-consuming artificial browser setup. Manual end-to-end tests are most valuable with real client data.
+Automated pytest/integration tests are preferred over time-consuming artificial browser setup. Manual end-to-end tests are most valuable with real client data or when a UI interaction is being finalized.
 
 When providing a complete replacement for a function or file, provide genuinely complete code. Never use placeholders such as `# ...` inside code the user is expected to paste.
 
 Before relying on a function signature, inspect the current implementation.
+
+When a test receives a pytest fixture as a parameter, its dependencies should also be expressed as fixture parameters rather than referring directly to decorated fixture functions.
+
+Shared fixtures should remain minimal. Prefer adding local setup to a focused test rather than enriching a widely used fixture when that could change assumptions in existing tests.
 
 At commit time:
 
@@ -87,7 +94,7 @@ Its two primary goals are:
 
 Billing, contracts and other modules are auxiliary to these goals.
 
-The application will begin real parallel use with the existing manual accounting process in October 2026. The purpose of the parallel period is to discover operational problems from real data before adding further complexity.
+The application begins real parallel use with the existing manual accounting process in October 2026. The purpose of the parallel period is to discover operational problems from real data before adding further complexity.
 
 Prefer real client value over feature count.
 
@@ -113,6 +120,8 @@ User reviews
 User confirms
 ```
 
+The same principle applies to billing and corrections: Contab may determine whether an operation is valid, but the user decides whether to perform it.
+
 Exceptional cases must remain manually resolvable.
 
 ### Enter data once
@@ -127,11 +136,12 @@ Examples:
 
 * bank movements retain original bank text;
 * accounting entries retain document references;
+* emitted invoices preserve historical invoice data;
 * physical invoices and supporting documents remain in the filesystem.
 
 ### Atomic operations
 
-Operations that create several related records must succeed or fail together.
+Operations that create or remove several related records must succeed or fail together.
 
 Current important examples:
 
@@ -141,22 +151,63 @@ manual accounting entry
     + optional MovimientoPrevisto
 
 invoice emission
-    → Factura + FacturaLinea
+    → Factura
+    + FacturaLinea(s)
+    + FacturaDestinatario(s)
     + ApunteContable
     + MovimientoPrevisto
+
+invoice deletion
+    → delete MovimientoPrevisto
+    + FacturaLinea(s)
+    + FacturaDestinatario(s)
+    + Factura
+    + ApunteContable
 
 non-invoice monthly rent
     → ApunteContable
     + MovimientoPrevisto
+
+rent-revision reopening
+    → RevisionRenta back to PENDIENTE
+    + delete generated RentaContrato
+    + delete automatically generated next RevisionRenta
 ```
 
-Routes own transactions. Services prepare and coordinate domain objects but do not commit.
+Routes own database transactions.
+
+Services implement business rules, calculate values, validate state and prepare or mutate domain objects, but do not commit.
+
+Explicit `session.delete()` operations are normally owned by routes together with the transaction.
+
+### Reversibility before rectification
+
+Contab distinguishes between errors whose effects are still fully reversible and operations that have already produced historical/accounting effects that must be preserved.
+
+When all subsequent effects can be safely removed, prefer:
+
+```text
+undo
+→ return to prior coherent state
+→ perform operation correctly again
+```
+
+Examples:
+
+```text
+Eliminar factura
+Corregir revisión
+```
+
+When effects can no longer be safely removed, do not weaken validation rules. A future explicit compensating or rectifying workflow must handle the case.
 
 ### Tests are intentional complexity
 
 Protect domain rules, complete form flows, error handling, multi-record operations, migrations and important module boundaries.
 
 Do not reduce test coverage merely to keep production code small.
+
+When a service already exhaustively tests a validation matrix, higher-level route/UI tests should verify delegation and visible behavior rather than duplicate every lower-level case.
 
 ## Technical architecture
 
@@ -182,7 +233,7 @@ Flask modular monolith
 routes
   ↓ HTTP / forms / sessions / transactions
 services
-  ↓ business rules
+  ↓ business rules / domain preparation
 SQLAlchemy models
   ↓
 SQLite
@@ -467,7 +518,7 @@ Discard proposals remain postponed because they currently offer little value.
 
 ## Billing: current operational scope
 
-Billing now contains the complete ordinary workflow required for the October 2026 parallel run.
+Billing contains the complete ordinary workflow required for the October 2026 parallel run together with the first reversible correction workflows needed during real operation.
 
 The monthly screen is:
 
@@ -495,7 +546,13 @@ Preparation is transient. Do not create `Factura` objects merely to display the 
 
 A `Factura` is persisted only when the user confirms the final accounting operation.
 
-### Contract selection
+A separate revision overview is available at:
+
+```text
+/facturacion/revisiones
+```
+
+## Billing: contract selection
 
 A contract is included when it is active at any point in the month:
 
@@ -515,7 +572,7 @@ This selects the applicable rent but does not imply proration.
 
 A facturable contract is excluded if the period is earlier than `fecha_inicio_facturacion`.
 
-## Billing: recipient
+## Billing: recipient and invoice snapshots
 
 All contract holders are recipients, ordered by `ContratoInquilino.orden`.
 
@@ -526,9 +583,25 @@ tercero_nombre = "Ana Pérez / Juan Pérez"
 tercero_nif    = "11111111A / 22222222B"
 ```
 
-For invoice rows the billing address comes from the current contract.
+During preparation, recipient and billing-address data come from the current contract and holders.
 
-Historical recipient/address snapshots are deliberately not stored in `Factura`. The emitted document is the definitive historical representation.
+When an invoice is persisted, historical invoice data is snapshotted so later contract changes do not alter the meaning of an already issued invoice.
+
+Relevant historical data include:
+
+```text
+referencia_inmueble
+descripcion_inmueble
+direccion_facturacion
+codigo_postal_facturacion
+poblacion_facturacion
+provincia_facturacion
+FacturaDestinatario(s)
+```
+
+`Factura.apunte_contable_id` links the invoice to the accounting entry generated by its emission.
+
+Do not replace these snapshots with live contract data when displaying an already emitted invoice.
 
 ## Billing: invoice preparation
 
@@ -596,7 +669,7 @@ The sequence resets each year.
 
 There is deliberately no database unique constraint on `(contrato_id, periodo)` because future extraordinary invoices may legitimately share a period.
 
-Ordinary `emitir_factura()` nevertheless rejects a second invoice for the same contract/period, including when the existing invoice is annulled. Replacement after annulment requires a future explicit workflow.
+Ordinary `emitir_factura()` nevertheless rejects a second invoice for the same contract/period.
 
 ## Billing: automatic notes
 
@@ -649,7 +722,7 @@ Empty form lines are discarded.
 
 The form deliberately exposes only a small fixed number of line/note inputs because real invoices are compact and the physical document is intended to occupy approximately half an A4 page.
 
-A revision in state `PENDIENTE` blocks modification until the revision has been resolved.
+A revision in state `PENDIENTE` that must be resolved before billing blocks modification and final accounting.
 
 The result is represented by `FacturaEditada`, which is then used by Preview and final accounting.
 
@@ -678,7 +751,7 @@ issue date
 
 The same prepared invoice must produce equivalent economic/document data regardless of the path used to reach Preview.
 
-The current HTML invoice is printable and is sufficient for the October real workflow.
+The current HTML invoice is printable and is sufficient for the real workflow.
 
 The preview also contains a hidden accounting form carrying the exact edited lines, percentages, notes and previsualized totals.
 
@@ -698,11 +771,11 @@ This protects the transition between Preview and Contabilizar.
 
 ## Billing: rent revisions
 
-Rent revisions are integrated with invoice preparation.
+Rent revisions are integrated with invoice preparation and also have a dedicated overview panel.
 
-`situacion_revision()` provides the state relevant to the requested billing period.
+`situacion_revision()` provides the state relevant to a requested billing period.
 
-Current visible states are:
+Current visible monthly states are:
 
 ```text
 AVISO
@@ -745,9 +818,11 @@ The previous rent remains applicable for that invoice.
 
 An automatic note explains that the index is unavailable and that the difference will be charged once it becomes known.
 
+The general revisions panel does not resolve the percentage from this state. Percentage resolution remains tied to the monthly billing context.
+
 ### PENDIENTE
 
-When the revision requires resolution before billing can continue:
+When a previous revision requires resolution before billing can continue:
 
 ```text
 PENDIENTE
@@ -755,7 +830,13 @@ PENDIENTE
 
 Modify/accounting is blocked.
 
-The user must resolve the revision first.
+The monthly preparation offers:
+
+```text
+Resolver revisión
+```
+
+The user must resolve the revision before continuing.
 
 ### APLICADA
 
@@ -806,7 +887,348 @@ Index descriptions include the currently required methods, including IRAV.
 
 Month-name formatting is centralized in the formatting utilities rather than maintaining repeated month tables in billing code.
 
-Do not generalize the revision workflow until a real contract requires behavior outside the current rules.
+## Billing: revision resolution domain logic
+
+The core resolution operation currently belongs to:
+
+```text
+contab.contratos.services.resolver_revision_renta()
+```
+
+Signature:
+
+```python
+resolver_revision_renta(
+    revision,
+    fecha_resolucion,
+    aplicar,
+    porcentaje_aplicado,
+)
+```
+
+For application:
+
+```text
+revision must be PENDIENTE
+percentage is required
+current rent at revision.fecha_prevista is found
+new rent is calculated
+new RentaContrato begins at revision.fecha_prevista
+revision → APLICADA
+percentage and resolution date are recorded
+next yearly RevisionRenta is created as PENDIENTE
+```
+
+For non-application:
+
+```text
+revision must be PENDIENTE
+percentage must be None
+no RentaContrato is created
+revision → NO_APLICADA
+resolution date is recorded
+next yearly RevisionRenta is created as PENDIENTE
+```
+
+The next revision uses the same method and the same month/day in the following year.
+
+Routes persist the returned objects inside their transaction.
+
+## Billing: revisions overview
+
+The revisions dashboard is:
+
+```text
+/facturacion/revisiones
+```
+
+It shows active contracts divided into:
+
+```text
+Locales
+Otros
+```
+
+Rows are ordered by property reference.
+
+For each contract `preparar_revisiones_renta()` exposes:
+
+```text
+contrato
+ultima_revision
+proxima_revision
+situacion_proxima
+ultima_revision_reabrible
+```
+
+`ultima_revision` is the most recent resolved revision:
+
+```text
+APLICADA
+or
+NO_APLICADA
+```
+
+`proxima_revision` is the earliest pending revision.
+
+The dashboard situation for the next pending revision is display-oriented and can be:
+
+```text
+ESPERANDO_INDICE
+AVISO
+RESOLVER
+PENDIENTE
+```
+
+Important distinction:
+
+```text
+monthly billing
+    → actual percentage resolution
+
+revisions dashboard
+    → overview
+    → No aplicar este año
+    → Corregir revisión when safe
+```
+
+Do not reintroduce `Resolver revisión` as a dashboard action. Resolution belongs to the billing month where its economic effect is being prepared.
+
+The dashboard uses a single Jinja macro for Locales/Otros tables.
+
+Its action column uses the same compact `<details>` / `⋮` menu pattern as invoice actions.
+
+The menu closes when another menu opens or when the user clicks outside.
+
+The active row remains visually highlighted while its action menu is open.
+
+## Billing: No aplicar este año
+
+A pending revision can be deliberately skipped for the current year from the revisions dashboard.
+
+Action:
+
+```text
+No aplicar este año
+```
+
+The route calls `resolver_revision_renta()` with:
+
+```text
+aplicar = False
+porcentaje_aplicado = None
+```
+
+Result:
+
+```text
+current revision
+    → NO_APLICADA
+    → fecha_resolucion = today
+    → no new RentaContrato
+
+next yearly revision
+    → PENDIENTE
+    → same method
+```
+
+Any still-pending next revision shown in the panel may be marked as not applied; the action is not restricted to a particular display cycle.
+
+Already resolved revisions are rejected.
+
+## Billing: correcting an applied rent revision
+
+User-facing action:
+
+```text
+Corregir revisión
+```
+
+Internal concept:
+
+```text
+reabrir revisión
+```
+
+This is not an in-place edit of `porcentaje_aplicado`.
+
+The purpose is to undo a mistaken revision resolution while all later effects are still reversible, then reuse the normal `Resolver revisión` workflow.
+
+Typical real scenario:
+
+```text
+revision due in April
+April invoice
+    → old rent
+    → ESPERANDO_INDICE
+
+May
+    → resolve April revision
+    → May invoice uses revised rent
+    + April arrears
+
+wrong percentage discovered
+    ↓
+Eliminar May invoice
+    ↓
+Corregir revisión
+    ↓
+April revision returns to PENDIENTE
+    ↓
+prepare May again
+    ↓
+Resolver revisión with correct percentage
+    ↓
+reissue May invoice correctly
+```
+
+### Preparation/validation
+
+`facturacion.services.preparar_reapertura_revision()` is the central validator.
+
+It returns:
+
+```python
+@dataclass(frozen=True)
+class ReaperturaRevision:
+    revision: RevisionRenta
+    renta: RentaContrato
+    siguiente_revision: RevisionRenta
+```
+
+The function does not mutate database state.
+
+A revision is re-openable only when:
+
+```text
+revision.estado == APLICADA
+```
+
+and all required generated objects still exist in the expected state.
+
+Specifically:
+
+1. the generated `RentaContrato` exists at:
+
+```text
+renta.fecha_desde == revision.fecha_prevista
+```
+
+2. the automatically created next annual revision exists at:
+
+```text
+revision.fecha_prevista with year + 1
+```
+
+3. that next revision is still:
+
+```text
+PENDIENTE
+```
+
+4. no invoice exists for the same contract in the application month or later;
+
+5. no rental accounting entry exists for the same contract in the application month or later.
+
+The application month is the month immediately after `revision.fecha_prevista`.
+
+Example:
+
+```text
+revision.fecha_prevista = 2026-04-01
+periodo_aplicacion      = 2026-05-01
+```
+
+Therefore:
+
+```text
+April invoice
+    → allowed to remain
+
+May invoice or later
+    → blocks reopening
+```
+
+### Identifying later accounting effects
+
+`ApunteContable` has no `contrato_id`.
+
+Therefore accounting effects are identified through:
+
+```text
+Contrato.movimientos_previstos
+    → MovimientoPrevisto.apunte
+```
+
+A movement blocks reopening when its linked entry satisfies:
+
+```text
+apunte exists
+apunte.naturaleza == INGRESO
+apunte.categoria == ING_ALQUILERES
+apunte.periodo_desde is not None
+apunte.periodo_desde >= periodo_aplicacion
+```
+
+Do not inspect `MovimientoPrevisto.estado` for this decision.
+
+If the accounting effect exists, reopening is blocked regardless of whether the movement is:
+
+```text
+PENDIENTE
+CANCELADO
+PARCIAL
+CONCILIADO
+```
+
+`Corregir revisión` does not undo accounting records.
+
+The appropriate invoice/accounting undo workflow must be used first.
+
+### Mutation
+
+After validation, `reabrir_revision_renta()` restores the revision itself:
+
+```text
+estado = PENDIENTE
+porcentaje_aplicado = None
+fecha_resolucion = None
+```
+
+The route owns the transaction and deletes:
+
+```text
+generated RentaContrato
+automatically generated next RevisionRenta
+```
+
+The operation is atomic.
+
+The POST route is:
+
+```text
+/facturacion/revisiones/<revision_id>/reabrir
+```
+
+After reopening, normal monthly preparation is reused. No special "edit percentage" path exists.
+
+### Dashboard availability
+
+`RevisionContratoPreparada.ultima_revision_reabrible` exposes the decision to the UI.
+
+The dashboard does not duplicate the rules.
+
+Conceptually:
+
+```text
+if ultima_revision is APLICADA:
+    try preparar_reapertura_revision()
+        → reabrible = True
+    FacturacionError
+        → reabrible = False
+```
+
+The menu displays **Corregir revisión** only when this value is true.
 
 ## Billing: final accounting
 
@@ -825,6 +1247,7 @@ It verifies that its recalculated amounts match the previsualized amounts before
 ```text
 Factura
 FacturaLinea(s)
+FacturaDestinatario(s)
 ApunteContable
 MovimientoPrevisto
 ```
@@ -858,6 +1281,86 @@ The deliberately broad expected interval avoids making reconciliation harder whe
 
 After persistence the route redirects to the same monthly preparation and the row becomes `Emitida`.
 
+## Billing: deleting an emitted invoice
+
+`Eliminar` is implemented for genuinely reversible invoice mistakes.
+
+Semantics:
+
+```text
+Eliminar
+    → invoice disappears completely
+    → invoice number becomes reusable
+```
+
+This is intentionally different from future:
+
+```text
+Anular
+    → invoice remains historical
+    → number remains consumed
+```
+
+and:
+
+```text
+Rectificar
+    → original remains
+    → rectifying invoice is created
+```
+
+### Validation
+
+`preparar_eliminacion_factura()` validates the operation and returns the objects that the route must remove.
+
+An invoice can be deleted only when:
+
+```text
+estado == EMITIDA
+```
+
+and it is the last invoice number for that property/year.
+
+The accounting entry is normally required.
+
+A limited exception exists for historical bootstrap invoices that predate the current accounting linkage.
+
+At most one expected movement may be associated with the invoice accounting entry.
+
+If present, the movement may only be:
+
+```text
+PENDIENTE
+CANCELADO
+```
+
+Deletion is rejected for:
+
+```text
+PARCIAL
+CONCILIADO
+```
+
+### Atomic deletion
+
+The route deletes, as applicable:
+
+```text
+MovimientoPrevisto
+FacturaLinea(s)
+FacturaDestinatario(s)
+Factura
+ApunteContable
+```
+
+and flushes as needed before deleting the accounting entry.
+
+The whole operation is performed inside one transaction.
+
+After deletion, the number can be predicted and reused by normal invoice preparation.
+
+This operation is an important prerequisite for `Corregir revisión` when an affected invoice has already been emitted.
+
 ## Billing: FacturaLinea.type technical debt
 
 `FacturaLinea` currently has a constrained `tipo` field:
@@ -871,13 +1374,11 @@ OTRO
 
 This classification currently provides little useful behavior.
 
-It is especially questionable now that prepared invoice lines can be edited transiently before persistence: `crear_factura()` currently classifies the first edited line as `RENTA` and subsequent edited lines as `OTRO`, so the stored type does not necessarily preserve the semantic origin of a prepared line such as revision arrears.
+It is especially questionable now that prepared invoice lines can be edited transiently before persistence: `crear_factura()` may classify edited lines according to position rather than preserving the semantic origin of every prepared line.
 
 Do not refactor this immediately.
 
-Removing or simplifying `FacturaLinea.tipo` requires a database migration, and there is no operational reason to risk that change immediately before the October real run.
-
-Revisit after real use begins.
+Removing or simplifying `FacturaLinea.tipo` requires a database migration, and there is no current operational reason to prioritize that change.
 
 Likely direction:
 
@@ -890,7 +1391,7 @@ if not
     → simplify creation code/tests
 ```
 
-Do not undertake this migration merely for aesthetic cleanup before real billing starts.
+Only undertake this when real use justifies the cleanup.
 
 ## Billing: non-invoice rents
 
@@ -975,15 +1476,18 @@ Amount may later be corrected legitimately. Reconciliation state answers a diffe
 
 The service also rejects a second accounting operation for the same contract/period.
 
+The same movement-to-entry traversal is reused when deciding whether a rent revision can be reopened.
+
 ## Billing: intentionally postponed scope
 
-The ordinary October workflow is complete.
+The ordinary billing workflow and the currently required reversible correction workflows are complete.
 
 Do not implement the following merely because the model could support them:
 
 * persistent editable draft invoices;
 * a separate ordinary single-invoice preparation subsystem;
 * extraordinary invoice workflow;
+* invoice annulment workflow;
 * replacement after annulment;
 * rectifying invoices;
 * generalized rent-revision workflows for hypothetical contracts;
@@ -991,17 +1495,13 @@ Do not implement the following merely because the model could support them:
 
 Transient editing already handles simple exceptional invoice lines without creating persistent drafts.
 
+`Eliminar factura` and `Corregir revisión` solve errors that can still be completely undone.
+
+Do not stretch them to solve cases requiring historical rectification.
+
 ## Billing: pending work
 
-The following items are known but are not blockers for October billing.
-
-### `FacturaLinea.tipo`
-
-Review whether line types have any continuing functional value.
-
-If not, remove/simplify them later with an explicit Alembic migration.
-
-Do not perform this schema change immediately before real use.
+The following items are known but are not current blockers.
 
 ### Expense repercussion
 
@@ -1016,17 +1516,52 @@ repercutir = charge to tenant
 
 Reuse accounting data rather than entering the same economic fact again.
 
-### Annulment, replacement and rectification
+### Annulment and rectification
 
-The model supports invoice state, but there is no complete operational workflow for replacement or rectification.
+`Eliminar` is implemented only for fully reversible mistakes.
 
-Design this explicitly when required.
+Future operations need different semantics.
 
-Do not relax the ordinary duplicate-invoice protection as a shortcut.
+#### Anular
+
+Expected semantics:
+
+```text
+original invoice remains historical
+invoice number remains consumed
+state becomes ANULADA
+```
+
+Its exact accounting and reconciliation effects still need to be designed.
+
+#### Rectificar
+
+Expected semantics:
+
+```text
+original invoice remains
+rectifying invoice is created
+relationship between both is preserved
+```
+
+This is also the likely path for correcting a rent revision after later accounting/invoice effects can no longer be safely removed.
+
+Design these flows explicitly when required.
+
+Do not relax `Eliminar factura` or `Corregir revisión` as shortcuts.
 
 ### More complex rent revisions
 
-The current revision workflow covers the known real case.
+The current revision workflow covers the known real cases:
+
+```text
+AVISO
+ESPERANDO_INDICE
+PENDIENTE
+APLICADA
+NO_APLICADA
+Corregir revisión while reversible
+```
 
 Only generalize it if a contract requires different timing, index handling or arrears behavior.
 
@@ -1044,34 +1579,13 @@ Do not create a separate persistent draft/extra-line subsystem without a real op
 
 ### Invoice document improvements
 
-The current HTML template and printing workflow are sufficient for October.
+The current HTML template and printing workflow are sufficient.
 
-Further layout, format or document-generation work should be driven by real client use.
-
-## September 2026 invoice bootstrap
-
-The real September 2026 invoices provide the historical billing antecedent needed for October numbering.
-
-The bootstrap is billing history only.
-
-It must not create September:
-
-```text
-ApunteContable
-MovimientoPrevisto
-```
-
-The purpose is:
-
-* preserve genuine September invoice history;
-* establish the actual last 2026 invoice sequence for each property;
-* allow October numbering to continue correctly.
-
-Keep any bootstrap/import tooling deliberately simple.
+Further layout, format or document-generation work should be driven by real use.
 
 ## Current stopping point
 
-The billing functionality required for the October 2026 real run is complete.
+The ordinary billing workflow and the first required correction workflows are complete.
 
 Implemented and tested end-to-end:
 
@@ -1088,7 +1602,9 @@ facturable contract
     → printable invoice
     → Contabilizar
     → validate previewed totals
-    → Factura + FacturaLinea(s)
+    → Factura
+    + FacturaLinea(s)
+    + FacturaDestinatario(s)
     + ApunteContable
     + MovimientoPrevisto
     → return to same month
@@ -1107,14 +1623,42 @@ scheduled revision month while index unavailable
     → old rent
     → automatic explanation
 
-revision resolution
+following month with unresolved revision
+    → PENDIENTE
+    → Resolver revisión
+
+apply revision
     → new RentaContrato
+    → RevisionRenta = APLICADA
+    → next annual RevisionRenta = PENDIENTE
 
 applicable following invoice
     → APLICADA
     → revised monthly rent
     + arrears for scheduled revision month
     + automatic revision notes
+
+choose not to apply
+    → NO_APLICADA
+    → no new rent
+    → next annual RevisionRenta = PENDIENTE
+```
+
+The dedicated revisions dashboard provides:
+
+```text
+Locales / Otros
+last resolved revision
+next pending revision
+display situation
+action menu
+```
+
+Available actions include:
+
+```text
+No aplicar este año
+Corregir revisión
 ```
 
 The `APLICADA` state and arrears are period-specific and do not continue into later ordinary invoices.
@@ -1132,6 +1676,51 @@ non-invoice contract
     → Contabilizado
 ```
 
+Reversible invoice correction is implemented:
+
+```text
+wrong emitted invoice
+    ↓
+Eliminar factura
+    ↓
+remove invoice + accounting + expected movement atomically
+    ↓
+reuse invoice number
+    ↓
+prepare and emit correctly again
+```
+
+Reversible revision correction is implemented:
+
+```text
+wrong applied percentage
+    ↓
+remove affected invoice/accounting first if present
+    ↓
+Corregir revisión
+    ↓
+RevisionRenta → PENDIENTE
+delete generated RentaContrato
+delete next annual RevisionRenta
+    ↓
+prepare affected month again
+    ↓
+Resolver revisión with correct percentage
+    ↓
+emit/account again
+```
+
+The reopening validator defensively rejects corrections when:
+
+```text
+revision is not APLICADA
+generated rent is missing
+next annual revision is missing
+next annual revision is already resolved
+affected/later invoice exists
+affected/later rental accounting entry exists
+```
+
 The full pytest suite is green.
 
 Manual browser testing has covered the relevant billing paths, including:
@@ -1142,50 +1731,66 @@ Modify
 Preview after Modify
 AVISO
 ESPERANDO_INDICE
+PENDIENTE resolution
 APLICADA
+NO_APLICADA
 revised rent
 arrears line
 automatic notes
 final accounting with multiple lines
-correct persisted totals
+invoice deletion
+reusable invoice numbering
+revisions dashboard
+action menu behavior
+Corregir revisión
+re-resolving with a corrected index
+reissuing the affected invoice
 ```
-
-No known billing change is required before using Contab for the October invoices.
 
 The latest completed functional block is:
 
 ```text
-Unificar los conceptos definitivos en FacturaPreparada.lineas
+Permitir corregir revisiones de renta aplicadas
 ```
 
-This removed the last known difference in interpretation between the monthly list and Modify/Preview paths.
+The implementation deliberately reopens the revision rather than editing the applied percentage in place.
+
+This preserves one resolution path and reuses existing monthly billing behavior.
 
 ## Next change
 
-Do not start another speculative billing refactor before the October real run.
+Do not start another speculative billing refactor merely because the current block is complete.
 
-The immediate priority is operational use with real client data.
+The immediate priority remains real operational use.
 
-Use the current system and prioritize any problem that actually appears during:
+Use the current system and prioritize problems that actually appear during:
 
 ```text
-October invoice preparation
+invoice preparation
 invoice review and printing
 accounting
 bank import
 reconciliation
+rent-revision handling
 ```
-
-Further billing development should be driven primarily by observed needs.
 
 Known later areas include:
 
 1. expense repercussion and analytical allocation, especially grouped property expenses;
 2. accounting completeness/integrity controls;
 3. fiscal/accounting reports needed for year-end and January;
-4. `FacturaLinea.tipo` cleanup if it remains unnecessary;
-5. invoice annulment/replacement/rectification when first required;
-6. rent-revision generalization only if another real contract needs it;
-7. invoice document/layout improvements if real use shows a need.
+4. invoice annulment and rectification when first required;
+5. rent-revision generalization only if another real contract needs it;
+6. invoice document/layout improvements if real use shows a need.
+
+For billing corrections, preserve the current principle:
+
+```text
+fully reversible
+    → undo and perform again
+
+historical effects must remain
+    → explicit annulment / rectification workflow
+```
 
 Prefer fixing real operational friction over adding anticipated functionality.

@@ -202,6 +202,79 @@ def _anadir_registro_contable_factura_para_test(
     return apunte, movimiento
 
 
+def _crear_revision_aplicada_para_reabrir(
+    session,
+) -> tuple[RevisionRenta, RentaContrato, RevisionRenta]:
+    """Crea una revisión aplicada susceptible de ser reabierta."""
+
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="A1",
+        descripcion="Local comercial",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2025, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2025, 1, 1),
+        fianza=100000,
+        direccion_facturacion="Dirección",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+    )
+
+    renta_anterior = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2025, 1, 1),
+        importe=100000,
+    )
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="APLICADA",
+        porcentaje_aplicado=200,
+        fecha_resolucion=date(2026, 5, 1),
+    )
+
+    renta_revision = RentaContrato(
+        contrato=contrato,
+        fecha_desde=date(2026, 4, 1),
+        importe=102000,
+    )
+
+    siguiente_revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 4, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add_all(
+        [
+            renta_anterior,
+            revision,
+            renta_revision,
+            siguiente_revision,
+        ]
+    )
+    session.commit()
+
+    return (
+        revision,
+        renta_revision,
+        siguiente_revision,
+    )
+
+
 
 def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     """Muestra los ingresos preparados de un período sin modificarlos."""
@@ -4258,5 +4331,231 @@ def test_no_aplicar_revision_rechaza_revision_ya_resuelta() -> None:
         ]
 
         assert siguientes == []
+
+
+def test_reabrir_revision_desde_panel() -> None:
+    """Reabre una revisión y elimina los objetos creados al resolverla."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        revision, renta_revision, siguiente_revision = (
+            _crear_revision_aplicada_para_reabrir(
+                session
+            )
+        )
+
+        revision_id = revision.id
+        renta_id = renta_revision.id
+        siguiente_revision_id = siguiente_revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/revisiones/{revision_id}/reabrir"
+    )
+
+    assert response.status_code == 302
+    assert response.location.endswith(
+        "/facturacion/revisiones"
+    )
+
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+
+        assert revision is not None
+        assert revision.estado == "PENDIENTE"
+        assert revision.porcentaje_aplicado is None
+        assert revision.fecha_resolucion is None
+
+        assert session.get(
+            RentaContrato,
+            renta_id,
+        ) is None
+
+        assert session.get(
+            RevisionRenta,
+            siguiente_revision_id,
+        ) is None
+
+
+def test_reabrir_revision_inexistente() -> None:
+    """Devuelve 404 si la revisión indicada no existe."""
+
+    app = crear_app_test()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        "/facturacion/revisiones/999/reabrir"
+    )
+
+    assert response.status_code == 404
+    assert "no encontrada" in response.get_data(
+        as_text=True
+    ).lower()
+
+
+def test_reabrir_revision_rechaza_revision_no_reabrible() -> None:
+    """No modifica una revisión que no puede reabrirse."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        revision, renta_revision, siguiente_revision = (
+            _crear_revision_aplicada_para_reabrir(
+                session
+            )
+        )
+
+        revision.estado = "PENDIENTE"
+        revision.porcentaje_aplicado = None
+        revision.fecha_resolucion = None
+
+        session.commit()
+
+        revision_id = revision.id
+        renta_id = renta_revision.id
+        siguiente_revision_id = siguiente_revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/revisiones/{revision_id}/reabrir"
+    )
+
+    assert response.status_code == 400
+    assert "aplicada" in response.get_data(
+        as_text=True
+    ).lower()
+
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+
+        assert revision.estado == "PENDIENTE"
+
+        assert session.get(
+            RentaContrato,
+            renta_id,
+        ) is not None
+
+        assert session.get(
+            RevisionRenta,
+            siguiente_revision_id,
+        ) is not None
+
+
+def test_listar_revisiones_muestra_corregir_revision_reabrible() -> None:
+    """Ofrece corregir una revisión aplicada que puede reabrirse."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        revision, _, _ = (
+            _crear_revision_aplicada_para_reabrir(
+                session
+            )
+        )
+
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/revisiones"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Corregir revisión" in texto
+    assert (
+        f"/facturacion/revisiones/"
+        f"{revision_id}/reabrir"
+        in texto
+    )
+
+
+def test_listar_revisiones_no_muestra_corregir_revision_no_reabrible() -> None:
+    """No ofrece corregir una revisión aplicada que no puede reabrirse."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        revision, _, siguiente_revision = (
+            _crear_revision_aplicada_para_reabrir(
+                session
+            )
+        )
+
+        siguiente_revision.estado = "APLICADA"
+        siguiente_revision.porcentaje_aplicado = 100
+        siguiente_revision.fecha_resolucion = date(
+            2027,
+            5,
+            1,
+        )
+
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/revisiones"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "Corregir revisión" not in texto
 
 

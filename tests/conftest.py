@@ -5,7 +5,11 @@ from datetime import date
 import pytest
 
 from contab.database import Base, create_session_factory, create_sqlite_engine
-from contab.models import Contrato, Inmueble
+from contab.models import (
+    Contrato,
+    Inmueble,
+)
+from contab.config import CategoriaContable
 
 
 @pytest.fixture
@@ -58,4 +62,21 @@ def contrato(session, inmueble) -> Contrato:
     session.commit()
 
     return contrato
+
+
+@pytest.fixture
+def categorias() -> dict[str, CategoriaContable]:
+    """Crea un diccionario válido de categorías reutilizable por los tests."""
+
+    return {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+
 
