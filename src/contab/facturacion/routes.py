@@ -968,3 +968,39 @@ def listar_revisiones():
         )
 
 
+@bp.post("/revisiones/<int:revision_id>/no-aplicar")
+def no_aplicar_revision(revision_id: int):
+    """Marca una revisión pendiente como no aplicada."""
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                revision = session.get(
+                    RevisionRenta,
+                    revision_id,
+                )
+
+                if revision is None:
+                    return "Revisión de renta no encontrada.", 404
+
+                _, siguiente_revision = resolver_revision_renta(
+                    revision=revision,
+                    fecha_resolucion=date.today(),
+                    aplicar=False,
+                    porcentaje_aplicado=None,
+                )
+
+                session.add(siguiente_revision)
+
+    except RevisionRentaError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "facturacion.listar_revisiones"
+        )
+    )
+
+

@@ -3,9 +3,7 @@
 {% macro tabla_revisiones(
     revisiones,
     fecha_a_texto,
-    porcentaje_a_texto,
-    periodo_texto,
-    fecha_emision_texto
+    porcentaje_a_texto
 ) %}
     <table class="revisiones-renta__tabla">
         <thead class="revisiones-renta__cabecera">
@@ -13,17 +11,25 @@
                 <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
                     Inmueble
                 </th>
+
                 <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
                     Última revisión
                 </th>
+
                 <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
                     Próxima revisión
                 </th>
+
                 <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
                     Método
                 </th>
+
                 <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
                     Estado
+                </th>
+
+                <th class="revisiones-renta__celda revisiones-renta__celda--cabecera">
+                    Acciones
                 </th>
             </tr>
         </thead>
@@ -52,6 +58,7 @@
                                         item.ultima_revision.porcentaje_aplicado
                                     ) }} %
                                 {% endif %}
+
                             {% elif item.ultima_revision.estado == "NO_APLICADA" %}
                                 No aplicada
                             {% endif %}
@@ -92,16 +99,49 @@
                         {% elif item.situacion_proxima == "ESPERANDO_INDICE" %}
                             Esperando índice
                         {% elif item.situacion_proxima == "RESOLVER" %}
-                            <a href="{{ url_for(
-                                'facturacion.resolver_revision',
-                                revision_id=item.proxima_revision.id,
-                                periodo=periodo_texto,
-                                fecha_emision=fecha_emision_texto
-                            ) }}">
-                                Resolver revisión
-                            </a>
+                            Resolver revisión
                         {% elif item.situacion_proxima == "PENDIENTE" %}
                             Pendiente
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+
+                    <td class="revisiones-renta__celda acciones-revision">
+                        {% if item.proxima_revision %}
+                            <details>
+                                <summary title="Acciones">
+                                    ⋮
+                                </summary>
+
+                                <div class="menu-acciones">
+                                    {% if item.proxima_revision.estado == "PENDIENTE" %}
+                                        <form
+                                            method="post"
+                                            action="{{ url_for(
+                                                'facturacion.no_aplicar_revision',
+                                                revision_id=item.proxima_revision.id
+                                            ) }}"
+                                            onsubmit="return confirm(
+                                                '¿Confirmas que este año no se aplicará la revisión de renta?'
+                                            );"
+                                        >
+                                            <button type="submit">
+                                                No aplicar este año
+                                            </button>
+                                        </form>
+                                    {% endif %}
+
+                                    {% if (
+                                        item.ultima_revision
+                                        and item.ultima_revision.estado == "APLICADA"
+                                    ) %}
+                                        <span>
+                                            Corregir porcentaje
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </details>
                         {% else %}
                             —
                         {% endif %}
@@ -112,7 +152,11 @@
     </table>
 {% endmacro %}
 
-{% block title %}Revisiones de renta{% endblock %}
+
+{% block title %}
+    Revisiones de renta
+{% endblock %}
+
 
 {% block content %}
 <div class="revisiones-renta">
@@ -128,9 +172,7 @@
         {{ tabla_revisiones(
             preparacion.locales,
             fecha_a_texto,
-            porcentaje_a_texto,
-            periodo_texto,
-            fecha_emision_texto
+            porcentaje_a_texto
         ) }}
     </section>
 
@@ -142,10 +184,40 @@
         {{ tabla_revisiones(
             preparacion.otros,
             fecha_a_texto,
-            porcentaje_a_texto,
-            periodo_texto,
-            fecha_emision_texto
+            porcentaje_a_texto
         ) }}
     </section>
 </div>
+
+
+<script>
+    document.addEventListener("click", function (event) {
+        document.querySelectorAll(
+            ".acciones-revision details[open]"
+        ).forEach(function (details) {
+            if (!details.contains(event.target)) {
+                details.removeAttribute("open");
+            }
+        });
+    });
+
+    document.querySelectorAll(
+        ".acciones-revision details"
+    ).forEach(function (details) {
+        details.addEventListener("toggle", function () {
+            if (!details.open) {
+                return;
+            }
+
+            document.querySelectorAll(
+                ".acciones-revision details[open]"
+            ).forEach(function (otro) {
+                if (otro !== details) {
+                    otro.removeAttribute("open");
+                }
+            });
+        });
+    });
+</script>
+
 {% endblock %}

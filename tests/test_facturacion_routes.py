@@ -4026,73 +4026,6 @@ def test_listar_revisiones_no_muestra_contratos_finalizados() -> None:
     assert "LOCAL-ANTIGUO" not in texto
 
 
-def test_listar_revisiones_enlaza_revision_que_debe_resolverse() -> None:
-    """Permite resolver desde el listado una revisión pendiente vencida."""
-
-    app = crear_app_test()
-
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local comercial",
-            direccion="Dirección",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-        )
-
-        contrato = Contrato(
-            inmueble=inmueble,
-            fecha_inicio=date(2025, 1, 1),
-            fecha_vencimiento=date(2030, 12, 31),
-            genera_factura=True,
-            fecha_inicio_facturacion=date(2025, 1, 1),
-            fianza=100000,
-            direccion_facturacion="Dirección",
-            poblacion_facturacion="Pontevedra",
-            provincia_facturacion="Pontevedra",
-            concepto_factura="Alquiler",
-        )
-
-        revision = RevisionRenta(
-            contrato=contrato,
-            fecha_prevista=date(2026, 9, 1),
-            metodo="IPC_NACIONAL",
-            estado="PENDIENTE",
-        )
-
-        session.add_all([contrato, revision])
-        session.commit()
-
-        revision_id = revision.id
-
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    response = client.get(
-        "/facturacion/revisiones"
-    )
-
-    assert response.status_code == 200
-
-    texto = response.get_data(as_text=True)
-
-    assert "Resolver revisión" in texto
-    assert (
-        f"/facturacion/revisiones/{revision_id}/resolver"
-        in texto
-    )
-
-
 def test_listar_revisiones_no_enlaza_revision_que_espera_indice() -> None:
     """No ofrece resolver mientras la revisión espera el índice."""
 
@@ -4156,5 +4089,174 @@ def test_listar_revisiones_no_enlaza_revision_que_espera_indice() -> None:
         f"/facturacion/revisiones/{revision_id}/resolver"
         not in texto
     )
+
+
+def test_no_aplicar_revision_desde_panel() -> None:
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2025, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2025, 1, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+
+        session.add_all([contrato, revision])
+        session.commit()
+
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/revisiones/{revision_id}/no-aplicar"
+    )
+
+    assert response.status_code == 302
+    assert response.location.endswith(
+        "/facturacion/revisiones"
+    )
+
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+
+        assert revision.estado == "NO_APLICADA"
+        assert revision.porcentaje_aplicado is None
+
+        siguientes = [
+            otra
+            for otra in revision.contrato.revisiones_renta
+            if otra.fecha_prevista == date(2027, 10, 1)
+        ]
+
+        assert len(siguientes) == 1
+        assert siguientes[0].estado == "PENDIENTE"
+
+        rentas_revision = [
+            renta
+            for renta in revision.contrato.rentas
+            if renta.fecha_desde == date(2026, 10, 1)
+        ]
+
+        assert rentas_revision == []
+
+
+def test_no_aplicar_revision_rechaza_revision_ya_resuelta() -> None:
+    """No permite marcar como no aplicada una revisión ya resuelta."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2025, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2025, 1, 1),
+            fianza=100000,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        revision = RevisionRenta(
+            contrato=contrato,
+            fecha_prevista=date(2026, 10, 1),
+            metodo="IPC_NACIONAL",
+            estado="APLICADA",
+            porcentaje_aplicado=200,
+            fecha_resolucion=date(2026, 10, 4),
+        )
+
+        session.add_all([contrato, revision])
+        session.commit()
+
+        revision_id = revision.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/revisiones/{revision_id}/no-aplicar"
+    )
+
+    assert response.status_code == 400
+
+    texto = response.get_data(as_text=True)
+
+    assert "pendiente" in texto.lower()
+
+    with session_factory() as session:
+        revision = session.get(
+            RevisionRenta,
+            revision_id,
+        )
+
+        assert revision.estado == "APLICADA"
+        assert revision.porcentaje_aplicado == 200
+        assert revision.fecha_resolucion == date(2026, 10, 4)
+
+        siguientes = [
+            otra
+            for otra in revision.contrato.revisiones_renta
+            if otra.fecha_prevista == date(2027, 10, 1)
+        ]
+
+        assert siguientes == []
 
 

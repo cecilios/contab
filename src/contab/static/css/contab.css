@@ -163,7 +163,17 @@ button {
 }
 
 
-/* Pantalla con las revisiones de renta */
+/* Pantalla con las Revisiones de renta (revisiones.html) */
+
+.revisiones-renta__fila:hover > .revisiones-renta__celda {
+    background-color: #e8e9ea;
+}
+
+.revisiones-renta__fila:has(
+    .acciones-revision details[open]
+) > .revisiones-renta__celda {
+    background-color: #e8f3f8;
+}
 
 .revisiones-renta__tabla {
     border-collapse: collapse;
@@ -178,11 +188,17 @@ button {
     font-weight: bold;
 }
 
+.acciones-revision {
+    position: relative;
+    width: 1%;
+    white-space: nowrap;
+}
 
-/* Pantalla con la lista de facturas emitidas */
+
+/* Pantalla con la lista de facturas emitidas (facturas.html)*/
 
 tbody tr:hover {
-    background-color: #f8f9fa;
+    background-color: #e8e9ea;
 }
 
 tbody tr:has(
@@ -246,7 +262,7 @@ tbody tr:has(
 }
 
 
-/* Pantalla de preparación de facturación */
+/* Pantalla de preparación de facturación (lista.html) */
 
 .facturacion-preparacion {
     display: flex;
@@ -304,7 +320,7 @@ tbody tr:has(
 }
 
 
-/* Formulario para crear/modificar una factura */
+/* Formulario para crear/modificar una factura (formulario.html) */
 
 .formulario-factura {
     max-width: 900px;

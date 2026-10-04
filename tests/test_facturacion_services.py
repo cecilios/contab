@@ -41,6 +41,10 @@ from contab.facturacion.services import (
     preparar_revisiones_renta,
     siguiente_numero_factura,
 )
+from contab.contratos.services import (
+    resolver_revision_renta,
+)
+
 
 
 def _anadir_titular(
@@ -3455,5 +3459,145 @@ def test_preparar_revisiones_renta_sigue_esperando_indice_durante_el_mes(
 
     assert preparada.proxima_revision is revision
     assert preparada.situacion_proxima == "ESPERANDO_INDICE"
+
+
+def test_preparar_revisiones_renta_indica_aviso(
+    session,
+    contrato,
+) -> None:
+    """Indica aviso cuando la revisión corresponde al mes siguiente."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 11, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "AVISO"
+
+
+def test_preparar_revisiones_renta_indica_esperando_indice(
+    session,
+    contrato,
+) -> None:
+    """Indica espera de índice cuando la revisión corresponde al mes actual."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "ESPERANDO_INDICE"
+
+
+def test_preparar_revisiones_renta_indica_revision_a_resolver(
+    session,
+    contrato,
+) -> None:
+    """Indica que debe resolverse una revisión pendiente ya vencida."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 9, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "RESOLVER"
+
+
+def test_preparar_revisiones_renta_indica_pendiente_fuera_del_ciclo(
+    session,
+    contrato,
+) -> None:
+    """Mantiene pendiente una revisión que todavía no entra en el ciclo."""
+
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2027, 3, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    preparacion = preparar_revisiones_renta(
+        contratos=[contrato],
+        fecha=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert preparada.proxima_revision is revision
+    assert preparada.situacion_proxima == "PENDIENTE"
+
+
+def test_resolver_revision_renta_no_aplicada_crea_siguiente_revision(
+    session,
+    contrato,
+) -> None:
+    revision = RevisionRenta(
+        contrato=contrato,
+        fecha_prevista=date(2026, 10, 1),
+        metodo="IPC_NACIONAL",
+        estado="PENDIENTE",
+    )
+
+    session.add(revision)
+    session.commit()
+
+    nueva_renta, siguiente_revision = resolver_revision_renta(
+        revision=revision,
+        fecha_resolucion=date(2026, 10, 4),
+        aplicar=False,
+        porcentaje_aplicado=None,
+    )
+
+    assert nueva_renta is None
+
+    assert revision.estado == "NO_APLICADA"
+    assert revision.porcentaje_aplicado is None
+    assert revision.fecha_resolucion == date(2026, 10, 4)
+
+    assert siguiente_revision.fecha_prevista == date(2027, 10, 1)
+    assert siguiente_revision.metodo == "IPC_NACIONAL"
+    assert siguiente_revision.estado == "PENDIENTE"
 
 
