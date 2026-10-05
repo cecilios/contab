@@ -4394,3 +4394,39 @@ def test_preparar_revisiones_renta_no_indica_no_aplicada_como_reabrible(
     assert preparada.ultima_revision_reabrible is False
 
 
+def test_preparar_periodo_facturacion_incluye_local_en_carencia(
+    session,
+    contrato,
+) -> None:
+    """Mantiene visible un contrato facturable cuyo primer mes aún no ha llegado."""
+
+    contrato.fecha_inicio_facturacion = date(2026, 11, 1)
+
+    _anadir_titular(
+        contrato,
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    # En carencia no existe todavía una factura preparada.
+    assert preparacion.locales == ()
+
+    # El contrato sigue apareciendo en la lista de control mensual.
+    assert len(preparacion.locales_en_carencia) == 1
+
+    local = preparacion.locales_en_carencia[0]
+
+    assert local.contrato is contrato
+    assert local.inmueble is contrato.inmueble
+    assert local.destinatario_nombre == "Ana Pérez"
+    assert local.proximo_periodo_facturacion == date(2026, 11, 1)
+
+

@@ -102,6 +102,15 @@ class FacturaPreparada:
     revision_estado: str | None
 
 @dataclass(frozen=True)
+class LocalEnCarenciaPreparado:
+    """Datos visibles de un contrato facturable todavía en carencia."""
+
+    contrato: Contrato
+    inmueble: object
+    destinatario_nombre: str
+    proximo_periodo_facturacion: date
+
+@dataclass(frozen=True)
 class EliminacionFactura:
     """Elementos asociados que deben eliminarse con una factura."""
 
@@ -126,6 +135,7 @@ class PreparacionPeriodo:
     periodo: date
     fecha_emision: date
     locales: tuple[FacturaPreparada, ...]
+    locales_en_carencia: tuple[LocalEnCarenciaPreparado, ...]
     otros: tuple[IngresoPreparado, ...]
 
 @dataclass
@@ -711,6 +721,7 @@ def preparar_periodo_facturacion(
     ultimo_dia = _ultimo_dia_mes(periodo)
 
     locales = []
+    locales_en_carencia = []
     otros = []
 
     for contrato in contratos:
@@ -730,6 +741,20 @@ def preparar_periodo_facturacion(
 
         if contrato.genera_factura:
             if periodo < contrato.fecha_inicio_facturacion:
+                destinatario_nombre, _ = componer_destinatario(
+                    contrato
+                )
+
+                locales_en_carencia.append(
+                    LocalEnCarenciaPreparado(
+                        contrato=contrato,
+                        inmueble=contrato.inmueble,
+                        destinatario_nombre=destinatario_nombre,
+                        proximo_periodo_facturacion=(
+                            contrato.fecha_inicio_facturacion
+                        ),
+                    )
+                )
                 continue
 
             revision, revision_estado = situacion_revision(
@@ -930,6 +955,12 @@ def preparar_periodo_facturacion(
                 key=lambda local: local.inmueble.referencia,
             )
         ),
+        locales_en_carencia=tuple(
+            sorted(
+                locales_en_carencia,
+                key=lambda local: local.inmueble.referencia,
+            )
+        ),
         otros=tuple(
             sorted(
                 otros,
@@ -937,6 +968,7 @@ def preparar_periodo_facturacion(
             )
         ),
     )
+
 
 def emitir_factura(
     *,

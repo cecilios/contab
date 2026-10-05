@@ -79,7 +79,12 @@
     {% if preparacion %}
         <h2>Locales</h2>
 
-        {% if preparacion.locales %}
+        {% set locales = (
+            preparacion.locales
+            + preparacion.locales_en_carencia
+        ) | sort(attribute="inmueble.referencia") %}
+
+        {% if locales %}
             <table class="facturacion-locales">
                 <thead>
                     <tr>
@@ -96,7 +101,26 @@
                 </thead>
 
                 <tbody>
-                    {% for local in preparacion.locales %}
+                {% for local in locales %}
+                    {% if local.proximo_periodo_facturacion is defined %}
+                        <tr>
+                            <td class="factura-inmueble">
+                                {{ local.inmueble.referencia }}
+                            </td>
+
+                            <td class="factura-numero">
+                            </td>
+
+                            <td class="factura-destinatario">
+                                {{ local.destinatario_nombre }}
+                            </td>
+
+                            <td colspan="6">
+                                En carencia. Próximo mes a facturar
+                                {{ local.proximo_periodo_facturacion.strftime("%m/%Y") }}
+                            </td>
+                        </tr>
+                    {% else %}
                         <tr>
                             <td class="factura-inmueble">
                                 {{ local.referencia_inmueble }}
@@ -229,7 +253,9 @@
                                 {% endif %}
                             </td>
                         </tr>
+                        {% endif %}
                     {% endfor %}
+
                 </tbody>
             </table>
         {% else %}

@@ -436,6 +436,7 @@ def test_listar_facturacion_inicializa_fecha_emision_desde_periodo(
         return SimpleNamespace(
             periodo=periodo,
             locales=[],
+            locales_en_carencia=[],
             otros=[],
         )
 
@@ -4557,5 +4558,204 @@ def test_listar_revisiones_no_muestra_corregir_revision_no_reabrible() -> None:
     texto = response.get_data(as_text=True)
 
     assert "Corregir revisión" not in texto
+
+
+def test_listar_facturacion_muestra_local_en_carencia_sin_acciones() -> None:
+    """Muestra el contrato en carencia sin permitir preparar una factura."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-CAR",
+            tipo="L",
+            codigo_facturacion="C1",
+            descripcion="Local en carencia",
+            direccion="Dirección del local",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 9, 15),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 11, 1),
+            fianza=100000,
+            iva_porcentaje=2100,
+            retencion_porcentaje=1900,
+            direccion_facturacion="Calle Facturación 1",
+            codigo_postal_facturacion="36001",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler local",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        session.add(contrato)
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario prepara octubre, todavía dentro del período de carencia.
+    response = client.get(
+        "/facturacion/?periodo=10/2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+    print(texto)
+
+    # El contrato sigue visible en la lista mensual.
+    assert "LOCAL-CAR" in texto
+    assert "Ana Pérez" in texto
+
+    # Se explica por qué no hay factura que preparar.
+    assert "En carencia. Próximo mes a facturar" in texto
+    assert "11/2026" in texto
+
+    # Una fila en carencia no ofrece operaciones de factura.
+    assert "Previsualizar" not in texto
+    assert "Modificar" not in texto
+    assert "Resolver revisión" not in texto
+
+
+def test_listar_facturacion_ordena_locales_incluyendo_carencias() -> None:
+    """Ordena por inmueble las facturas y los contratos en carencia."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+
+        def crear_contrato(
+            *,
+            referencia: str,
+            codigo_facturacion: str,
+            destinatario: str,
+            fecha_inicio_facturacion: date,
+        ) -> Contrato:
+            inmueble = Inmueble(
+                referencia=referencia,
+                tipo="L",
+                codigo_facturacion=codigo_facturacion,
+                descripcion=f"Local {referencia}",
+                direccion="Dirección del local",
+                poblacion="Pontevedra",
+                provincia="Pontevedra",
+            )
+
+            contrato = Contrato(
+                inmueble=inmueble,
+                fecha_inicio=date(2026, 1, 1),
+                fecha_vencimiento=date(2030, 12, 31),
+                genera_factura=True,
+                fecha_inicio_facturacion=fecha_inicio_facturacion,
+                fianza=100000,
+                iva_porcentaje=2100,
+                retencion_porcentaje=1900,
+                direccion_facturacion="Calle Facturación 1",
+                codigo_postal_facturacion="36001",
+                poblacion_facturacion="Pontevedra",
+                provincia_facturacion="Pontevedra",
+                concepto_factura="Alquiler local",
+            )
+
+            contrato.titulares.append(
+                ContratoInquilino(
+                    inquilino=Inquilino(
+                        nombre=destinatario,
+                        nif=f"{referencia}NIF",
+                    ),
+                    orden=1,
+                )
+            )
+
+            if fecha_inicio_facturacion <= date(2026, 10, 1):
+                contrato.rentas.append(
+                    RentaContrato(
+                        fecha_desde=date(2026, 1, 1),
+                        importe=100000,
+                    )
+                )
+
+            return contrato
+
+        contrato_1 = crear_contrato(
+            referencia="LOCAL-1",
+            codigo_facturacion="A1",
+            destinatario="Inquilino uno",
+            fecha_inicio_facturacion=date(2026, 1, 1),
+        )
+
+        contrato_2 = crear_contrato(
+            referencia="LOCAL-2",
+            codigo_facturacion="A2",
+            destinatario="Inquilino dos",
+            fecha_inicio_facturacion=date(2026, 11, 1),
+        )
+
+        contrato_3 = crear_contrato(
+            referencia="LOCAL-3",
+            codigo_facturacion="A3",
+            destinatario="Inquilino tres",
+            fecha_inicio_facturacion=date(2026, 1, 1),
+        )
+
+        session.add_all(
+            [
+                contrato_1,
+                contrato_2,
+                contrato_3,
+            ]
+        )
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/facturacion/?periodo=10/2026"
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "En carencia. Próximo mes a facturar" in texto
+    assert "11/2026" in texto
+
+    posicion_1 = texto.index("LOCAL-1")
+    posicion_2 = texto.index("LOCAL-2")
+    posicion_3 = texto.index("LOCAL-3")
+
+    assert posicion_1 < posicion_2 < posicion_3
 
 
