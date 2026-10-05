@@ -216,6 +216,66 @@ Los tres índices externos tienen el mismo tratamiento en Contab. Su nombre sól
 
 La revisión detallada se integrará con la facturación cuando exista un caso real de uso. Debe actualizar la renta contractual y, cuando corresponda, calcular atrasos.
 
+## Anexos de contrato
+---------------------
+
+Los cambios contractuales formalizados mediante un anexo se conservan separados del contrato original para mantener el histórico de sus modificaciones.
+
+Actualmente se contemplan los siguientes tipos:
+
+- **PRORROGA**, para ampliar la fecha de vencimiento;
+- **CAMBIO_RENTA**, para cambios permanentes o temporales de la renta;
+- **CARENCIA**, para establecer un período durante el que no debe prepararse la facturación ordinaria del alquiler.
+
+Cada anexo registra como mínimo:
+
+- el contrato al que pertenece;
+- la fecha del anexo;
+- su tipo;
+- una descripción opcional.
+
+Los datos específicos dependen del tipo de anexo.
+
+### Prórroga
+
+Una prórroga establece una nueva fecha de vencimiento del contrato.
+
+La nueva fecha debe ser posterior al vencimiento vigente.
+
+### Cambio de renta
+
+Un cambio permanente genera una nueva `RentaContrato` desde la fecha indicada.
+
+Un cambio temporal utiliza un `AjusteRenta` durante un período delimitado sin alterar permanentemente la renta contractual.
+
+### Carencia
+
+Un anexo de tipo `CARENCIA` establece un período completo de meses durante el cual no debe prepararse la factura ordinaria del contrato.
+
+Registra:
+
+```text
+fecha_desde
+fecha_hasta
+```
+
+Las reglas actuales son:
+
+- `fecha_desde` debe ser el primer día de un mes;
+- `fecha_hasta` debe ser el último día de un mes;
+- `fecha_hasta` no puede ser anterior a `fecha_desde`;
+- la carencia no puede comenzar antes del contrato;
+- dos períodos de carencia del mismo contrato no pueden solaparse;
+- un contrato puede tener varias carencias si sus períodos están separados.
+
+La fecha del propio anexo no puede ser anterior al inicio del contrato.
+
+La carencia no se representa como una renta de importe cero ni como un ajuste temporal de renta. Su significado es distinto: durante esos meses no existe una factura ordinaria que preparar.
+
+Una vez terminado el período de carencia, el contrato vuelve a seguir las reglas normales de facturación a partir del mes siguiente.
+
+Por ahora este tratamiento está integrado únicamente en los contratos que generan factura. No se ha extendido a la sección **Otros**, porque no existe actualmente un caso real que requiera anexos de carencia en contratos sin factura.
+
 ## Carga inicial de contratos antiguos
 ---------------------------------------
 
@@ -258,6 +318,10 @@ Actualmente Contab permite:
 - impedir contratos incompatibles o solapados;
 - distinguir contratos con y sin factura;
 - mantener rentas y revisiones previstas;
+- registrar anexos de prórroga y cambios de renta;
+- registrar anexos de carencia con un período de meses completos;
+- evitar la preparación de facturas ordinarias durante una carencia contractual;
+- consultar el histórico de anexos del contrato;
 - utilizar estos datos en contabilidad e informes.
 
 ## Evolución prevista

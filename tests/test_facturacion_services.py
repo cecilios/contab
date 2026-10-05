@@ -7,6 +7,7 @@ from datetime import date
 from contab.config import CategoriaContable
 from contab.models import (
     AjusteRenta,
+    AnexoContrato,
     ApunteContable,
     Contrato,
     ContratoInquilino,
@@ -4428,5 +4429,74 @@ def test_preparar_periodo_facturacion_incluye_local_en_carencia(
     assert local.inmueble is contrato.inmueble
     assert local.destinatario_nombre == "Ana Pérez"
     assert local.proximo_periodo_facturacion == date(2026, 11, 1)
+
+
+def test_preparar_periodo_muestra_contrato_en_carencia_por_anexo(
+    contrato,
+) -> None:
+    """No prepara factura durante una carencia establecida por anexo."""
+
+    _anadir_titular(contrato)
+
+    contrato.anexos.append(
+        AnexoContrato(
+            fecha=date(2026, 10, 15),
+            tipo="CARENCIA",
+            fecha_desde=date(2026, 11, 1),
+            fecha_hasta=date(2027, 1, 31),
+        )
+    )
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2026, 12, 1),
+        fecha_emision=date(2026, 12, 1),
+    )
+
+    assert preparacion.locales == ()
+    assert len(preparacion.locales_en_carencia) == 1
+
+    local = preparacion.locales_en_carencia[0]
+
+    assert local.contrato is contrato
+    assert local.inmueble is contrato.inmueble
+    assert local.destinatario_nombre == "Ana Pérez"
+    assert (
+        local.proximo_periodo_facturacion
+        == date(2027, 2, 1)
+    )
+
+
+def test_preparar_periodo_factura_tras_finalizar_carencia(
+    contrato,
+) -> None:
+    """Vuelve a preparar factura el mes siguiente a la carencia."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=150000,
+        )
+    )
+
+    contrato.anexos.append(
+        AnexoContrato(
+            fecha=date(2026, 10, 15),
+            tipo="CARENCIA",
+            fecha_desde=date(2026, 11, 1),
+            fecha_hasta=date(2027, 1, 31),
+        )
+    )
+
+    preparacion = preparar_periodo_facturacion(
+        contratos=[contrato],
+        periodo=date(2027, 2, 1),
+        fecha_emision=date(2027, 2, 1),
+    )
+
+    assert len(preparacion.locales) == 1
+    assert preparacion.locales_en_carencia == ()
 
 

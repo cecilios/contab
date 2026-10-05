@@ -315,8 +315,26 @@ class AnexoContrato(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "tipo IN ('CAMBIO_RENTA', 'PRORROGA')",
+            "tipo IN ('CAMBIO_RENTA', 'PRORROGA', 'CARENCIA')",
             name="ck_anexo_contrato_tipo",
+        ),
+        CheckConstraint(
+            "("
+            "tipo = 'CARENCIA' "
+            "AND fecha_desde IS NOT NULL "
+            "AND fecha_hasta IS NOT NULL"
+            ") OR ("
+            "tipo != 'CARENCIA' "
+            "AND fecha_desde IS NULL "
+            "AND fecha_hasta IS NULL"
+            ")",
+            name="ck_anexo_contrato_carencia_fechas",
+        ),
+        CheckConstraint(
+            "fecha_hasta IS NULL "
+            "OR fecha_desde IS NULL "
+            "OR fecha_hasta >= fecha_desde",
+            name="ck_anexo_contrato_periodo",
         ),
     )
 
@@ -335,6 +353,8 @@ class AnexoContrato(Base):
     )
 
     nueva_fecha_vencimiento: Mapped[date | None] = mapped_column(Date)
+    fecha_desde: Mapped[date | None] = mapped_column(Date)
+    fecha_hasta: Mapped[date | None] = mapped_column(Date)
 
     descripcion: Mapped[str | None] = mapped_column(Text)
 

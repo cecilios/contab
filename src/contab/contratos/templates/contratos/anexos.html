@@ -58,7 +58,7 @@
 
                         {% for ajuste in anexo.ajustes_renta %}
                             <p>
-                                Periodo: 
+                                Periodo:
                                 {{ ajuste.fecha_desde.strftime('%d/%m/%Y') }}
                                 a
                                 {{ ajuste.fecha_hasta.strftime('%d/%m/%Y') }}
@@ -94,6 +94,20 @@
                             {% endif %}
                         {% endfor %}
                     {% endif %}
+
+                {% elif anexo.tipo == "CARENCIA" %}
+                    <h2>
+                        Anexo {{ "%02d"|format(loop.index) }}
+                        - {{ anexo.fecha.strftime('%d/%m/%Y') }}
+                        - Carencia
+                    </h2>
+
+                    <p>
+                        Período:
+                        {{ anexo.fecha_desde.strftime('%d/%m/%Y') }}
+                        a
+                        {{ anexo.fecha_hasta.strftime('%d/%m/%Y') }}
+                    </p>
                 {% endif %}
 
                 {% if anexo.descripcion %}

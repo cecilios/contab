@@ -18,6 +18,7 @@ from contab.models import (
     RevisionRenta,
 )
 from contab.contratos.services import (
+    carencia_vigente,
     renta_facturable,
 )
 from contab.formato import (
@@ -202,6 +203,23 @@ def _ultimo_dia_mes(periodo: date) -> date:
 
     return date.fromordinal(
         siguiente_mes.toordinal() - 1
+    )
+
+
+def _primer_dia_mes_siguiente(fecha: date) -> date:
+    """Devuelve el primer día del mes posterior a una fecha."""
+
+    if fecha.month == 12:
+        return date(
+            fecha.year + 1,
+            1,
+            1,
+        )
+
+    return date(
+        fecha.year,
+        fecha.month + 1,
+        1,
     )
 
 
@@ -752,6 +770,30 @@ def preparar_periodo_facturacion(
                         destinatario_nombre=destinatario_nombre,
                         proximo_periodo_facturacion=(
                             contrato.fecha_inicio_facturacion
+                        ),
+                    )
+                )
+                continue
+
+            carencia = carencia_vigente(
+                contrato,
+                periodo,
+            )
+
+            if carencia is not None:
+                destinatario_nombre, _ = componer_destinatario(
+                    contrato
+                )
+
+                locales_en_carencia.append(
+                    LocalEnCarenciaPreparado(
+                        contrato=contrato,
+                        inmueble=contrato.inmueble,
+                        destinatario_nombre=destinatario_nombre,
+                        proximo_periodo_facturacion=(
+                            _primer_dia_mes_siguiente(
+                                carencia.fecha_hasta
+                            )
                         ),
                     )
                 )

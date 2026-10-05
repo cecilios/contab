@@ -5,7 +5,9 @@ import pytest
 from contab.contratos.services import (
     AjusteRentaError,
     ContratoError,
+    carencia_vigente,
     crear_ajuste_renta,
+    crear_anexo_carencia,
     crear_anexo_prorroga,
     crear_anexo_renta_permanente,
     crear_anexo_renta_temporal,
@@ -264,5 +266,201 @@ def test_renta_facturable_aplica_ajuste_hasta_el_ultimo_mes_inclusive(
         contrato,
         date(2026, 12, 1),
     ) == 150000
+
+
+def test_crear_anexo_carencia(contrato) -> None:
+    """Comprueba que un anexo puede establecer un período de carencia."""
+
+    anexo = crear_anexo_carencia(
+        contrato=contrato,
+        fecha=date(2026, 10, 15),
+        fecha_desde=date(2026, 11, 1),
+        fecha_hasta=date(2027, 1, 31),
+        descripcion="Carencia acordada por tres meses",
+    )
+
+    assert isinstance(anexo, AnexoContrato)
+    assert anexo.contrato is contrato
+    assert anexo.tipo == "CARENCIA"
+    assert anexo.fecha == date(2026, 10, 15)
+    assert anexo.fecha_desde == date(2026, 11, 1)
+    assert anexo.fecha_hasta == date(2027, 1, 31)
+    assert anexo.descripcion == "Carencia acordada por tres meses"
+    assert anexo.nueva_fecha_vencimiento is None
+
+
+def test_crear_anexo_carencia_rechaza_inicio_que_no_es_dia_uno(
+    contrato,
+) -> None:
+    """Comprueba que una carencia debe comenzar el primer día de un mes."""
+
+    with pytest.raises(
+        ContratoError,
+        match="primer día del mes",
+    ):
+        crear_anexo_carencia(
+            contrato=contrato,
+            fecha=date(2026, 10, 15),
+            fecha_desde=date(2026, 11, 2),
+            fecha_hasta=date(2027, 1, 31),
+        )
+
+
+def test_crear_anexo_carencia_rechaza_fin_que_no_es_ultimo_dia_del_mes(
+    contrato,
+) -> None:
+    """Comprueba que una carencia debe terminar el último día de un mes."""
+
+    with pytest.raises(
+        ContratoError,
+        match="último día del mes",
+    ):
+        crear_anexo_carencia(
+            contrato=contrato,
+            fecha=date(2026, 10, 15),
+            fecha_desde=date(2026, 11, 1),
+            fecha_hasta=date(2027, 1, 30),
+        )
+
+
+def test_crear_anexo_carencia_rechaza_fin_anterior_al_inicio(
+    contrato,
+) -> None:
+    """Comprueba que el final de la carencia no puede preceder al inicio."""
+
+    with pytest.raises(
+        ContratoError,
+        match="no puede ser anterior",
+    ):
+        crear_anexo_carencia(
+            contrato=contrato,
+            fecha=date(2026, 10, 15),
+            fecha_desde=date(2027, 2, 1),
+            fecha_hasta=date(2027, 1, 31),
+        )
+
+
+def test_crear_anexo_carencia_rechaza_inicio_anterior_al_contrato(
+    contrato,
+) -> None:
+    """Comprueba que una carencia no puede comenzar antes del contrato."""
+
+    with pytest.raises(
+        ContratoError,
+        match="antes del inicio del contrato",
+    ):
+        crear_anexo_carencia(
+            contrato=contrato,
+            fecha=date(2026, 2, 1),
+            fecha_desde=date(2026, 1, 1),
+            fecha_hasta=date(2026, 1, 31),
+        )
+
+
+def test_crear_anexo_carencia_rechaza_solapamiento(
+    contrato,
+) -> None:
+    """Comprueba que dos períodos de carencia no pueden solaparse."""
+
+    contrato.anexos.append(
+        AnexoContrato(
+            fecha=date(2026, 9, 15),
+            tipo="CARENCIA",
+            fecha_desde=date(2026, 11, 1),
+            fecha_hasta=date(2027, 1, 31),
+        )
+    )
+
+    with pytest.raises(
+        ContratoError,
+        match="se solapa con otro período de carencia",
+    ):
+        crear_anexo_carencia(
+            contrato=contrato,
+            fecha=date(2026, 10, 15),
+            fecha_desde=date(2027, 1, 1),
+            fecha_hasta=date(2027, 3, 31),
+        )
+
+
+def test_crear_anexo_carencia_permite_periodos_separados(
+    contrato,
+) -> None:
+    """Comprueba que un contrato puede tener varias carencias no solapadas."""
+
+    contrato.anexos.append(
+        AnexoContrato(
+            fecha=date(2026, 9, 15),
+            tipo="CARENCIA",
+            fecha_desde=date(2026, 11, 1),
+            fecha_hasta=date(2027, 1, 31),
+        )
+    )
+
+    anexo = crear_anexo_carencia(
+        contrato=contrato,
+        fecha=date(2027, 5, 15),
+        fecha_desde=date(2027, 6, 1),
+        fecha_hasta=date(2027, 7, 31),
+    )
+
+    assert anexo.tipo == "CARENCIA"
+    assert anexo.fecha_desde == date(2027, 6, 1)
+    assert anexo.fecha_hasta == date(2027, 7, 31)
+
+
+def test_crear_anexo_carencia_rechaza_fecha_anterior_al_contrato(
+    contrato,
+) -> None:
+    """Comprueba que el anexo no puede formalizarse antes del contrato."""
+
+    with pytest.raises(
+        ContratoError,
+        match="fecha del anexo no puede ser anterior",
+    ):
+        crear_anexo_carencia(
+            contrato=contrato,
+            fecha=date(2025, 12, 31),
+            fecha_desde=date(2026, 2, 1),
+            fecha_hasta=date(2026, 2, 28),
+        )
+
+
+def test_carencia_vigente_detecta_todo_el_periodo(
+    contrato,
+) -> None:
+    """Comprueba que la carencia está vigente en todos sus meses."""
+
+    anexo = crear_anexo_carencia(
+        contrato=contrato,
+        fecha=date(2026, 10, 15),
+        fecha_desde=date(2026, 11, 1),
+        fecha_hasta=date(2027, 1, 31),
+    )
+
+    assert carencia_vigente(
+        contrato,
+        date(2026, 10, 1),
+    ) is None
+
+    assert carencia_vigente(
+        contrato,
+        date(2026, 11, 1),
+    ) is anexo
+
+    assert carencia_vigente(
+        contrato,
+        date(2026, 12, 1),
+    ) is anexo
+
+    assert carencia_vigente(
+        contrato,
+        date(2027, 1, 1),
+    ) is anexo
+
+    assert carencia_vigente(
+        contrato,
+        date(2027, 2, 1),
+    ) is None
 
 

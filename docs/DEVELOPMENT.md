@@ -274,6 +274,8 @@ Implemented:
 * tenants;
 * contracts with multiple ordered holders;
 * rents and rent revisions;
+* contract annexes for extensions and rent changes;
+* contractual grace-period annexes;
 * accounting categories/subcategories from `contab.ini`;
 * accounting-entry CRUD and validation;
 * accounting periods and treatments;
@@ -281,6 +283,86 @@ Implemented:
 * accounting CSV reports;
 * annual VAT summary;
 * demo database generation.
+
+### Contract annexes
+
+`AnexoContrato` represents a formal contractual modification.
+
+Current types are:
+
+```text
+PRORROGA
+CAMBIO_RENTA
+CARENCIA
+```
+
+A grace-period annex stores:
+
+```text
+fecha_desde
+fecha_hasta
+```
+
+Both fields are nullable at model level because other annex types do not use them, but a `CARENCIA` annex requires both.
+
+Database constraints ensure:
+
+```text
+CARENCIA
+    → fecha_desde and fecha_hasta are not NULL
+
+other annex types
+    → fecha_desde and fecha_hasta are NULL
+
+fecha_hasta >= fecha_desde
+```
+
+The domain service:
+
+```text
+crear_anexo_carencia()
+```
+
+also validates:
+
+```text
+annex date >= contract start
+fecha_desde is first day of month
+fecha_hasta is last day of month
+fecha_desde >= contract start
+periods do not overlap another CARENCIA annex
+```
+
+Multiple non-overlapping grace periods are allowed.
+
+The helper:
+
+```text
+carencia_vigente(contrato, periodo)
+```
+
+returns the applicable `AnexoContrato` or `None`.
+
+The interval is inclusive at both ends.
+
+A contractual grace period is deliberately not represented as:
+
+```text
+RentaContrato = 0
+```
+
+or as an `AjusteRenta`.
+
+Its meaning is that no ordinary invoice should be prepared during that period.
+
+The contract UI supports:
+
+```text
+Añadir anexo
+    → Período de carencia
+```
+
+and the annex history displays the grace-period dates and optional description.
 
 Important accounting treatments:
 
@@ -570,7 +652,110 @@ fecha_renta = max(periodo, contrato.fecha_inicio)
 
 This selects the applicable rent but does not imply proration.
 
-A facturable contract is excluded if the period is earlier than `fecha_inicio_facturacion`.
+For a contract with `genera_factura=True`, normal invoice preparation is skipped when the requested period is before:
+
+```text
+fecha_inicio_facturacion
+```
+
+Such contracts remain visible under **Locales** as being in grace period.
+
+After the initial billing-date check, invoice preparation also checks:
+
+```text
+carencia_vigente(contrato, periodo)
+```
+
+If a contractual grace period applies, the contract likewise remains visible under **Locales** but no invoice is prepared.
+
+The order is therefore:
+
+```text
+contract active in month?
+    ↓
+initial billing grace period?
+    ↓
+contractual CARENCIA annex active?
+    ↓
+rent revision
+    ↓
+rent
+    ↓
+ordinary invoice preparation
+```
+
+Do not move rent calculation before the grace-period checks. A contract in grace period must not require a currently available rent merely to appear in the monthly control list.
+
+The non-invoice path under **Otros** has deliberately not been changed. Initial and contractual grace-period behavior for `genera_factura=False` must not be generalized without a real requirement.
+
+## Billing: grace-period presentation
+
+Both initial billing grace and `CARENCIA` annexes use:
+
+```text
+LocalEnCarenciaPreparado
+```
+
+It contains:
+
+```text
+contrato
+inmueble
+destinatario_nombre
+proximo_periodo_facturacion
+```
+
+The monthly Locales table interleaves ordinary prepared invoices and grace-period rows ordered by property reference.
+
+A grace-period row keeps the normal first columns:
+
+```text
+Inmueble
+Nº factura = blank
+Destinatario
+```
+
+The remaining economic/action columns are merged and display:
+
+```text
+En carencia. Próximo mes a facturar mm/aaaa
+```
+
+No Preview, Modify or accounting action is offered.
+
+For initial grace:
+
+```text
+proximo_periodo_facturacion
+    = contrato.fecha_inicio_facturacion
+```
+
+For a `CARENCIA` annex:
+
+```text
+proximo_periodo_facturacion
+    = first day of month after anexo.fecha_hasta
+```
+
+Example:
+
+```text
+CARENCIA
+01/11/2026 → 31/01/2027
+
+October 2026
+    → normal invoice
+
+November 2026
+December 2026
+January 2027
+    → En carencia. Próximo mes a facturar 02/2027
+
+February 2027
+    → normal invoice
+```
+
+No invoice number, rent, revision state, prepared lines or invoice actions are produced for a grace-period month.
 
 ## Billing: recipient and invoice snapshots
 
@@ -1446,6 +1631,10 @@ Holder names and NIFs are preserved in the accounting entry even though only nam
 
 The route persists both records atomically.
 
+Contractual `CARENCIA` annexes are deliberately not applied to this path yet.
+
+If a real non-invoice contract later requires a grace period, both monthly preparation and `contabilizar_ingreso_sin_factura()` must be reviewed so the domain rule cannot be bypassed by calling the accounting service directly.
+
 ### Recognizing an already-accounted non-invoice rent
 
 `ApunteContable` has no `contrato_id`; `MovimientoPrevisto` does.
@@ -1491,7 +1680,8 @@ Do not implement the following merely because the model could support them:
 * replacement after annulment;
 * rectifying invoices;
 * generalized rent-revision workflows for hypothetical contracts;
-* generic expense repercussion before a real use case requires it.
+* generic expense repercussion before a real use case requires it;
+* contractual grace periods for `Otros` before a real non-invoice contract requires them.
 
 Transient editing already handles simple exceptional invoice lines without creating persistent drafts.
 
@@ -1585,7 +1775,7 @@ Further layout, format or document-generation work should be driven by real use.
 
 ## Current stopping point
 
-The ordinary billing workflow and the first required correction workflows are complete.
+The ordinary billing workflow, the first required correction workflows and contractual invoice grace periods are complete for the currently known real cases.
 
 Implemented and tested end-to-end:
 
@@ -1593,23 +1783,70 @@ Implemented and tested end-to-end:
 monthly preparation
     ↓
 facturable contract
-    → prepared definitive invoice lines
-    → automatic notes
-    → revision state/effects when applicable
-    → Preview directly
-       or
-      Modify → Preview
-    → printable invoice
-    → Contabilizar
-    → validate previewed totals
-    → Factura
-    + FacturaLinea(s)
-    + FacturaDestinatario(s)
-    + ApunteContable
-    + MovimientoPrevisto
-    → return to same month
-    → Emitida
+    → initial billing grace?
+       → visible Locales row
+       → no invoice
+       → next billable month shown
+    → CARENCIA annex active?
+       → visible Locales row
+       → no invoice
+       → next billable month shown
+    → otherwise
+       → prepared definitive invoice lines
+       → automatic notes
+       → revision state/effects when applicable
+       → Preview directly
+          or
+         Modify → Preview
+       → printable invoice
+       → Contabilizar
+       → validate previewed totals
+       → Factura
+       + FacturaLinea(s)
+       + FacturaDestinatario(s)
+       + ApunteContable
+       + MovimientoPrevisto
+       → return to same month
+       → Emitida
 ```
+
+Contractual grace-period support currently covers:
+
+```text
+AnexoContrato.tipo = CARENCIA
+fecha_desde = first day of first grace month
+fecha_hasta = last day of last grace month
+non-overlapping periods
+multiple separated grace periods allowed
+
+contract annex UI
+    → create CARENCIA annex
+    → validate domain rules
+    → persist
+    → show in annex history
+
+monthly invoice preparation
+    → detect active CARENCIA
+    → skip rent/invoice preparation
+    → keep contract visible
+    → show first month after carencia as next billable period
+```
+
+Example:
+
+```text
+CARENCIA 01/11/2026 → 31/01/2027
+
+10/2026 → invoice
+11/2026 → no invoice
+12/2026 → no invoice
+01/2027 → no invoice
+02/2027 → invoice
+```
+
+This behavior currently applies only to `genera_factura=True`.
+
+`Otros` remains deliberately unchanged.
 
 Revision workflow currently covers:
 
@@ -1729,6 +1966,11 @@ Manual browser testing has covered the relevant billing paths, including:
 ordinary preview
 Modify
 Preview after Modify
+initial billing grace
+CARENCIA annex creation
+CARENCIA annex history
+CARENCIA monthly preparation
+resuming billing after CARENCIA
 AVISO
 ESPERANDO_INDICE
 PENDIENTE resolution
@@ -1750,12 +1992,25 @@ reissuing the affected invoice
 The latest completed functional block is:
 
 ```text
-Permitir corregir revisiones de renta aplicadas
+Incorporar carencias contractuales en la facturación
 ```
 
-The implementation deliberately reopens the revision rather than editing the applied percentage in place.
+It includes:
 
-This preserves one resolution path and reuses existing monthly billing behavior.
+```text
+database migration
+AnexoContrato CARENCIA type
+fecha_desde / fecha_hasta
+creation service and validation
+web form and route
+annex selection/history UI
+carencia_vigente()
+monthly invoice-preparation integration
+visible grace-period row
+resume ordinary billing after the grace period
+```
+
+The implementation deliberately treats carencia as absence of an ordinary invoice rather than as a zero rent or temporary rent adjustment.
 
 ## Next change
 
@@ -1772,6 +2027,7 @@ accounting
 bank import
 reconciliation
 rent-revision handling
+contract-annex handling
 ```
 
 Known later areas include:
@@ -1781,7 +2037,8 @@ Known later areas include:
 3. fiscal/accounting reports needed for year-end and January;
 4. invoice annulment and rectification when first required;
 5. rent-revision generalization only if another real contract needs it;
-6. invoice document/layout improvements if real use shows a need.
+6. invoice document/layout improvements if real use shows a need;
+7. extending grace-period handling to `Otros` only if a real non-invoice contract requires it.
 
 For billing corrections, preserve the current principle:
 

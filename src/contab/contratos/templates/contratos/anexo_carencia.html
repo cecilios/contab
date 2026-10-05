@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Período de carencia - Contab{% endblock %}
+
+{% block content %}
+    <h1>Período de carencia</h1>
+
+    <p>
+        Contrato:
+        <strong>{{ contrato.inmueble.referencia }}</strong>
+        —
+        {% for titular in contrato.titulares %}
+            {{ titular.inquilino.nombre }}
+            {% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </p>
+
+    <p>
+        Fecha contrato:
+        <strong>
+            {{ contrato.fecha_inicio.strftime('%d/%m/%Y') }}
+        </strong>
+    </p>
+
+    <p>&nbsp;</p>
+
+    <p class="required-note">
+        Los campos marcados con (*) son obligatorios.
+    </p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <p class="form-field">
+            <label for="fecha">Fecha del anexo (*)</label>
+            <input
+                id="fecha"
+                name="fecha"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha', '') }}"
+            >
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_desde">
+                Inicio de la carencia (*)
+            </label>
+            <input
+                id="fecha_desde"
+                name="fecha_desde"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_desde', '') }}"
+            >
+            <br>
+            <small>
+                Debe ser el primer día del mes.
+            </small>
+        </p>
+
+        <p class="form-field">
+            <label for="fecha_hasta">
+                Fin de la carencia (*)
+            </label>
+            <input
+                id="fecha_hasta"
+                name="fecha_hasta"
+                type="text"
+                placeholder="dd/mm/aaaa"
+                value="{{ datos.get('fecha_hasta', '') }}"
+            >
+            <br>
+            <small>
+                Debe ser el último día del mes.
+            </small>
+        </p>
+
+        <p class="form-field">
+            <label for="descripcion">Descripción</label>
+            <input
+                id="descripcion"
+                name="descripcion"
+                value="{{ datos.get('descripcion', '') }}"
+            >
+        </p>
+
+        <p class="form-actions">
+            <button type="submit">Guardar</button>
+
+            <a href="{{ url_for(
+                'contratos.seleccionar_tipo_anexo',
+                contrato_id=contrato.id
+            ) }}">
+                Cancelar
+            </a>
+        </p>
+    </form>
+{% endblock %}

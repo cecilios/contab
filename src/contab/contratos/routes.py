@@ -14,6 +14,7 @@ from contab.formato import (
 
 from contab.contratos.services import (
     ContratoError,
+    crear_anexo_carencia,
     crear_anexo_prorroga,
     crear_anexo_renta_permanente,
     crear_anexo_renta_temporal,
@@ -274,6 +275,23 @@ def _render_anexo_renta_temporal(
         "contratos/anexo_renta_temporal.html",
         contrato=contrato,
         renta_actual=_renta_actual(contrato),
+        datos=datos,
+        error=error,
+        database_name=get_database_name(),
+    )
+
+
+def _render_anexo_carencia(
+    *,
+    contrato: Contrato,
+    datos,
+    error: str | None,
+):
+    """Muestra el formulario de un período de carencia."""
+
+    return render_template(
+        "contratos/anexo_carencia.html",
+        contrato=contrato,
         datos=datos,
         error=error,
         database_name=get_database_name(),
@@ -1022,6 +1040,112 @@ def seleccionar_tipo_anexo(contrato_id: int):
             contrato=contrato,
             database_name=get_database_name(),
         )
+
+
+@bp.route(
+    "/<int:contrato_id>/anexo/carencia",
+    methods=["GET", "POST"],
+)
+def formulario_anexo_carencia(contrato_id: int):
+    """Permite crear un anexo que establece un período de carencia."""
+
+    session_factory = get_session_factory()
+
+    if request.method == "GET":
+        with session_factory() as session:
+            contrato = session.get(
+                Contrato,
+                contrato_id,
+            )
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
+            return _render_anexo_carencia(
+                contrato=contrato,
+                datos={},
+                error=None,
+            )
+
+    try:
+        fecha = texto_a_fecha(
+            request.form["fecha"]
+        )
+        fecha_desde = texto_a_fecha(
+            request.form["fecha_desde"]
+        )
+        fecha_hasta = texto_a_fecha(
+            request.form["fecha_hasta"]
+        )
+
+    except (KeyError, ValueError) as exc:
+        with session_factory() as session:
+            contrato = session.get(
+                Contrato,
+                contrato_id,
+            )
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
+            return (
+                _render_anexo_carencia(
+                    contrato=contrato,
+                    datos=request.form,
+                    error=str(exc),
+                ),
+                400,
+            )
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                contrato = session.get(
+                    Contrato,
+                    contrato_id,
+                )
+
+                if contrato is None:
+                    raise LookupError
+
+                anexo = crear_anexo_carencia(
+                    contrato=contrato,
+                    fecha=fecha,
+                    fecha_desde=fecha_desde,
+                    fecha_hasta=fecha_hasta,
+                    descripcion=(
+                        request.form.get(
+                            "descripcion",
+                            "",
+                        ).strip()
+                        or None
+                    ),
+                )
+
+                session.add(anexo)
+
+    except LookupError:
+        return "Contrato no encontrado.", 404
+
+    except ContratoError as exc:
+        with session_factory() as session:
+            contrato = session.get(
+                Contrato,
+                contrato_id,
+            )
+
+            return (
+                _render_anexo_carencia(
+                    contrato=contrato,
+                    datos=request.form,
+                    error=str(exc),
+                ),
+                400,
+            )
+
+    return redirect(
+        url_for("contratos.listar_contratos")
+    )
 
 
 @bp.route(

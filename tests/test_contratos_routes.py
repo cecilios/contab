@@ -19,6 +19,7 @@ from contab.models import (
 )
 from contab.contratos.services import (
     ContratoError,
+    crear_anexo_carencia,
     crear_anexo_prorroga,
     crear_anexo_renta_permanente,
     crear_anexo_renta_temporal,
@@ -3107,5 +3108,166 @@ def test_nuevo_contrato_exige_datos_facturacion(
         assert session.scalar(
             select(Contrato)
         ) is None
+
+
+def test_seleccionar_tipo_anexo_muestra_carencia() -> None:
+    """Comprueba que la selección de anexos ofrece crear una carencia."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexo"
+    )
+
+    assert response.status_code == 200
+    assert "Período de carencia" in response.text
+
+
+def test_formulario_anexo_carencia_responde() -> None:
+    """Comprueba que puede abrirse el formulario de carencia."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexo/carencia"
+    )
+
+    assert response.status_code == 200
+    assert "Período de carencia" in response.text
+    assert 'name="fecha"' in response.text
+    assert 'name="fecha_desde"' in response.text
+    assert 'name="fecha_hasta"' in response.text
+    assert 'name="descripcion"' in response.text
+
+
+def test_crear_anexo_carencia_desde_formulario() -> None:
+    """Comprueba que el formulario persiste un anexo de carencia."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/carencia",
+        data={
+            "fecha": "15/10/2026",
+            "fecha_desde": "01/11/2026",
+            "fecha_hasta": "31/01/2027",
+            "descripcion": "Carencia de tres meses",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        assert len(contrato.anexos) == 1
+
+        anexo = contrato.anexos[0]
+
+        assert anexo.tipo == "CARENCIA"
+        assert anexo.fecha == date(2026, 10, 15)
+        assert anexo.fecha_desde == date(2026, 11, 1)
+        assert anexo.fecha_hasta == date(2027, 1, 31)
+        assert anexo.descripcion == "Carencia de tres meses"
+
+
+def test_crear_anexo_carencia_muestra_error_de_validacion() -> None:
+    """Comprueba que los errores de dominio vuelven al formulario."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/carencia",
+        data={
+            "fecha": "15/10/2026",
+            "fecha_desde": "02/11/2026",
+            "fecha_hasta": "31/01/2027",
+            "descripcion": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "primer día del mes" in response.text
+    assert 'value="02/11/2026"' in response.text
+    assert 'value="31/01/2027"' in response.text
+
+
+def test_historico_anexos_muestra_carencia() -> None:
+    """Comprueba que el histórico muestra el período de carencia."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+
+        anexo = crear_anexo_carencia(
+            contrato=contrato,
+            fecha=date(2026, 10, 15),
+            fecha_desde=date(2026, 11, 1),
+            fecha_hasta=date(2027, 1, 31),
+            descripcion="Carencia de tres meses",
+        )
+
+        session.add(anexo)
+        session.commit()
+
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/anexos"
+    )
+
+    assert response.status_code == 200
+    assert "Carencia" in response.text
+    assert "01/11/2026" in response.text
+    assert "31/01/2027" in response.text
+    assert "Carencia de tres meses" in response.text
 
 

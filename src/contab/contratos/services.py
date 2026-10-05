@@ -54,7 +54,6 @@ def _es_ultimo_dia_del_mes(fecha: date) -> bool:
 
 
 
-
 def renta_vigente(contrato: Contrato, fecha: date) -> RentaContrato:
     """Devuelve la renta ordinaria vigente de un contrato en una fecha."""
     rentas_aplicables = (
@@ -567,5 +566,96 @@ def crear_anexo_renta_temporal(
     ajuste.anexo = anexo
 
     return anexo, ajuste
+
+
+def crear_anexo_carencia(
+    contrato: Contrato,
+    fecha: date,
+    fecha_desde: date,
+    fecha_hasta: date,
+    descripcion: str | None = None,
+) -> AnexoContrato:
+    """Crea un anexo que establece un período temporal de carencia."""
+
+    if fecha < contrato.fecha_inicio:
+        raise ContratoError(
+            "La fecha del anexo no puede ser anterior al inicio del contrato."
+        )
+
+    if fecha_desde.day != 1:
+        raise ContratoError(
+            "La carencia debe comenzar el primer día del mes."
+        )
+
+    if not _es_ultimo_dia_del_mes(fecha_hasta):
+        raise ContratoError(
+            "La carencia debe terminar el último día del mes."
+        )
+
+    if fecha_hasta < fecha_desde:
+        raise ContratoError(
+            "La fecha final de la carencia no puede ser anterior "
+            "a la fecha inicial."
+        )
+
+    if fecha_desde < contrato.fecha_inicio:
+        raise ContratoError(
+            "La carencia no puede comenzar antes del inicio del contrato."
+        )
+
+    for anexo in contrato.anexos:
+        if anexo.tipo != "CARENCIA":
+            continue
+
+        if (
+            anexo.fecha_desde is None
+            or anexo.fecha_hasta is None
+        ):
+            continue
+
+        hay_solapamiento = (
+            fecha_desde <= anexo.fecha_hasta
+            and fecha_hasta >= anexo.fecha_desde
+        )
+
+        if hay_solapamiento:
+            raise ContratoError(
+                "La carencia se solapa con otro período de carencia."
+            )
+
+    return AnexoContrato(
+        contrato=contrato,
+        fecha=fecha,
+        tipo="CARENCIA",
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        descripcion=descripcion,
+    )
+
+
+def carencia_vigente(
+    contrato: Contrato,
+    periodo: date,
+) -> AnexoContrato | None:
+    """Devuelve la carencia contractual aplicable al período."""
+
+    for anexo in contrato.anexos:
+        if anexo.tipo != "CARENCIA":
+            continue
+
+        if (
+            anexo.fecha_desde is None
+            or anexo.fecha_hasta is None
+        ):
+            continue
+
+        if (
+            anexo.fecha_desde
+            <= periodo
+            <= anexo.fecha_hasta
+        ):
+            return anexo
+
+    return None
 
 

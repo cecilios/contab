@@ -62,6 +62,64 @@ Se incluyen los contratos vigentes durante alguna parte del mes.
 
 Esta pantalla es el punto natural desde el que se realiza la facturación mensual.
 
+## Carencias
+
+---
+
+Los contratos que generan factura pueden encontrarse temporalmente en carencia.
+
+Actualmente se reconocen dos orígenes:
+
+- la carencia inicial implícita cuando el período preparado es anterior a `fecha_inicio_facturacion`;
+- un anexo contractual de tipo `CARENCIA`.
+
+En ambos casos el contrato permanece visible en la sección **Locales**, pero no se prepara una factura para ese período.
+
+La fila muestra:
+
+```text
+En carencia. Próximo mes a facturar mm/aaaa
+```
+
+Durante una carencia:
+
+- no se calcula una `FacturaPreparada`;
+- no se asigna ni muestra un número de factura previsto;
+- no se calcula la renta de la factura;
+- no se procesan revisiones de renta para producir una factura;
+- no se muestran las acciones **Previsualizar**, **Modificar** o **Contabilizar**.
+
+La preparación utiliza `LocalEnCarenciaPreparado` para representar transitoriamente estos contratos.
+
+En una carencia inicial, el próximo período facturable es:
+
+```text
+contrato.fecha_inicio_facturacion
+```
+
+En una carencia establecida mediante anexo, el próximo período facturable es el primer día del mes siguiente a `fecha_hasta`.
+
+Por ejemplo, para una carencia contractual:
+
+```text
+fecha_desde = 01/11/2026
+fecha_hasta = 31/01/2027
+```
+
+la preparación se comporta así:
+
+```text
+10/2026  → factura ordinaria
+11/2026  → carencia; próximo mes a facturar 02/2027
+12/2026  → carencia; próximo mes a facturar 02/2027
+01/2027  → carencia; próximo mes a facturar 02/2027
+02/2027  → factura ordinaria
+```
+
+Los extremos del período de carencia son inclusivos.
+
+Los anexos de carencia se aplican actualmente sólo al flujo de contratos que generan factura. La sección **Otros** no se ha modificado porque no existe por ahora un caso real que requiera este tipo de anexo en contratos sin factura.
+
 ## Facturas ordinarias
 
 ---
@@ -528,6 +586,8 @@ La operación debe seguir siendo atómica.
 
 Los efectos contables de estos contratos también se tienen en cuenta al determinar si una revisión aplicada puede corregirse. Si existe un apunte contable de alquiler correspondiente al período de aplicación de la revisión o a un período posterior, la revisión no puede reabrirse mientras ese efecto permanezca registrado.
 
+Los anexos de tipo `CARENCIA` no se aplican actualmente a esta sección. Esta decisión es deliberada: no se ha presentado todavía un caso real de contrato sin factura que requiera ese tratamiento. Si aparece, deberá integrarse explícitamente tanto en la preparación como en `contabilizar_ingreso_sin_factura()` para impedir que se genere el apunte y el movimiento previsto durante el período de carencia.
+
 ## Operaciones futuras sobre facturas emitidas
 
 ---
@@ -557,5 +617,3 @@ Contab distingue entre errores que todavía pueden deshacerse y hechos ya consol
 Mientras una operación no haya producido efectos posteriores incompatibles, puede deshacerse de forma controlada y volver a ejecutarse correctamente.
 
 Cuando ya existen facturas, apuntes o conciliaciones posteriores que deben conservarse como historia, la corrección debe realizarse mediante una operación compensatoria o rectificativa explícita.
-
-Este criterio permite mantener una operativa sencilla en los errores detectados pronto sin comprometer la trazabilidad contable cuando la operación ya ha producido efectos posteriores.
