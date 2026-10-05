@@ -28,6 +28,49 @@ La arquitectura, herramientas, convenciones y estado del desarrollo se documenta
 - [Facturacion](docs/Facturacion.md)
 - [Informes contables](docs/Informes-contables.md)
 
+## Entorno Python
+
+Contab utiliza un entorno virtual independiente del Python y de los paquetes instalados globalmente en el sistema.
+
+La rama de Python actualmente soportada es:
+
+```text
+Python 3.13
+```
+
+El entorno de referencia utilizado para desarrollo y pruebas se ha validado con Python 3.13.5.
+
+`pyproject.toml` declara los rangos de versiones admitidos para las dependencias directas del proyecto.
+
+`requirements.lock` conserva las versiones exactas del entorno conocido y probado. Su finalidad es permitir reconstruir ese entorno sin incorporar accidentalmente versiones nuevas de Flask, SQLAlchemy, Alembic u otras dependencias.
+
+Las dependencias no deben actualizarse simplemente porque exista una versión nueva. Las actualizaciones se realizarán de forma deliberada, ejecutando después la suite completa de pruebas y las comprobaciones manuales que correspondan.
+
+### Reconstrucción del entorno
+
+Desde el directorio raíz del proyecto:
+
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.lock
+python -m pip install -e .
+pytest
+```
+
+La última orden debe dejar la suite completa en verde antes de considerar válido el entorno reconstruido.
+
+El directorio `.venv` se considera regenerable y no forma parte de los datos permanentes de Contab.
+
+Al adoptar en el futuro una nueva rama de Python o nuevas versiones de las dependencias, debe actualizarse de forma controlada:
+
+1. crear un entorno virtual de prueba;
+2. instalar las nuevas versiones;
+3. ejecutar la suite completa;
+4. realizar las pruebas manuales necesarias;
+5. actualizar `pyproject.toml` si cambia la compatibilidad declarada;
+6. regenerar `requirements.lock` con las versiones finalmente aceptadas.
+
 ## Licencia
 
 Este proyecto se distribuye bajo la [Licencia MIT](LICENSE.md).
