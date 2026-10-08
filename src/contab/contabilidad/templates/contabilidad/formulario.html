@@ -428,12 +428,29 @@
             const datosMovimiento = document.getElementById(
                 "datos_movimiento_previsto"
             );
+            const tratamientos = document.querySelectorAll(
+                'input[name="tratamiento"]'
+            );
 
             function actualizarMovimientoPrevisto() {
                 if (!crearMovimiento || !datosMovimiento) {
                     return;
                 }
 
+                const tratamiento = document.querySelector(
+                    'input[name="tratamiento"]:checked'
+                )?.value;
+
+                const repercutir = tratamiento === "REPERCUTIR";
+
+                if (repercutir) {
+                    crearMovimiento.checked = false;
+                    crearMovimiento.disabled = true;
+                    datosMovimiento.hidden = true;
+                    return;
+                }
+
+                crearMovimiento.disabled = false;
                 datosMovimiento.hidden = !crearMovimiento.checked;
             }
 
@@ -475,6 +492,13 @@
                     "change",
                     actualizarMovimientoPrevisto
                 );
+
+                tratamientos.forEach((tratamiento) => {
+                    tratamiento.addEventListener(
+                        "change",
+                        actualizarMovimientoPrevisto
+                    );
+                });
 
                 actualizarMovimientoPrevisto();
             }

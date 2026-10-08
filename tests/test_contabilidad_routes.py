@@ -548,6 +548,133 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
         assert movimiento.metodo_conciliacion is None
 
 
+def test_crear_apunte_repercutir_no_crea_movimiento_previsto(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+    [categorias_contables]
+    GAS_COMUNIDAD = GASTO | Comunidad
+
+    [subcategorias_contables]
+    """.strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="EDIFICIO-COMUN",
+            tipo="T",
+            codigo_facturacion="EC",
+            descripcion="Elementos comunes",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=10000,
+        )
+
+        local_a = Inmueble(
+            referencia="LOCAL-A",
+            tipo="L",
+            codigo_facturacion="LA",
+            descripcion="Local A",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=6000,
+            inmueble_padre=inmueble,
+        )
+
+        local_b = Inmueble(
+            referencia="LOCAL-B",
+            tipo="L",
+            codigo_facturacion="LB",
+            descripcion="Local B",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=4000,
+            inmueble_padre=inmueble,
+        )
+
+        session.add_all([
+            inmueble,
+            local_a,
+            local_b,
+        ])
+        session.commit()
+
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "08/10/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "REPERCUTIR",
+        "base": "100,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "comunidad.pdf",
+        "tercero_nombre": "Comunidad",
+        "tercero_nif": "",
+        "referencia_documento": "OCT-2026",
+        "crear_movimiento": "on",
+        "fecha_prevista_desde": "10/10/2026",
+        "fecha_prevista_hasta": "",
+        "accion": "validar",
+    }
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    datos["firma_validacion"] = _valor_input(
+        response,
+        "firma_validacion",
+    )
+    datos["accion"] = "guardar"
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        apunte = session.scalar(
+            select(ApunteContable)
+        )
+
+        assert apunte is not None
+        assert apunte.tratamiento == "REPERCUTIR"
+
+        assert session.scalar(
+            select(MovimientoPrevisto)
+        ) is None
+
+
 def test_crear_apunte_sin_movimiento_previsto(
     tmp_path,
     monkeypatch,
@@ -3101,5 +3228,38 @@ GAS_TRIBUTOS.IBI = IBI
         assert movimiento.fecha_prevista_hasta == date(
             2026, 9, 30
         )
+
+
+def test_formulario_incluye_logica_para_repercutir_sin_movimiento() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/contabilidad/nuevo"
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        'input[name="tratamiento"]:checked'
+        in response.text
+    )
+    assert (
+        'tratamiento === "REPERCUTIR"'
+        in response.text
+    )
+    assert (
+        "crearMovimiento.disabled = true"
+        in response.text
+    )
+    assert (
+        "crearMovimiento.checked = false"
+        in response.text
+    )
 
 
