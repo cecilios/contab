@@ -936,6 +936,105 @@ class ApunteContable(Base):
         passive_deletes="all",
     )
 
+    distribuciones: Mapped[
+        list["DistribucionApunte"]
+    ] = relationship(
+        back_populates="apunte",
+        passive_deletes="all",
+    )
+
+
+class DistribucionApunte(Base):
+    """Representa la parte de un apunte común atribuida a un local."""
+
+    __tablename__ = "distribucion_apunte"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "apunte_id",
+            "inmueble_id",
+            name="uq_distribucion_apunte_inmueble",
+        ),
+        CheckConstraint(
+            "participacion > 0 AND participacion <= 10000",
+            name="ck_distribucion_apunte_participacion",
+        ),
+        CheckConstraint(
+            "base >= 0",
+            name="ck_distribucion_apunte_base",
+        ),
+        CheckConstraint(
+            "iva_importe >= 0",
+            name="ck_distribucion_apunte_iva",
+        ),
+        CheckConstraint(
+            "retencion_importe >= 0",
+            name="ck_distribucion_apunte_retencion",
+        ),
+        CheckConstraint(
+            "total >= 0",
+            name="ck_distribucion_apunte_total",
+        ),
+        CheckConstraint(
+            "total = base + iva_importe - retencion_importe",
+            name="ck_distribucion_apunte_total_coherente",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    apunte_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "apunte_contable.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    inmueble_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "inmueble.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    participacion: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    base: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    iva_importe: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    retencion_importe: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    total: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    apunte: Mapped["ApunteContable"] = relationship(
+        back_populates="distribuciones",
+    )
+
+    inmueble: Mapped["Inmueble"] = relationship()
+
 
 class MovimientoPrevisto(Base):
     """Representa un cobro o pago esperado para conciliación."""

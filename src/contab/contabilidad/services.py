@@ -5,11 +5,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from calendar import monthrange
 
+from contab.calculos import redondear_division
 from contab.config import (
     CategoriaContable,
     validar_clasificacion_contable,
 )
-from contab.models import ApunteContable, Inmueble
+from contab.models import (
+    ApunteContable,
+    DistribucionApunte,
+    Inmueble,
+)
+
 
 
 class ContabilidadError(Exception):
@@ -272,6 +278,93 @@ def _validar_tratamiento_inmueble(
         )
 
 
+def _repartir_importe(
+    importe: int,
+    locales: list[Inmueble],
+) -> list[int]:
+    """Reparte un importe según participación conservando los céntimos."""
+
+    repartos: list[int] = []
+    acumulado = 0
+
+    for local in locales[:-1]:
+        reparto = redondear_division(
+            importe * local.participacion,
+            10000,
+        )
+
+        repartos.append(reparto)
+        acumulado += reparto
+
+    repartos.append(
+        importe - acumulado
+    )
+
+    return repartos
+
+
+def _preparar_distribuciones(
+    apunte: ApunteContable,
+) -> None:
+    """Distribuye un apunte de un inmueble subdividido entre sus locales."""
+
+    inmueble = apunte.inmueble
+
+    if inmueble.tipo != "T":
+        return
+
+    locales = sorted(
+        inmueble.locales,
+        key=lambda local: local.referencia,
+    )
+
+    if not locales:
+        raise ContabilidadError(
+            "Un inmueble subdividido debe tener locales "
+            "para distribuir sus apuntes."
+        )
+
+    if sum(
+        local.participacion
+        for local in locales
+    ) != 10000:
+        raise ContabilidadError(
+            "Las participaciones de los locales deben "
+            "sumar el 100 %."
+        )
+
+    bases = _repartir_importe(
+        apunte.base,
+        locales,
+    )
+    ivas = _repartir_importe(
+        apunte.iva_importe,
+        locales,
+    )
+    retenciones = _repartir_importe(
+        apunte.retencion_importe,
+        locales,
+    )
+
+    for local, base, iva, retencion in zip(
+        locales,
+        bases,
+        ivas,
+        retenciones,
+        strict=True,
+    ):
+        apunte.distribuciones.append(
+            DistribucionApunte(
+                inmueble=local,
+                participacion=local.participacion,
+                base=base,
+                iva_importe=iva,
+                retencion_importe=retencion,
+                total=base + iva - retencion,
+            )
+        )
+
+
 
 def proponer_nombre_documento(
     *,
@@ -399,10 +492,14 @@ def crear_apunte_contable(
         tratamiento=datos["tratamiento"],
     )
 
-    return ApunteContable(
+    apunte = ApunteContable(
         inmueble=inmueble,
         **datos,
     )
+
+    _preparar_distribuciones(apunte)
+
+    return apunte
 
 
 def eliminar_apunte_contable(

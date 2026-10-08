@@ -3,6 +3,7 @@
 import pytest
 
 from datetime import date
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from contab.config import (
@@ -16,8 +17,63 @@ from contab.contabilidad.services import (
     modificar_apunte_contable,
     proponer_nombre_documento,
 )
-from contab.models import ApunteContable, Inmueble
+from contab.models import (
+    ApunteContable,
+    DistribucionApunte,
+    Inmueble,
+)
 
+
+
+def _inmueble_subdividido_para_distribuir():
+    inmueble = Inmueble(
+        referencia="EDIFICIO-COMUN",
+        tipo="T",
+        codigo_facturacion="EC",
+        descripcion="Elementos comunes",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=10000,
+    )
+
+    local_a = Inmueble(
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=6000,
+        inmueble_padre=inmueble,
+    )
+
+    local_b = Inmueble(
+        referencia="LOCAL-B",
+        tipo="L",
+        codigo_facturacion="LB",
+        descripcion="Local B",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=4000,
+        inmueble_padre=inmueble,
+    )
+
+    return inmueble, local_a, local_b
+
+
+def _categorias_gastos_comunes():
+    return {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
 
 
 def test_crear_apunte_contable(contrato) -> None:
@@ -998,5 +1054,311 @@ def test_crear_apunte_rechaza_criterio_periodo_invalido(
             criterio_periodo=criterio_periodo,
             base=10000,
         )
+
+
+def test_crear_apunte_subdividido_prepara_distribuciones() -> None:
+    inmueble, local_a, local_b = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=1000,
+    )
+
+    assert len(apunte.distribuciones) == 2
+
+    distribuciones = {
+        distribucion.inmueble.referencia: distribucion
+        for distribucion in apunte.distribuciones
+    }
+
+    assert set(distribuciones) == {
+        "LOCAL-A",
+        "LOCAL-B",
+    }
+
+    assert distribuciones["LOCAL-A"].inmueble is local_a
+    assert distribuciones["LOCAL-B"].inmueble is local_b
+
+    assert distribuciones["LOCAL-A"].participacion == 6000
+    assert distribuciones["LOCAL-B"].participacion == 4000
+
+    assert distribuciones["LOCAL-A"].base == 6000
+    assert distribuciones["LOCAL-A"].iva_importe == 1260
+    assert distribuciones["LOCAL-A"].retencion_importe == 600
+    assert distribuciones["LOCAL-A"].total == 6660
+
+    assert distribuciones["LOCAL-B"].base == 4000
+    assert distribuciones["LOCAL-B"].iva_importe == 840
+    assert distribuciones["LOCAL-B"].retencion_importe == 400
+    assert distribuciones["LOCAL-B"].total == 4440
+
+
+def test_distribucion_asigna_residuos_de_forma_determinista() -> None:
+    inmueble, _, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10001,
+        iva_importe=2001,
+        retencion_importe=1001,
+    )
+
+    distribuciones = sorted(
+        apunte.distribuciones,
+        key=lambda distribucion: distribucion.inmueble.referencia,
+    )
+
+    primera, ultima = distribuciones
+
+    assert primera.base == 6001
+    assert ultima.base == 4000
+
+    assert primera.iva_importe == 1201
+    assert ultima.iva_importe == 800
+
+    assert primera.retencion_importe == 601
+    assert ultima.retencion_importe == 400
+
+    assert primera.total == 6601
+    assert ultima.total == 4400
+
+    assert sum(
+        distribucion.base
+        for distribucion in distribuciones
+    ) == apunte.base
+
+    assert sum(
+        distribucion.iva_importe
+        for distribucion in distribuciones
+    ) == apunte.iva_importe
+
+    assert sum(
+        distribucion.retencion_importe
+        for distribucion in distribuciones
+    ) == apunte.retencion_importe
+
+    assert sum(
+        distribucion.total
+        for distribucion in distribuciones
+    ) == apunte.total
+
+
+def test_distribucion_exige_participaciones_que_sumen_cien_por_cien() -> None:
+    inmueble, _, local_b = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    local_b.participacion = 5000
+
+    with pytest.raises(
+        ContabilidadError,
+        match="participaciones",
+    ):
+        crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=_categorias_gastos_comunes(),
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=10000,
+        )
+
+
+def test_crear_apunte_normal_no_prepara_distribuciones(
+    inmueble,
+) -> None:
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    assert apunte.distribuciones == []
+
+
+def test_distribuciones_de_apunte_pueden_persistirse(
+    session,
+) -> None:
+    inmueble, local_a, local_b = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=1000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    distribuciones = session.scalars(
+        select(DistribucionApunte)
+    ).all()
+
+    assert len(distribuciones) == 2
+
+    por_referencia = {
+        distribucion.inmueble.referencia: distribucion
+        for distribucion in distribuciones
+    }
+
+    assert por_referencia["LOCAL-A"].apunte is apunte
+    assert por_referencia["LOCAL-B"].apunte is apunte
+
+    assert por_referencia["LOCAL-A"].inmueble is local_a
+    assert por_referencia["LOCAL-B"].inmueble is local_b
+
+    assert {
+        distribucion.id
+        for distribucion in apunte.distribuciones
+    } == {
+        distribucion.id
+        for distribucion in distribuciones
+    }
+
+
+def test_distribucion_apunte_no_admite_local_duplicado(
+    session,
+) -> None:
+    inmueble, _, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    original = apunte.distribuciones[0]
+
+    duplicada = DistribucionApunte(
+        apunte=apunte,
+        inmueble=original.inmueble,
+        participacion=original.participacion,
+        base=original.base,
+        iva_importe=original.iva_importe,
+        retencion_importe=original.retencion_importe,
+        total=original.total,
+    )
+
+    session.add(duplicada)
+
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+    session.rollback()
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("participacion", 0),
+        ("participacion", 10001),
+        ("base", -1),
+        ("iva_importe", -1),
+        ("retencion_importe", -1),
+        ("total", -1),
+    ],
+)
+def test_distribucion_apunte_rechaza_importes_invalidos(
+    session,
+    campo: str,
+    valor: int,
+) -> None:
+    inmueble, _, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    distribucion = apunte.distribuciones[0]
+
+    setattr(
+        distribucion,
+        campo,
+        valor,
+    )
+
+    session.add(apunte)
+
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+    session.rollback()
+
+
+def test_distribucion_apunte_exige_total_coherente(
+    session,
+) -> None:
+    inmueble, _, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=1000,
+    )
+
+    distribucion = apunte.distribuciones[0]
+
+    distribucion.total += 1
+
+    session.add(apunte)
+
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+    session.rollback()
 
 
