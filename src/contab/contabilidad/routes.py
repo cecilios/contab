@@ -57,6 +57,7 @@ CAMPOS_VALIDACION = (
     "concepto",
     "periodo_desde",
     "periodo_hasta",
+    "criterio_periodo",
     "tratamiento",
     "base",
     "iva_importe",
@@ -215,14 +216,14 @@ def _fechas_previstas(
 def _periodo(
     desde_texto: str,
     hasta_texto: str,
-) -> tuple[date | None, date | None]:
+) -> tuple[date | None, date | None, str | None]:
     """Interpreta un período vacío, mensual o entre dos fechas."""
 
     desde_texto = desde_texto.strip()
     hasta_texto = hasta_texto.strip()
 
     if not desde_texto and not hasta_texto:
-        return None, None
+        return None, None, None
 
     if not desde_texto:
         raise ValueError(
@@ -249,11 +250,13 @@ def _periodo(
         return (
             date(mes.year, mes.month, 1),
             date(mes.year, mes.month, ultimo_dia),
+            "INCLUIR_AMBOS",
         )
 
     return (
         texto_a_fecha(desde_texto),
         texto_a_fecha(hasta_texto),
+        None,
     )
 
 
@@ -591,18 +594,20 @@ def _datos_apunte_formulario(
     inmueble_id = int(datos["inmueble_id"])
     fecha = texto_a_fecha(datos["fecha"])
 
-    (
-        naturaleza,
-        categoria,
-        subcategoria,
-    ) = _separar_clasificacion(
+    naturaleza, categoria, subcategoria = _separar_clasificacion(
         datos["clasificacion"],
         categorias,
     )
 
-    periodo_desde, periodo_hasta = _periodo(
+    periodo_desde, periodo_hasta, criterio_automatico = _periodo(
         datos.get("periodo_desde", ""),
         datos.get("periodo_hasta", ""),
+    )
+
+    criterio_periodo = (
+        criterio_automatico
+        if criterio_automatico is not None
+        else datos.get("criterio_periodo", "").strip().upper() or None
     )
 
     crear_movimiento = (
@@ -644,6 +649,7 @@ def _datos_apunte_formulario(
         "notas": datos.get("notas", ""),
         "periodo_desde": periodo_desde,
         "periodo_hasta": periodo_hasta,
+        "criterio_periodo": criterio_periodo,
         "tratamiento": datos.get("tratamiento", "CONTABILIZAR",),
         "nombre_documento": datos.get("nombre_documento", "",),
     }
@@ -1046,6 +1052,9 @@ def editar_apunte(apunte_id: int):
                 "concepto": apunte.concepto,
                 "periodo_desde": periodo_desde,
                 "periodo_hasta": periodo_hasta,
+                "criterio_periodo": (
+                    apunte.criterio_periodo or ""
+                ),
                 "tratamiento": apunte.tratamiento,
                 "base": _importe_para_formulario(
                     apunte.base

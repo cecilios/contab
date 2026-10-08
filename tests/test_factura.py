@@ -234,6 +234,7 @@ def test_factura_puede_vincular_su_apunte_contable(
         concepto="Alquiler octubre 2026",
         periodo_desde=date(2026, 10, 1),
         periodo_hasta=date(2026, 10, 31),
+        criterio_periodo="INCLUIR_AMBOS",
         tratamiento="CONTABILIZAR",
         base=100000,
         iva_importe=21000,

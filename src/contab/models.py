@@ -786,6 +786,28 @@ class ApunteContable(Base):
         ),
         CheckConstraint(
             """
+            (
+                periodo_desde IS NULL
+                AND periodo_hasta IS NULL
+                AND criterio_periodo IS NULL
+            )
+            OR
+            (
+                periodo_desde IS NOT NULL
+                AND periodo_hasta IS NOT NULL
+                AND criterio_periodo IS NOT NULL
+                AND criterio_periodo IN (
+                    'EXCLUIR_HASTA',
+                    'EXCLUIR_DESDE',
+                    'INCLUIR_AMBOS',
+                    'EXCLUIR_AMBOS'
+                )
+            )
+            """,
+            name="ck_apunte_contable_criterio_periodo",
+        ),
+        CheckConstraint(
+            """
             tratamiento IN (
                 'CONTABILIZAR',
                 'REPERCUTIR',
@@ -835,6 +857,11 @@ class ApunteContable(Base):
 
     periodo_hasta: Mapped[date | None] = mapped_column(
         Date,
+        nullable=True,
+    )
+
+    criterio_periodo: Mapped[str | None] = mapped_column(
+        Text,
         nullable=True,
     )
 

@@ -135,6 +135,53 @@
                 Para un mes completo, indique solamente
                 <em>Desde</em> con el formato mm/aaaa.
             </p>
+
+            <p>
+                <label for="criterio_periodo">
+                    Cómputo del intervalo
+                </label>
+                <select
+                    id="criterio_periodo"
+                    name="criterio_periodo"
+                >
+                    <option value="">
+                        Seleccione cómo contar los extremos
+                    </option>
+                    <option
+                        value="EXCLUIR_HASTA"
+                        {% if datos.get("criterio_periodo") == "EXCLUIR_HASTA" %}
+                            selected
+                        {% endif %}
+                    >
+                        Incluir fecha inicial y excluir fecha final
+                    </option>
+                    <option
+                        value="EXCLUIR_DESDE"
+                        {% if datos.get("criterio_periodo") == "EXCLUIR_DESDE" %}
+                            selected
+                        {% endif %}
+                    >
+                        Excluir fecha inicial e incluir fecha final
+                    </option>
+                    <option
+                        value="INCLUIR_AMBOS"
+                        {% if datos.get("criterio_periodo") == "INCLUIR_AMBOS" %}
+                            selected
+                        {% endif %}
+                    >
+                        Incluir ambas fechas
+                    </option>
+                    <option
+                        value="EXCLUIR_AMBOS"
+                        {% if datos.get("criterio_periodo") == "EXCLUIR_AMBOS" %}
+                            selected
+                        {% endif %}
+                    >
+                        Excluir ambas fechas
+                    </option>
+                </select>
+            </p>
+
         </fieldset>
 
         {% set tratamiento = datos.get(

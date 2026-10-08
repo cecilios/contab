@@ -34,6 +34,7 @@ def _datos_apunte_contable(
     notas: str = "",
     periodo_desde: date | None = None,
     periodo_hasta: date | None = None,
+    criterio_periodo: str | None = None,
     tratamiento: str = "CONTABILIZAR",
     nombre_documento: str = "",
 ) -> dict[str, object]:
@@ -45,6 +46,11 @@ def _datos_apunte_contable(
     concepto = concepto.strip()
     tratamiento = tratamiento.strip().upper()
     nombre_documento = nombre_documento.strip()
+    criterio_periodo = (
+        criterio_periodo.strip().upper()
+        if criterio_periodo is not None
+        else None
+    )
 
     try:
         validar_clasificacion_contable(
@@ -96,6 +102,23 @@ def _datos_apunte_contable(
             "El final del período no puede ser anterior al inicio."
         )
 
+    if periodo_desde is None:
+        if criterio_periodo is not None:
+            raise ContabilidadError(
+                "No puede indicarse un criterio de período "
+                "sin indicar un período."
+            )
+    else:
+        if criterio_periodo not in {
+            "EXCLUIR_HASTA",
+            "EXCLUIR_DESDE",
+            "INCLUIR_AMBOS",
+            "EXCLUIR_AMBOS",
+        }:
+            raise ContabilidadError(
+                "El criterio del período no es válido."
+            )
+
     if tratamiento not in {
         "CONTABILIZAR",
         "REPERCUTIR",
@@ -122,6 +145,7 @@ def _datos_apunte_contable(
         "notas": notas.strip() or None,
         "periodo_desde": periodo_desde,
         "periodo_hasta": periodo_hasta,
+        "criterio_periodo": criterio_periodo,
         "tratamiento": tratamiento,
         "nombre_documento": nombre_documento,
     }
@@ -341,6 +365,7 @@ def crear_apunte_contable(
     notas: str = "",
     periodo_desde: date | None = None,
     periodo_hasta: date | None = None,
+    criterio_periodo: str | None = None,
     tratamiento: str = "CONTABILIZAR",
     nombre_documento: str = "",
 ) -> ApunteContable:
@@ -363,6 +388,7 @@ def crear_apunte_contable(
         notas=notas,
         periodo_desde=periodo_desde,
         periodo_hasta=periodo_hasta,
+        criterio_periodo=criterio_periodo,
         tratamiento=tratamiento,
         nombre_documento=nombre_documento,
     )
@@ -459,6 +485,7 @@ def modificar_apunte_contable(
     notas: str = "",
     periodo_desde: date | None = None,
     periodo_hasta: date | None = None,
+    criterio_periodo: str | None = None,
     tratamiento: str = "CONTABILIZAR",
     nombre_documento: str = "",
 ) -> ApunteContable:
@@ -481,6 +508,7 @@ def modificar_apunte_contable(
         notas=notas,
         periodo_desde=periodo_desde,
         periodo_hasta=periodo_hasta,
+        criterio_periodo=criterio_periodo,
         tratamiento=tratamiento,
         nombre_documento=nombre_documento,
     )

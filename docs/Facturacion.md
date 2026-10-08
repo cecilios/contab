@@ -186,16 +186,6 @@ El formulario de modificación permite introducir o modificar transitoriamente l
 
 IVA y retención se calculan sobre la suma de las líneas.
 
-El modelo `FacturaLinea` conserva actualmente un campo `tipo` con estos valores posibles:
-
-```text
-RENTA
-DIFERENCIA_REVISION
-REPERCUSION_GASTO
-OTRO
-```
-
-La utilidad real de esta clasificación es actualmente escasa, especialmente desde que las líneas pueden editarse antes de contabilizar. Se mantiene por ahora para evitar una migración innecesaria antes del comienzo del uso real. Su simplificación queda como deuda técnica.
 
 ## Modificación de una factura preparada
 

@@ -172,6 +172,7 @@ def _anadir_registro_contable_factura_para_test(
         concepto="Alquiler local",
         periodo_desde=factura.periodo,
         periodo_hasta=date(2026, 10, 31),
+        criterio_periodo="INCLUIR_AMBOS",
         base=factura.base,
         iva_importe=factura.iva_importe,
         retencion_importe=factura.retencion_importe,

@@ -52,6 +52,7 @@ def test_crear_apunte_contable(contrato) -> None:
         referencia_documento="  Liquidación agosto  ",
         periodo_desde=date(2026, 7, 1),
         periodo_hasta=date(2026, 7, 31),
+        criterio_periodo="EXCLUIR_HASTA",
         tratamiento=" repercutir ",
         nombre_documento="  antena-julio-2026.pdf  ",
     )
@@ -73,6 +74,7 @@ def test_crear_apunte_contable(contrato) -> None:
     assert apunte.notas is None
     assert apunte.periodo_desde == date(2026, 7, 1)
     assert apunte.periodo_hasta == date(2026, 7, 31)
+    assert apunte.criterio_periodo == "EXCLUIR_HASTA"
     assert apunte.tratamiento == "REPERCUTIR"
     assert apunte.nombre_documento == "antena-julio-2026.pdf"
 
@@ -213,6 +215,7 @@ def test_modificar_apunte_contable(contrato) -> None:
         notas="Corregido",
         periodo_desde=date(2026, 8, 1),
         periodo_hasta=date(2026, 8, 31),
+        criterio_periodo="INCLUIR_AMBOS",
         tratamiento="FACTURAR",
         nombre_documento="comunidad-agosto.pdf",
     )
@@ -226,6 +229,7 @@ def test_modificar_apunte_contable(contrato) -> None:
     assert apunte.notas == "Corregido"
     assert apunte.periodo_desde == date(2026, 8, 1)
     assert apunte.periodo_hasta == date(2026, 8, 31)
+    assert apunte.criterio_periodo == "INCLUIR_AMBOS"
     assert apunte.tratamiento == "FACTURAR"
     assert apunte.nombre_documento == "comunidad-agosto.pdf"
 
@@ -455,6 +459,7 @@ def test_apunte_contable_admite_periodo(
         concepto="Suministro de agua",
         periodo_desde=date(2026, 3, 17),
         periodo_hasta=date(2026, 5, 14),
+        criterio_periodo="EXCLUIR_DESDE",
         tratamiento="REPERCUTIR",
         nombre_documento=(
             "PISO-1-agua 2026-03-17 a 2026-05-14.pdf"
@@ -475,6 +480,7 @@ def test_apunte_contable_admite_periodo(
 
     assert apunte.periodo_desde == date(2026, 3, 17)
     assert apunte.periodo_hasta == date(2026, 5, 14)
+    assert apunte.criterio_periodo == "EXCLUIR_DESDE"
     assert apunte.tratamiento == "REPERCUTIR"
     assert apunte.nombre_documento == (
         "PISO-1-agua 2026-03-17 a 2026-05-14.pdf"
@@ -790,5 +796,207 @@ def test_buscar_documentos_duplicados(
     )
 
     assert duplicados == []
+
+
+@pytest.mark.parametrize(
+    "criterio_periodo",
+    [
+        "EXCLUIR_HASTA",
+        "EXCLUIR_DESDE",
+        "INCLUIR_AMBOS",
+        "EXCLUIR_AMBOS",
+    ],
+)
+def test_apunte_contable_admite_criterios_periodo(
+    session,
+    inmueble,
+    criterio_periodo: str,
+) -> None:
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 5, 20),
+        naturaleza="GASTO",
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="AGUA",
+        concepto="Suministro de agua",
+        periodo_desde=date(2026, 3, 17),
+        periodo_hasta=date(2026, 5, 14),
+        criterio_periodo=criterio_periodo,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="agua.pdf",
+        base=10000,
+        iva_importe=1000,
+        retencion_importe=0,
+        total=11000,
+        tercero_nombre="Empresa de aguas",
+        tercero_nif="A12345678",
+        referencia_documento="F-2026-125",
+        ruta_documento="",
+        notas=None,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    assert apunte.criterio_periodo == criterio_periodo
+
+
+@pytest.mark.parametrize(
+    (
+        "periodo_desde",
+        "periodo_hasta",
+        "criterio_periodo",
+    ),
+    [
+        (
+            None,
+            None,
+            "INCLUIR_AMBOS",
+        ),
+        (
+            date(2026, 3, 17),
+            date(2026, 5, 14),
+            None,
+        ),
+        (
+            date(2026, 3, 17),
+            date(2026, 5, 14),
+            "DESCONOCIDO",
+        ),
+    ],
+)
+def test_apunte_contable_rechaza_criterio_periodo_invalido(
+    session,
+    inmueble,
+    periodo_desde,
+    periodo_hasta,
+    criterio_periodo,
+) -> None:
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 5, 20),
+        naturaleza="GASTO",
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="AGUA",
+        concepto="Suministro de agua",
+        periodo_desde=periodo_desde,
+        periodo_hasta=periodo_hasta,
+        criterio_periodo=criterio_periodo,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="agua.pdf",
+        base=10000,
+        iva_importe=1000,
+        retencion_importe=0,
+        total=11000,
+        tercero_nombre="Empresa de aguas",
+        tercero_nif="A12345678",
+        referencia_documento="F-2026-125",
+        ruta_documento="",
+        notas=None,
+    )
+
+    session.add(apunte)
+
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+    session.rollback()
+
+
+@pytest.mark.parametrize(
+    "criterio_periodo",
+    [
+        "EXCLUIR_HASTA",
+        "EXCLUIR_DESDE",
+        "INCLUIR_AMBOS",
+        "EXCLUIR_AMBOS",
+    ],
+)
+def test_crear_apunte_admite_criterios_periodo(
+    inmueble,
+    criterio_periodo: str,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 8, 31),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        periodo_desde=date(2026, 7, 1),
+        periodo_hasta=date(2026, 7, 31),
+        criterio_periodo=criterio_periodo,
+        base=10000,
+    )
+
+    assert apunte.criterio_periodo == criterio_periodo
+
+
+@pytest.mark.parametrize(
+    (
+        "periodo_desde",
+        "periodo_hasta",
+        "criterio_periodo",
+    ),
+    [
+        (
+            None,
+            None,
+            "INCLUIR_AMBOS",
+        ),
+        (
+            date(2026, 7, 1),
+            date(2026, 7, 31),
+            None,
+        ),
+        (
+            date(2026, 7, 1),
+            date(2026, 7, 31),
+            "DESCONOCIDO",
+        ),
+    ],
+)
+def test_crear_apunte_rechaza_criterio_periodo_invalido(
+    inmueble,
+    periodo_desde: date | None,
+    periodo_hasta: date | None,
+    criterio_periodo: str | None,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    with pytest.raises(
+        ContabilidadError,
+        match="criterio",
+    ):
+        crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=date(2026, 8, 31),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Cuota de comunidad",
+            periodo_desde=periodo_desde,
+            periodo_hasta=periodo_hasta,
+            criterio_periodo=criterio_periodo,
+            base=10000,
+        )
 
 

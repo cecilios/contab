@@ -518,6 +518,7 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
         assert apunte.concepto == "Tasa de Residuos Urbanos 09/2026"
         assert apunte.periodo_desde == date(2026, 9, 1)
         assert apunte.periodo_hasta == date(2026, 9, 30)
+        assert apunte.criterio_periodo == "INCLUIR_AMBOS"
         assert apunte.tratamiento == "CONTABILIZAR"
         assert apunte.nombre_documento == ("LOCAL-1-Tasa de Residuos Urbanos 2026-09.pdf")
         assert apunte.base == 10000
