@@ -1242,6 +1242,7 @@ def editar_apunte(apunte_id: int):
                 )
 
                 modificar_apunte_contable(
+                    session,
                     apunte=apunte,
                     inmueble=inmueble,
                     **valores,

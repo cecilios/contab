@@ -2151,6 +2151,7 @@ def test_modificar_apunte_sincroniza_movimiento_pendiente(
     session.commit()
 
     modificar_apunte_contable(
+        session,
         apunte=apunte,
         inmueble=inmueble,
         categorias=categorias,
@@ -2213,6 +2214,7 @@ def test_modificar_apunte_sincroniza_movimiento_cancelado(
     session.commit()
 
     modificar_apunte_contable(
+        session,
         apunte=apunte,
         inmueble=inmueble,
         categorias=categorias,
@@ -2270,6 +2272,7 @@ def test_modificar_apunte_conciliado_permite_datos_descriptivos(
     session.commit()
 
     modificar_apunte_contable(
+        session,
         apunte=apunte,
         inmueble=inmueble,
         categorias=categorias,
@@ -2374,6 +2377,7 @@ def test_modificar_apunte_conciliado_rechaza_cambios_economicos(
         match="conciliado",
     ):
         modificar_apunte_contable(
+            session,
             apunte=apunte,
             inmueble=inmueble_nuevo,
             categorias=categorias,
@@ -2423,6 +2427,7 @@ def test_modificar_apunte_parcial_rechaza_cambio_importe(
         match="conciliado",
     ):
         modificar_apunte_contable(
+            session,
             apunte=apunte,
             inmueble=inmueble,
             categorias=categorias,

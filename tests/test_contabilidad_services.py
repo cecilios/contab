@@ -14,6 +14,7 @@ from contab.contabilidad.services import (
     ContabilidadError,
     buscar_documentos_duplicados,
     crear_apunte_contable,
+    eliminar_apunte_contable,
     modificar_apunte_contable,
     proponer_nombre_documento,
 )
@@ -237,7 +238,10 @@ def test_crear_apunte_rechaza_clasificacion_invalida(
         )
 
 
-def test_modificar_apunte_contable(contrato) -> None:
+def test_modificar_apunte_contable(
+    session,
+    contrato,
+) -> None:
     categorias = {
         "GAS_COMUNIDAD": CategoriaContable(
             codigo="GAS_COMUNIDAD",
@@ -259,6 +263,7 @@ def test_modificar_apunte_contable(contrato) -> None:
     )
 
     resultado = modificar_apunte_contable(
+        session,
         apunte=apunte,
         inmueble=contrato.inmueble,
         categorias=categorias,
@@ -291,6 +296,7 @@ def test_modificar_apunte_contable(contrato) -> None:
 
 
 def test_modificar_apunte_invalido_no_cambia_el_original(
+    session,
     inmueble,
 ) -> None:
     categorias = {
@@ -319,6 +325,7 @@ def test_modificar_apunte_invalido_no_cambia_el_original(
         match="base",
     ):
         modificar_apunte_contable(
+            session,
             apunte=apunte,
             inmueble=inmueble,
             categorias=categorias,
@@ -1360,5 +1367,153 @@ def test_distribucion_apunte_exige_total_coherente(
         session.flush()
 
     session.rollback()
+
+
+def test_modificar_apunte_subdividido_recalcula_distribuciones(
+    session,
+) -> None:
+    inmueble, _, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=1000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad corregida",
+        base=20001,
+        iva_importe=4001,
+        retencion_importe=2001,
+    )
+
+    session.flush()
+
+    distribuciones = sorted(
+        apunte.distribuciones,
+        key=lambda distribucion: distribucion.inmueble.referencia,
+    )
+
+    assert len(distribuciones) == 2
+
+    primera, ultima = distribuciones
+
+    assert primera.base == 12001
+    assert primera.iva_importe == 2401
+    assert primera.retencion_importe == 1201
+    assert primera.total == 13201
+
+    assert ultima.base == 8000
+    assert ultima.iva_importe == 1600
+    assert ultima.retencion_importe == 800
+    assert ultima.total == 8800
+
+
+def test_modificar_apunte_de_subdividido_a_normal_elimina_distribuciones(
+    session,
+    inmueble,
+) -> None:
+    subdividido, _, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=subdividido,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    assert len(apunte.distribuciones) == 2
+
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    session.flush()
+
+    assert apunte.distribuciones == []
+
+
+def test_eliminar_apunte_elimina_sus_distribuciones(
+    session,
+) -> None:
+    inmueble, _, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    apunte_id = apunte.id
+
+    assert session.scalar(
+        select(DistribucionApunte)
+        .where(
+            DistribucionApunte.apunte_id
+            == apunte_id
+        )
+    ) is not None
+
+    eliminar_apunte_contable(
+        session,
+        apunte,
+    )
+    session.flush()
+
+    assert session.get(
+        ApunteContable,
+        apunte_id,
+    ) is None
+
+    assert session.scalar(
+        select(DistribucionApunte)
+        .where(
+            DistribucionApunte.apunte_id
+            == apunte_id
+        )
+    ) is None
 
 

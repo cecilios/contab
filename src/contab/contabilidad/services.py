@@ -1,7 +1,7 @@
 """Implementa la lógica de negocio de los apuntes contables."""
 
 from datetime import date
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 from calendar import monthrange
 
@@ -365,6 +365,23 @@ def _preparar_distribuciones(
         )
 
 
+def _eliminar_distribuciones(
+    session: Session,
+    apunte: ApunteContable,
+) -> None:
+    """Elimina las distribuciones de un apunte."""
+
+    for distribucion in list(
+        apunte.distribuciones
+    ):
+        apunte.distribuciones.remove(
+            distribucion
+        )
+
+        if inspect(distribucion).persistent:
+            session.delete(distribucion)
+
+
 
 def proponer_nombre_documento(
     *,
@@ -525,6 +542,11 @@ def eliminar_apunte_contable(
     ):
         session.delete(movimiento)
 
+    _eliminar_distribuciones(
+        session,
+        apunte,
+    )
+
     session.delete(apunte)
 
 
@@ -563,7 +585,7 @@ def validar_modificacion_con_movimientos(
 
 
 def modificar_apunte_contable(
-    *,
+    session: Session,
     apunte: ApunteContable,
     inmueble: Inmueble,
     categorias: dict[str, CategoriaContable],
@@ -623,10 +645,30 @@ def modificar_apunte_contable(
         total=datos["total"],
     )
 
+    recalcular_distribuciones = (
+        inmueble is not apunte.inmueble
+        or datos["base"] != apunte.base
+        or datos["iva_importe"] != apunte.iva_importe
+        or datos["retencion_importe"]
+        != apunte.retencion_importe
+    )
+
+    if recalcular_distribuciones:
+        _eliminar_distribuciones(
+            session,
+            apunte,
+        )
+
+    if inspect(apunte).persistent:
+        session.flush()
+
     apunte.inmueble = inmueble
 
     for campo, valor in datos.items():
         setattr(apunte, campo, valor)
+
+    if recalcular_distribuciones:
+        _preparar_distribuciones(apunte)
 
     for movimiento in apunte.movimientos_previstos:
         movimiento.inmueble = apunte.inmueble
