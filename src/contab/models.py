@@ -192,12 +192,10 @@ class Contrato(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
     inmueble_id: Mapped[int] = mapped_column(
         ForeignKey("inmueble.id", ondelete="RESTRICT"),
         nullable=False,
     )
-
     fecha_inicio: Mapped[date] = mapped_column(Date, nullable=False)
     fecha_vencimiento: Mapped[date] = mapped_column(Date, nullable=False)
     fecha_fin: Mapped[date | None] = mapped_column(Date)
@@ -206,9 +204,7 @@ class Contrato(Base):
         nullable=False,
     )
     fecha_inicio_facturacion: Mapped[date] = mapped_column(Date, nullable=False)
-
     fianza: Mapped[int] = mapped_column(Integer, nullable=False)
-
     iva_porcentaje: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -219,56 +215,51 @@ class Contrato(Base):
         nullable=False,
         default=0,
     )
-
     direccion_facturacion: Mapped[str] = mapped_column(Text, nullable=False)
     codigo_postal_facturacion: Mapped[str | None] = mapped_column(Text)
     poblacion_facturacion: Mapped[str] = mapped_column(Text, nullable=False)
     provincia_facturacion: Mapped[str] = mapped_column(Text, nullable=False)
-
     concepto_factura: Mapped[str] = mapped_column(Text, nullable=False)
     notas: Mapped[str | None] = mapped_column(Text)
-
     inmueble: Mapped["Inmueble"] = relationship(
         back_populates="contratos",
     )
-
     titulares: Mapped[list["ContratoInquilino"]] = relationship(
         back_populates="contrato",
         passive_deletes="all",
     )
-
     rentas: Mapped[list["RentaContrato"]] = relationship(
         back_populates="contrato",
         passive_deletes="all",
     )
-
     revisiones_renta: Mapped[list["RevisionRenta"]] = relationship(
         back_populates="contrato",
         passive_deletes="all",
     )
-
     ajustes_renta: Mapped[list["AjusteRenta"]] = relationship(
         back_populates="contrato",
         passive_deletes="all",
     )
-
     anexos: Mapped[list["AnexoContrato"]] = relationship(
         back_populates="contrato",
         passive_deletes="all",
     )
-
     facturas: Mapped[list["Factura"]] = relationship(
         back_populates="contrato",
         passive_deletes="all",
     )
-
     movimientos_previstos: Mapped[
         list["MovimientoPrevisto"]
     ] = relationship(
         back_populates="contrato",
         passive_deletes="all",
     )
-
+    imputaciones: Mapped[
+        list["ImputacionContrato"]
+    ] = relationship(
+        back_populates="contrato",
+        passive_deletes="all",
+    )
 
 class ContratoInquilino(Base):
     """Relaciona un contrato con uno de sus titulares y establece su orden."""
@@ -942,6 +933,12 @@ class ApunteContable(Base):
         back_populates="apunte",
         passive_deletes="all",
     )
+    imputaciones_contrato: Mapped[
+        list["ImputacionContrato"]
+    ] = relationship(
+        back_populates="apunte",
+        passive_deletes="all",
+    )
 
 
 class DistribucionApunte(Base):
@@ -1034,6 +1031,102 @@ class DistribucionApunte(Base):
     )
 
     inmueble: Mapped["Inmueble"] = relationship()
+
+    imputaciones_contrato: Mapped[
+        list["ImputacionContrato"]
+    ] = relationship(
+        back_populates="distribucion_apunte",
+        passive_deletes="all",
+    )
+
+
+class ImputacionContrato(Base):
+    """Representa la parte de un gasto atribuida a un contrato."""
+
+    __tablename__ = "imputacion_contrato"
+
+    __table_args__ = (
+        CheckConstraint(
+            """
+            (
+                apunte_id IS NOT NULL
+                AND distribucion_apunte_id IS NULL
+            )
+            OR
+            (
+                apunte_id IS NULL
+                AND distribucion_apunte_id IS NOT NULL
+            )
+            """,
+            name="ck_imputacion_contrato_origen",
+        ),
+        CheckConstraint(
+            "importe > 0",
+            name="ck_imputacion_contrato_importe",
+        ),
+        UniqueConstraint(
+            "apunte_id",
+            "contrato_id",
+            name="uq_imputacion_contrato_apunte",
+        ),
+        UniqueConstraint(
+            "distribucion_apunte_id",
+            "contrato_id",
+            name="uq_imputacion_contrato_distribucion",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    apunte_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "apunte_contable.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+
+    distribucion_apunte_id: Mapped[
+        int | None
+    ] = mapped_column(
+        ForeignKey(
+            "distribucion_apunte.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+
+    contrato_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "contrato.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    importe: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    apunte: Mapped[
+        "ApunteContable | None"
+    ] = relationship(
+        back_populates="imputaciones_contrato",
+    )
+
+    distribucion_apunte: Mapped[
+        "DistribucionApunte | None"
+    ] = relationship(
+        back_populates="imputaciones_contrato",
+    )
+
+    contrato: Mapped["Contrato"] = relationship(
+        back_populates="imputaciones",
+    )
 
 
 class MovimientoPrevisto(Base):

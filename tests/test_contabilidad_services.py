@@ -13,6 +13,7 @@ from contab.config import (
 from contab.contabilidad.services import (
     ContabilidadError,
     buscar_documentos_duplicados,
+    calcular_reparto_contratos,
     crear_apunte_contable,
     eliminar_apunte_contable,
     modificar_apunte_contable,
@@ -20,7 +21,9 @@ from contab.contabilidad.services import (
 )
 from contab.models import (
     ApunteContable,
+    Contrato,
     DistribucionApunte,
+    ImputacionContrato,
     Inmueble,
 )
 
@@ -75,6 +78,32 @@ def _categorias_gastos_comunes():
             subcategorias=(),
         ),
     }
+
+
+def _contrato_para_imputacion(
+    inmueble: Inmueble,
+    *,
+    fecha_inicio: date,
+    fecha_fin: date | None,
+) -> Contrato:
+    return Contrato(
+        inmueble=inmueble,
+        fecha_inicio=fecha_inicio,
+        fecha_vencimiento=(
+            fecha_fin
+            if fecha_fin is not None
+            else date(2035, 12, 31)
+        ),
+        fecha_fin=fecha_fin,
+        genera_factura=True,
+        fecha_inicio_facturacion=fecha_inicio,
+        fianza=0,
+        direccion_facturacion="Dirección",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+    )
+
 
 
 def test_crear_apunte_contable(contrato) -> None:
@@ -1492,5 +1521,493 @@ def test_eliminar_apunte_elimina_sus_distribuciones(
             == apunte_id
         )
     ) is None
+
+
+def test_reparto_contratos_sin_periodo_usa_contrato_vigente() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    reparto, propietario = calcular_reparto_contratos(
+        inmueble=inmueble,
+        importe=10000,
+        fecha=date(2026, 10, 1),
+        periodo_desde=None,
+        periodo_hasta=None,
+        criterio_periodo=None,
+    )
+
+    assert reparto == [
+        (contrato, 10000),
+    ]
+    assert propietario == 0
+
+
+def test_reparto_contratos_sin_periodo_sin_contrato_es_propietario() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    reparto, propietario = calcular_reparto_contratos(
+        inmueble=inmueble,
+        importe=10000,
+        fecha=date(2026, 10, 1),
+        periodo_desde=None,
+        periodo_hasta=None,
+        criterio_periodo=None,
+    )
+
+    assert reparto == []
+    assert propietario == 10000
+
+
+def test_reparto_contratos_prorratea_periodo_entre_dos_contratos() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato_1 = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 1),
+        fecha_fin=date(2026, 10, 4),
+    )
+
+    contrato_2 = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 5),
+        fecha_fin=None,
+    )
+
+    reparto, propietario = calcular_reparto_contratos(
+        inmueble=inmueble,
+        importe=10001,
+        fecha=date(2026, 10, 10),
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 10),
+        criterio_periodo="INCLUIR_AMBOS",
+    )
+
+    assert reparto == [
+        (contrato_1, 4000),
+        (contrato_2, 6001),
+    ]
+    assert propietario == 0
+
+
+def test_reparto_contratos_deja_dias_sin_contrato_al_propietario() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 4),
+        fecha_fin=date(2026, 10, 8),
+    )
+
+    reparto, propietario = calcular_reparto_contratos(
+        inmueble=inmueble,
+        importe=10000,
+        fecha=date(2026, 10, 10),
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 10),
+        criterio_periodo="INCLUIR_AMBOS",
+    )
+
+    assert reparto == [
+        (contrato, 5000),
+    ]
+    assert propietario == 5000
+
+
+@pytest.mark.parametrize(
+    (
+        "criterio",
+        "esperado",
+    ),
+    [
+        (
+            "INCLUIR_AMBOS",
+            [
+                ("contrato_1", 900),
+                ("contrato_2", 8100),
+            ],
+        ),
+        (
+            "EXCLUIR_DESDE",
+            [
+                ("contrato_2", 9000),
+            ],
+        ),
+        (
+            "EXCLUIR_HASTA",
+            [
+                ("contrato_1", 1000),
+                ("contrato_2", 8000),
+            ],
+        ),
+        (
+            "EXCLUIR_AMBOS",
+            [
+                ("contrato_2", 9000),
+            ],
+        ),
+    ],
+)
+def test_reparto_contratos_respeta_criterio_periodo(
+    criterio: str,
+    esperado,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato_1 = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 1),
+        fecha_fin=date(2026, 10, 1),
+    )
+
+    contrato_2 = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 2),
+        fecha_fin=None,
+    )
+
+    reparto, propietario = calcular_reparto_contratos(
+        inmueble=inmueble,
+        importe=9000,
+        fecha=date(2026, 10, 10),
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 10),
+        criterio_periodo=criterio,
+    )
+
+    contratos = {
+        "contrato_1": contrato_1,
+        "contrato_2": contrato_2,
+    }
+
+    assert reparto == [
+        (contratos[nombre], importe)
+        for nombre, importe in esperado
+    ]
+    assert propietario == 0
+
+
+def test_reparto_contratos_rechaza_periodo_sin_dias_efectivos() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    with pytest.raises(
+        ContabilidadError,
+        match="días efectivos",
+    ):
+        calcular_reparto_contratos(
+            inmueble=inmueble,
+            importe=10000,
+            fecha=date(2026, 10, 1),
+            periodo_desde=date(2026, 10, 1),
+            periodo_hasta=date(2026, 10, 1),
+            criterio_periodo="EXCLUIR_AMBOS",
+        )
+
+
+def test_imputacion_contrato_persiste_origen_apunte(
+    session,
+    contrato,
+) -> None:
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        importe=10000,
+    )
+
+    session.add(imputacion)
+    session.commit()
+
+    assert imputacion.id is not None
+    assert imputacion.apunte is apunte
+    assert imputacion.distribucion_apunte is None
+    assert imputacion.contrato is contrato
+    assert imputacion.importe == 10000
+
+
+def test_imputacion_contrato_persiste_origen_distribucion(
+    session,
+) -> None:
+    inmueble, local_a, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    contrato = _contrato_para_imputacion(
+        local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    distribucion = next(
+        distribucion
+        for distribucion in apunte.distribuciones
+        if distribucion.inmueble is local_a
+    )
+
+    imputacion = ImputacionContrato(
+        distribucion_apunte=distribucion,
+        contrato=contrato,
+        importe=distribucion.total,
+    )
+
+    session.add(imputacion)
+    session.commit()
+
+    assert imputacion.id is not None
+    assert imputacion.apunte is None
+    assert imputacion.distribucion_apunte is distribucion
+    assert imputacion.contrato is contrato
+
+
+@pytest.mark.parametrize(
+    "usar_ambos_origenes",
+    [
+        False,
+        True,
+    ],
+)
+def test_imputacion_contrato_exige_un_unico_origen(
+    session,
+    contrato,
+    usar_ambos_origenes: bool,
+) -> None:
+    apunte = None
+    distribucion = None
+
+    if usar_ambos_origenes:
+        inmueble, local_a, _ = (
+            _inmueble_subdividido_para_distribuir()
+        )
+
+        apunte_distribuido = crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=_categorias_gastos_comunes(),
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=10000,
+        )
+
+        distribucion = next(
+            distribucion
+            for distribucion
+            in apunte_distribuido.distribuciones
+            if distribucion.inmueble is local_a
+        )
+
+        apunte = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=_categorias_gastos_comunes(),
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=10000,
+        )
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        distribucion_apunte=distribucion,
+        contrato=contrato,
+        importe=10000,
+    )
+
+    session.add(imputacion)
+
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+    session.rollback()
+
+
+@pytest.mark.parametrize(
+    "importe",
+    [
+        0,
+        -1,
+    ],
+)
+def test_imputacion_contrato_exige_importe_positivo(
+    session,
+    contrato,
+    importe: int,
+) -> None:
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        importe=importe,
+    )
+
+    session.add(imputacion)
+
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+    session.rollback()
+
+
+def test_imputacion_contrato_no_duplica_contrato_en_apunte(
+    session,
+    contrato,
+) -> None:
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    session.add_all([
+        ImputacionContrato(
+            apunte=apunte,
+            contrato=contrato,
+            importe=5000,
+        ),
+        ImputacionContrato(
+            apunte=apunte,
+            contrato=contrato,
+            importe=5000,
+        ),
+    ])
+
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+    session.rollback()
+
+
+def test_imputacion_contrato_no_duplica_contrato_en_distribucion(
+    session,
+) -> None:
+    inmueble, local_a, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    contrato = _contrato_para_imputacion(
+        local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    distribucion = next(
+        distribucion
+        for distribucion in apunte.distribuciones
+        if distribucion.inmueble is local_a
+    )
+
+    session.add_all([
+        ImputacionContrato(
+            distribucion_apunte=distribucion,
+            contrato=contrato,
+            importe=3000,
+        ),
+        ImputacionContrato(
+            distribucion_apunte=distribucion,
+            contrato=contrato,
+            importe=3000,
+        ),
+    ])
+
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+    session.rollback()
 
 

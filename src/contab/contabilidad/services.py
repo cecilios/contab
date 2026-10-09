@@ -1,6 +1,6 @@
 """Implementa la lógica de negocio de los apuntes contables."""
 
-from datetime import date
+from datetime import date, timedelta
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 from calendar import monthrange
@@ -12,6 +12,7 @@ from contab.config import (
 )
 from contab.models import (
     ApunteContable,
+    Contrato,
     DistribucionApunte,
     Inmueble,
 )
@@ -258,6 +259,175 @@ def _repartir_importe(
     )
 
     return repartos
+
+
+def calcular_reparto_contratos(
+    *,
+    inmueble: Inmueble,
+    importe: int,
+    fecha: date,
+    periodo_desde: date | None,
+    periodo_hasta: date | None,
+    criterio_periodo: str | None,
+) -> tuple[list[tuple[Contrato, int]], int]:
+    """Reparte un importe entre contratos y propietario según su período."""
+
+    if periodo_desde is None:
+        contratos = [
+            contrato
+            for contrato in inmueble.contratos
+            if contrato.fecha_inicio <= fecha
+            and (
+                contrato.fecha_fin is None
+                or contrato.fecha_fin >= fecha
+            )
+        ]
+
+        if len(contratos) > 1:
+            raise ContabilidadError(
+                "Hay más de un contrato aplicable en la fecha del apunte."
+            )
+
+        if not contratos:
+            return [], importe
+
+        return [(contratos[0], importe)], 0
+
+    if periodo_hasta is None or criterio_periodo is None:
+        raise ContabilidadError(
+            "El período y su criterio deben estar completos."
+        )
+
+    desde = periodo_desde
+    hasta = periodo_hasta
+
+    if criterio_periodo in {
+        "EXCLUIR_DESDE",
+        "EXCLUIR_AMBOS",
+    }:
+        desde += timedelta(days=1)
+
+    if criterio_periodo in {
+        "EXCLUIR_HASTA",
+        "EXCLUIR_AMBOS",
+    }:
+        hasta -= timedelta(days=1)
+
+    if desde > hasta:
+        raise ContabilidadError(
+            "El período no contiene días efectivos."
+        )
+
+    dias_totales = (
+        hasta - desde
+    ).days + 1
+
+    contratos_con_dias: list[
+        tuple[Contrato, int]
+    ] = []
+
+    intervalos: list[
+        tuple[date, date]
+    ] = []
+
+    contratos = sorted(
+        inmueble.contratos,
+        key=lambda contrato: (
+            contrato.fecha_inicio,
+            contrato.id or 0,
+        ),
+    )
+
+    for contrato in contratos:
+        inicio = max(
+            desde,
+            contrato.fecha_inicio,
+        )
+
+        fin_contrato = (
+            contrato.fecha_fin
+            if contrato.fecha_fin is not None
+            else hasta
+        )
+
+        fin = min(
+            hasta,
+            fin_contrato,
+        )
+
+        if inicio > fin:
+            continue
+
+        if intervalos and inicio <= intervalos[-1][1]:
+            raise ContabilidadError(
+                "Hay contratos solapados durante el período del apunte."
+            )
+
+        dias = (
+            fin - inicio
+        ).days + 1
+
+        contratos_con_dias.append(
+            (contrato, dias)
+        )
+        intervalos.append(
+            (inicio, fin)
+        )
+
+    dias_contrato = sum(
+        dias
+        for _, dias in contratos_con_dias
+    )
+
+    dias_propietario = (
+        dias_totales - dias_contrato
+    )
+
+    destinos: list[
+        tuple[Contrato | None, int]
+    ] = [
+        (contrato, dias)
+        for contrato, dias in contratos_con_dias
+    ]
+
+    if dias_propietario:
+        destinos.append(
+            (None, dias_propietario)
+        )
+
+    if not destinos:
+        return [], importe
+
+    reparto: list[
+        tuple[Contrato, int]
+    ] = []
+    propietario = 0
+    acumulado = 0
+
+    for indice, (contrato, dias) in enumerate(
+        destinos
+    ):
+        es_ultimo = (
+            indice == len(destinos) - 1
+        )
+
+        if es_ultimo:
+            parte = importe - acumulado
+        else:
+            parte = redondear_division(
+                importe * dias,
+                dias_totales,
+            )
+            acumulado += parte
+
+        if contrato is None:
+            propietario = parte
+        elif parte:
+            reparto.append(
+                (contrato, parte)
+            )
+
+    return reparto, propietario
 
 
 def _preparar_distribuciones(
