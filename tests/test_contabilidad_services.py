@@ -694,65 +694,42 @@ def test_crear_apunte_rechaza_periodo_o_tratamiento_invalido(
         "FACTURAR",
     ],
 )
-def test_apunte_exige_contrato_para_trasladar_o_facturar(
+def test_apunte_admite_trasladar_o_facturar_sin_contrato(
     inmueble,
     tratamiento: str,
 ) -> None:
-    categorias = {
-        "GAS_COMUNIDAD": CategoriaContable(
-            codigo="GAS_COMUNIDAD",
-            naturaleza="GASTO",
-            nombre="Comunidad",
-            activa=True,
-            subcategorias=(),
-        ),
-    }
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 8, 31),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        tratamiento=tratamiento,
+        base=10000,
+    )
 
-    with pytest.raises(
-        ContabilidadError,
-        match="contrato vigente",
-    ):
-        crear_apunte_contable(
-            inmueble=inmueble,
-            categorias=categorias,
-            fecha=date(2026, 8, 31),
-            naturaleza="GASTO",
-            categoria="GAS_COMUNIDAD",
-            concepto="Cuota de comunidad",
-            tratamiento=tratamiento,
-            base=10000,
-        )
+    assert apunte.tratamiento == tratamiento
 
 
-def test_inmueble_subdividido_rechaza_facturar(
-    inmueble,
-) -> None:
-    inmueble.tipo = "T"
+def test_inmueble_subdividido_admite_facturar() -> None:
+    inmueble, _, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
 
-    categorias = {
-        "GAS_COMUNIDAD": CategoriaContable(
-            codigo="GAS_COMUNIDAD",
-            naturaleza="GASTO",
-            nombre="Comunidad",
-            activa=True,
-            subcategorias=(),
-        ),
-    }
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 8, 31),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        tratamiento="FACTURAR",
+        base=10000,
+    )
 
-    with pytest.raises(
-        ContabilidadError,
-        match="subdividido",
-    ):
-        crear_apunte_contable(
-            inmueble=inmueble,
-            categorias=categorias,
-            fecha=date(2026, 8, 31),
-            naturaleza="GASTO",
-            categoria="GAS_COMUNIDAD",
-            concepto="Cuota de comunidad",
-            tratamiento="FACTURAR",
-            base=10000,
-        )
+    assert apunte.tratamiento == "FACTURAR"
+    assert len(apunte.distribuciones) == 2
 
 
 def test_proponer_nombre_documento_sin_periodo(

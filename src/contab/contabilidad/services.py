@@ -235,49 +235,6 @@ def buscar_documentos_duplicados(
     return duplicados
 
 
-def _validar_tratamiento_inmueble(
-    inmueble: Inmueble,
-    fecha: date,
-    tratamiento: str,
-) -> None:
-    """Comprueba que el inmueble admite el tratamiento elegido."""
-
-    if tratamiento == "CONTABILIZAR":
-        return
-
-    if inmueble.tipo == "T":
-        if tratamiento == "FACTURAR":
-            raise ContabilidadError(
-                "Un inmueble subdividido no puede tener "
-                "apuntes destinados a facturación."
-            )
-
-        # REPERCUTIR significa distribuir entre los locales.
-        return
-
-    contratos_vigentes = [
-        contrato
-        for contrato in inmueble.contratos
-        if contrato.fecha_inicio <= fecha
-        and (
-            contrato.fecha_fin is None
-            or contrato.fecha_fin >= fecha
-        )
-    ]
-
-    if not contratos_vigentes:
-        raise ContabilidadError(
-            "Para trasladar o facturar el gasto debe existir "
-            "un contrato vigente en la fecha del apunte."
-        )
-
-    if len(contratos_vigentes) > 1:
-        raise ContabilidadError(
-            "El inmueble tiene más de un contrato vigente "
-            "en la fecha del apunte."
-        )
-
-
 def _repartir_importe(
     importe: int,
     locales: list[Inmueble],
@@ -503,12 +460,6 @@ def crear_apunte_contable(
         nombre_documento=nombre_documento,
     )
 
-    _validar_tratamiento_inmueble(
-        inmueble,
-        fecha=datos["fecha"],
-        tratamiento=datos["tratamiento"],
-    )
-
     apunte = ApunteContable(
         inmueble=inmueble,
         **datos,
@@ -630,12 +581,6 @@ def modificar_apunte_contable(
         criterio_periodo=criterio_periodo,
         tratamiento=tratamiento,
         nombre_documento=nombre_documento,
-    )
-
-    _validar_tratamiento_inmueble(
-        inmueble,
-        fecha=datos["fecha"],
-        tratamiento=datos["tratamiento"],
     )
 
     validar_modificacion_con_movimientos(
