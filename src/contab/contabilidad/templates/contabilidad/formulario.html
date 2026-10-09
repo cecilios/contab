@@ -108,6 +108,17 @@
             >
         </p>
 
+        <p>
+            <label for="nombre_documento">
+                Nombre del documento
+            </label>
+            <input
+                id="nombre_documento"
+                name="nombre_documento"
+                value="{{ datos.get('nombre_documento', '') }}"
+            >
+        </p>
+
         <fieldset>
             <legend>Período</legend>
 
@@ -273,17 +284,6 @@
                 id="importe_a_pagar"
                 value="{{ datos.get('importe_a_pagar', '') }}"
                 readonly
-            >
-        </p>
-
-        <p>
-            <label for="nombre_documento">
-                Nombre del documento
-            </label>
-            <input
-                id="nombre_documento"
-                name="nombre_documento"
-                value="{{ datos.get('nombre_documento', '') }}"
             >
         </p>
 

@@ -148,28 +148,11 @@ def _render_formulario_importacion(
     )
 
 
-def _movimientos_rechazados_revision() -> set[int]:
-    """Obtiene los movimientos excluidos de la revisión actual."""
-
-    database_name = get_database_name()
-
-    rechazados_por_base = session.get(
-        "conciliacion_rechazados",
-        {},
-    )
-
-    return set(
-        rechazados_por_base.get(
-            database_name,
-            [],
-        )
-    )
-
 
 
 @bp.get("/revisar")
 def revisar_conciliacion():
-    """Muestra las propuestas automáticas antes de confirmarlas."""
+    """Muestra las propuestas pendientes de aceptación individual."""
 
     database_name = get_database_name()
 
@@ -184,8 +167,8 @@ def revisar_conciliacion():
 
     session_factory = get_session_factory()
 
-    with session_factory() as session:
-        movimientos_bancarios = session.scalars(
+    with session_factory() as db_session:
+        movimientos_bancarios = db_session.scalars(
             select(MovimientoBancario)
             .where(
                 MovimientoBancario.estado == "PENDIENTE"
@@ -196,7 +179,7 @@ def revisar_conciliacion():
             )
         ).all()
 
-        movimientos_previstos = session.scalars(
+        movimientos_previstos = db_session.scalars(
             select(MovimientoPrevisto)
             .options(
                 joinedload(MovimientoPrevisto.inmueble)
@@ -220,20 +203,6 @@ def revisar_conciliacion():
             aliases_configurados=aliases_configurados,
         )
 
-        rechazados = _movimientos_rechazados_revision()
-
-        a_conciliar = [
-            (bancario, previsto)
-            for bancario, previsto in a_conciliar
-            if bancario.id not in rechazados
-        ]
-
-        a_descartar = [
-            bancario
-            for bancario in a_descartar
-            if bancario.id not in rechazados
-        ]
-
         a_conciliar_exactos = [
             (bancario, previsto)
             for bancario, previsto in a_conciliar
@@ -244,21 +213,6 @@ def revisar_conciliacion():
             (bancario, previsto)
             for bancario, previsto in a_conciliar
             if bancario.importe != previsto.importe_esperado
-        ]
-
-        pendientes_ids = {
-            movimiento.id
-            for movimiento in pendientes
-        }
-
-        pendientes_ids.update(
-            rechazados
-        )
-
-        pendientes = [
-            movimiento
-            for movimiento in movimientos_bancarios
-            if movimiento.id in pendientes_ids
         ]
 
         return render_template(
@@ -459,6 +413,14 @@ def descartar_movimiento_bancario_desde_interfaz(movimiento_id: int):
 
     except ConciliacionError as exc:
         return str(exc), 400
+
+
+    if request.form.get("origen") == "revision":
+        return redirect(
+            url_for(
+                "conciliacion.revisar_conciliacion"
+            )
+        )
 
     return redirect(
         url_for(
@@ -667,173 +629,6 @@ def restaurar_movimiento_previsto_desde_interfaz(
     )
 
 
-@bp.post("/revisar/<int:movimiento_id>/dejar-pendiente")
-def dejar_movimiento_pendiente_revision(
-    movimiento_id: int,
-):
-    """Rechaza una propuesta automática durante la revisión actual."""
-
-    session_factory = get_session_factory()
-
-    with session_factory() as db_session:
-        movimiento = db_session.get(
-            MovimientoBancario,
-            movimiento_id,
-        )
-
-        if movimiento is None:
-            return (
-                "Movimiento bancario no encontrado.",
-                404,
-            )
-
-        if movimiento.estado != "PENDIENTE":
-            return (
-                "El movimiento bancario ya no está pendiente.",
-                400,
-            )
-
-    database_name = get_database_name()
-
-    rechazados_por_base = dict(
-        session.get(
-            "conciliacion_rechazados",
-            {},
-        )
-    )
-
-    rechazados = set(
-        rechazados_por_base.get(
-            database_name,
-            [],
-        )
-    )
-
-    rechazados.add(
-        movimiento_id
-    )
-
-    rechazados_por_base[
-        database_name
-    ] = sorted(rechazados)
-
-    session[
-        "conciliacion_rechazados"
-    ] = rechazados_por_base
-
-    return redirect(
-        url_for(
-            "conciliacion.revisar_conciliacion"
-        )
-    )
-
-
-@bp.post("/revisar/confirmar")
-def confirmar_propuestas_revision():
-    """Confirma las propuestas automáticas exactas aceptadas."""
-
-    database_name = get_database_name()
-
-    aliases_por_base = current_app.extensions.get(
-        "contab_alias_conciliacion",
-        {},
-    )
-    aliases_configurados = aliases_por_base.get(
-        database_name,
-        [],
-    )
-
-    rechazados = _movimientos_rechazados_revision()
-
-    session_factory = get_session_factory()
-
-    try:
-        with session_factory() as db_session:
-            with db_session.begin():
-                movimientos_bancarios = db_session.scalars(
-                    select(MovimientoBancario)
-                    .where(
-                        MovimientoBancario.estado
-                        == "PENDIENTE"
-                    )
-                    .order_by(
-                        MovimientoBancario.fecha.desc(),
-                        MovimientoBancario.id.desc(),
-                    )
-                ).all()
-
-                movimientos_previstos = db_session.scalars(
-                    select(MovimientoPrevisto)
-                    .options(
-                        joinedload(
-                            MovimientoPrevisto.inmueble
-                        )
-                    )
-                    .where(
-                        MovimientoPrevisto.estado
-                        == "PENDIENTE"
-                    )
-                    .order_by(
-                        MovimientoPrevisto.fecha_prevista_desde,
-                        MovimientoPrevisto.id,
-                    )
-                ).all()
-
-                (
-                    a_conciliar,
-                    _,
-                    _,
-                ) = clasificar_movimientos_bancarios(
-                    movimientos_bancarios,
-                    movimientos_previstos,
-                    aliases_configurados=aliases_configurados,
-                )
-
-                for bancario, previsto in a_conciliar:
-                    if bancario.id in rechazados:
-                        continue
-
-                    if (
-                        bancario.importe
-                        != previsto.importe_esperado
-                    ):
-                        continue
-
-                    conciliacion = confirmar_conciliacion(
-                        bancario,
-                        previsto,
-                    )
-
-                    db_session.add(
-                        conciliacion
-                    )
-
-    except ConciliacionError as exc:
-        return str(exc), 400
-
-    rechazados_por_base = dict(
-        session.get(
-            "conciliacion_rechazados",
-            {},
-        )
-    )
-
-    rechazados_por_base.pop(
-        database_name,
-        None,
-    )
-
-    session[
-        "conciliacion_rechazados"
-    ] = rechazados_por_base
-
-    return redirect(
-        url_for(
-            "conciliacion.revisar_conciliacion"
-        )
-    )
-
-
 @bp.route(
     "/previstos/<int:movimiento_id>/conciliar-manualmente",
     methods=["GET", "POST"],
@@ -932,6 +727,103 @@ def deshacer_conciliacion_manual_desde_interfaz(
         url_for(
             "conciliacion.listar_movimientos_previstos",
             estado="CONCILIADO",
+        )
+    )
+
+
+
+@bp.post("/revisar/<int:movimiento_id>/aceptar")
+def aceptar_propuesta_revision(movimiento_id: int):
+    """Acepta una única propuesta automática de conciliación."""
+
+    previsto_id = request.form.get(
+        "previsto_id",
+        type=int,
+    )
+
+    if previsto_id is None:
+        return "Falta el movimiento previsto.", 400
+
+    database_name = get_database_name()
+
+    aliases_por_base = current_app.extensions.get(
+        "contab_alias_conciliacion",
+        {},
+    )
+    aliases_configurados = aliases_por_base.get(
+        database_name,
+        [],
+    )
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as db_session:
+            with db_session.begin():
+                bancario = db_session.get(
+                    MovimientoBancario,
+                    movimiento_id,
+                )
+
+                if bancario is None:
+                    return (
+                        "Movimiento bancario no encontrado.",
+                        404,
+                    )
+
+                if bancario.estado != "PENDIENTE":
+                    raise ConciliacionError(
+                        "El movimiento bancario ya no está pendiente."
+                    )
+
+                movimientos_previstos = db_session.scalars(
+                    select(MovimientoPrevisto)
+                    .options(
+                        joinedload(MovimientoPrevisto.inmueble)
+                    )
+                    .where(
+                        MovimientoPrevisto.estado == "PENDIENTE"
+                    )
+                    .order_by(
+                        MovimientoPrevisto.fecha_prevista_desde,
+                        MovimientoPrevisto.id,
+                    )
+                ).all()
+
+                (
+                    propuestas,
+                    _,
+                    _,
+                ) = clasificar_movimientos_bancarios(
+                    [bancario],
+                    movimientos_previstos,
+                    aliases_configurados=aliases_configurados,
+                )
+
+                if (
+                    len(propuestas) != 1
+                    or propuestas[0][1].id != previsto_id
+                ):
+                    raise ConciliacionError(
+                        "La propuesta ya no es válida. "
+                        "Vuelve a revisar la conciliación."
+                    )
+
+                _, previsto = propuestas[0]
+
+                conciliacion = confirmar_conciliacion(
+                    bancario,
+                    previsto,
+                )
+
+                db_session.add(conciliacion)
+
+    except ConciliacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "conciliacion.revisar_conciliacion"
         )
     )
 

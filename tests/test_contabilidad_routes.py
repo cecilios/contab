@@ -2878,12 +2878,22 @@ GAS_COMUNIDAD = GASTO | Comunidad
     assert "Comunidad septiembre" in response.text
     assert "C.P. LOCAL PRUEBA" in response.text
 
-    # El usuario confirma las propuestas exactas.
+
+    # El usuario acepta individualmente la propuesta exacta.
     response = client.post(
-        "/conciliacion/revisar/confirmar"
+        (
+            "/conciliacion/revisar/"
+            f"{movimiento_bancario_id}/aceptar"
+        ),
+        data={
+            "previsto_id": movimiento_previsto_id,
+        },
     )
 
     assert response.status_code == 302
+    assert response.location.endswith(
+        "/conciliacion/revisar"
+    )
 
     with session_factory() as session:
         movimiento_previsto = session.get(

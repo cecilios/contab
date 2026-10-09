@@ -6,8 +6,9 @@
     <h1>Revisar conciliación</h1>
 
     <p>
-        Las propuestas mostradas todavía no modifican
-        los movimientos bancarios ni los previstos.
+        Revisa las correspondencias propuestas por Contab.
+        Pulsa Aceptar en cada una de las que consideres correctas.
+        Las demás permanecerán pendientes.
     </p>
 
     <p class="enlaces-acciones">
@@ -35,6 +36,7 @@
                     <th>Importe</th>
                     <th>Movimiento previsto</th>
                     <th>Inmueble</th>
+                    <th>Acción</th>
                 </tr>
             </thead>
 
@@ -64,33 +66,32 @@
                         <td>
                             {{ previsto.inmueble.referencia }}
                         </td>
+
                         <td>
                             <form
                                 method="post"
                                 action="{{ url_for(
-                                    'conciliacion.dejar_movimiento_pendiente_revision',
+                                    'conciliacion.aceptar_propuesta_revision',
                                     movimiento_id=bancario.id
                                 ) }}"
                             >
+                                <input
+                                    type="hidden"
+                                    name="previsto_id"
+                                    value="{{ previsto.id }}"
+                                >
+
                                 <button type="submit">
-                                    Dejar pendiente
+                                    Aceptar
                                 </button>
                             </form>
                         </td>
+
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
 
-        <form
-            class="confirmar-propuestas"
-            method="post"
-            action="{{ url_for('conciliacion.confirmar_propuestas_revision') }}"
-        >
-            <button type="submit">
-                Confirmar propuestas
-            </button>
-        </form>
     {% else %}
         <p>No hay propuestas con importe coincidente.</p>
     {% endif %}
@@ -112,7 +113,6 @@
                     <th>Movimiento previsto</th>
                     <th>Importe previsto</th>
                     <th>Inmueble</th>
-                    <th>Acción</th>
                 </tr>
             </thead>
 
@@ -143,19 +143,6 @@
                             {{ previsto.inmueble.referencia }}
                         </td>
 
-                        <td>
-                            <form
-                                method="post"
-                                action="{{ url_for(
-                                    'conciliacion.dejar_movimiento_pendiente_revision',
-                                    movimiento_id=bancario.id
-                                ) }}"
-                            >
-                                <button type="submit">
-                                    Dejar pendiente
-                                </button>
-                            </form>
-                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -207,6 +194,7 @@
                     <th>Fecha</th>
                     <th>Movimiento bancario</th>
                     <th>Importe</th>
+                    <th>Acción</th>
                 </tr>
             </thead>
 
@@ -224,6 +212,27 @@
                         <td>
                             {{ importe_a_texto(bancario.importe) }}
                         </td>
+
+                        <td>
+                            <form
+                                method="post"
+                                action="{{ url_for(
+                                    'conciliacion.descartar_movimiento_bancario_desde_interfaz',
+                                    movimiento_id=bancario.id
+                                ) }}"
+                            >
+                                <input
+                                    type="hidden"
+                                    name="origen"
+                                    value="revision"
+                                >
+
+                                <button type="submit">
+                                    Descartar
+                                </button>
+                            </form>
+                        </td>
+
                     </tr>
                 {% endfor %}
             </tbody>

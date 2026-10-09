@@ -37,6 +37,135 @@ def crear_app_test():
     return app
 
 
+def crear_escenario_aceptacion_individual():
+    """Prepara dos propuestas exactas y una con importe distinto."""
+
+    app = create_app(
+        databases={
+            "test": "sqlite:///:memory:",
+        },
+        secret_key="test-secret-key",
+        bancos={
+            "test": "IBERCAJA",
+        },
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        previsto_comunidad = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 1),
+            fecha_prevista_hasta=date(2026, 9, 5),
+            naturaleza="GASTO",
+            concepto="Comunidad septiembre",
+            importe_esperado=10000,
+            contraparte="COMUNIDAD LOCAL",
+            estado="PENDIENTE",
+        )
+
+        bancario_comunidad = MovimientoBancario(
+            fecha=date(2026, 9, 2),
+            naturaleza="GASTO",
+            importe=10000,
+            tipo_original="RECIBO",
+            descripcion_original="COMUNIDAD LOCAL",
+            referencia_bancaria="",
+            huella_importacion="a" * 64,
+            estado="PENDIENTE",
+        )
+
+        previsto_alquiler = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 1),
+            fecha_prevista_hasta=date(2026, 9, 5),
+            naturaleza="INGRESO",
+            concepto="Alquiler septiembre",
+            importe_esperado=85000,
+            contraparte="ANA PEREZ",
+            estado="PENDIENTE",
+        )
+
+        bancario_alquiler = MovimientoBancario(
+            fecha=date(2026, 9, 3),
+            naturaleza="INGRESO",
+            importe=85000,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original="ANA PEREZ",
+            referencia_bancaria="",
+            huella_importacion="b" * 64,
+            estado="PENDIENTE",
+        )
+
+        previsto_diferente = MovimientoPrevisto(
+            inmueble=inmueble,
+            fecha_prevista_desde=date(2026, 9, 1),
+            fecha_prevista_hasta=date(2026, 9, 5),
+            naturaleza="GASTO",
+            concepto="Seguro septiembre",
+            importe_esperado=25000,
+            contraparte="ASEGURADORA XYZ",
+            estado="PENDIENTE",
+        )
+
+        bancario_diferente = MovimientoBancario(
+            fecha=date(2026, 9, 4),
+            naturaleza="GASTO",
+            importe=24000,
+            tipo_original="RECIBO",
+            descripcion_original="ASEGURADORA XYZ",
+            referencia_bancaria="",
+            huella_importacion="c" * 64,
+            estado="PENDIENTE",
+        )
+
+        session.add_all([
+            inmueble,
+            previsto_comunidad,
+            bancario_comunidad,
+            previsto_alquiler,
+            bancario_alquiler,
+            previsto_diferente,
+            bancario_diferente,
+        ])
+        session.commit()
+
+        ids = {
+            "b_comunidad": bancario_comunidad.id,
+            "p_comunidad": previsto_comunidad.id,
+            "b_alquiler": bancario_alquiler.id,
+            "p_alquiler": previsto_alquiler.id,
+            "b_diferente": bancario_diferente.id,
+            "p_diferente": previsto_diferente.id,
+        }
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    return client, session_factory, ids
+
+
+
 def test_formulario_importar_movimientos_bancarios() -> None:
     """Muestra el formulario y el banco configurado."""
 
@@ -804,8 +933,24 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
     assert "Pendientes" in response.text
     assert "MOVIMIENTO DESCONOCIDO" in response.text
 
-    #Aparece el botón de 'Confirmar propuestas'
-    assert "Confirmar propuestas" in response.text
+    # El usuario puede aceptar individualmente la propuesta exacta.
+    assert (
+        f"/conciliacion/revisar/{conciliable_1_id}/aceptar"
+        in response.text
+    )
+    assert f'name="previsto_id"' in response.text
+    assert f'value="{previsto_1_id}"' in response.text
+    assert "Aceptar" in response.text
+
+    # Una propuesta de importe diferente no ofrece aceptación.
+    assert (
+        f"/conciliacion/revisar/{conciliable_2_id}/aceptar"
+        not in response.text
+    )
+
+    # Ya no hay confirmación global ni rechazo por fila.
+    assert "Confirmar propuestas" not in response.text
+    assert "Dejar pendiente" not in response.text
 
     # Abrir la revisión no confirma ni descarta nada.
     with session_factory() as session:
@@ -843,292 +988,332 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
         assert previsto_2.estado == "PENDIENTE"
 
 
-def test_confirmar_propuestas_concilia_solo_importes_exactos() -> None:
-    """Confirma las propuestas exactas y deja intactas las discrepancias."""
+def test_aceptar_una_propuesta_no_confirma_las_demas() -> None:
+    """Aceptar una fila sólo concilia la pareja seleccionada."""
 
-    app = create_app(
-        databases={
-            "test": "sqlite:///:memory:",
-        },
-        secret_key="test-secret-key",
-        bancos={
-            "test": "IBERCAJA",
-        },
-        aliases_conciliacion={
-            "test": [
-                (
-                    "COMUNIDAD",
-                    "LOCAL-1",
-                    "C.P. LOCAL PRUEBA",
-                ),
-            ],
-        },
+    client, session_factory, ids = (
+        crear_escenario_aceptacion_individual()
     )
 
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
+    # El usuario abre la revisión y ve dos propuestas exactas.
+    response = client.get("/conciliacion/revisar")
 
-    Base.metadata.create_all(
-        session_factory.kw["bind"]
-    )
+    assert response.status_code == 200
+    assert "Comunidad septiembre" in response.text
+    assert "Alquiler septiembre" in response.text
 
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="L1",
-            descripcion="Local comercial",
-            direccion="Dirección",
-            poblacion="Madrid",
-            provincia="Madrid",
-        )
-
-        # Esta pareja tiene importe exacto y debe confirmarse.
-        previsto_exacto = MovimientoPrevisto(
-            inmueble=inmueble,
-            fecha_prevista_desde=date(2026, 9, 1),
-            fecha_prevista_hasta=date(2026, 9, 5),
-            naturaleza="GASTO",
-            concepto="Comunidad septiembre",
-            importe_esperado=10000,
-            contraparte="",
-            estado="PENDIENTE",
-        )
-
-        bancario_exacto = MovimientoBancario(
-            fecha=date(2026, 9, 2),
-            naturaleza="GASTO",
-            importe=10000,
-            tipo_original="RECIBO",
-            descripcion_original="C.P. LOCAL PRUEBA",
-            referencia_bancaria="",
-            huella_importacion="a" * 64,
-            estado="PENDIENTE",
-        )
-
-        # Esta pareja es una propuesta válida, pero sus importes
-        # difieren y no debe confirmarse automáticamente.
-        previsto_diferente = MovimientoPrevisto(
-            inmueble=inmueble,
-            fecha_prevista_desde=date(2026, 9, 1),
-            fecha_prevista_hasta=date(2026, 9, 5),
-            naturaleza="INGRESO",
-            concepto="Alquiler septiembre Bárbara",
-            importe_esperado=152500,
-            contraparte="BARBARA BONITA BARCENAS",
-            estado="PENDIENTE",
-        )
-
-        bancario_diferente = MovimientoBancario(
-            fecha=date(2026, 9, 3),
-            naturaleza="INGRESO",
-            importe=150000,
-            tipo_original="TRANSFERENCIA",
-            descripcion_original="BARBARA BONITA BARCENAS",
-            referencia_bancaria="",
-            huella_importacion="b" * 64,
-            estado="PENDIENTE",
-        )
-
-        session.add_all(
-            [
-                inmueble,
-                previsto_exacto,
-                bancario_exacto,
-                previsto_diferente,
-                bancario_diferente,
-            ]
-        )
-        session.commit()
-
-        previsto_exacto_id = previsto_exacto.id
-        bancario_exacto_id = bancario_exacto.id
-        previsto_diferente_id = previsto_diferente.id
-        bancario_diferente_id = bancario_diferente.id
-
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    # El usuario confirma las propuestas automáticas de la revisión.
+    # El usuario acepta únicamente el recibo de comunidad.
     response = client.post(
-        "/conciliacion/revisar/confirmar"
+        (
+            "/conciliacion/revisar/"
+            f"{ids['b_comunidad']}/aceptar"
+        ),
+        data={
+            "previsto_id": ids["p_comunidad"],
+        },
     )
 
     assert response.status_code == 302
+    assert response.location.endswith(
+        "/conciliacion/revisar"
+    )
 
+    # La base de datos sólo contiene esa conciliación.
     with session_factory() as session:
-        previsto_exacto = session.get(
-            MovimientoPrevisto,
-            previsto_exacto_id,
+        b_comunidad = session.get(
+            MovimientoBancario, ids["b_comunidad"]
         )
-        bancario_exacto = session.get(
-            MovimientoBancario,
-            bancario_exacto_id,
+        p_comunidad = session.get(
+            MovimientoPrevisto, ids["p_comunidad"]
         )
-        previsto_diferente = session.get(
-            MovimientoPrevisto,
-            previsto_diferente_id,
+        b_alquiler = session.get(
+            MovimientoBancario, ids["b_alquiler"]
         )
-        bancario_diferente = session.get(
-            MovimientoBancario,
-            bancario_diferente_id,
+        p_alquiler = session.get(
+            MovimientoPrevisto, ids["p_alquiler"]
+        )
+        b_diferente = session.get(
+            MovimientoBancario, ids["b_diferente"]
+        )
+        p_diferente = session.get(
+            MovimientoPrevisto, ids["p_diferente"]
         )
 
         conciliaciones = session.scalars(
             select(Conciliacion)
         ).all()
 
-        assert previsto_exacto is not None
-        assert bancario_exacto is not None
-        assert previsto_diferente is not None
-        assert bancario_diferente is not None
+        assert b_comunidad.estado == "CONCILIADO"
+        assert p_comunidad.estado == "CONCILIADO"
+        assert p_comunidad.metodo_conciliacion == "INDIVIDUAL"
 
-        assert previsto_exacto.estado == "CONCILIADO"
-        assert bancario_exacto.estado == "CONCILIADO"
+        assert b_alquiler.estado == "PENDIENTE"
+        assert p_alquiler.estado == "PENDIENTE"
+        assert b_diferente.estado == "PENDIENTE"
+        assert p_diferente.estado == "PENDIENTE"
 
-        assert previsto_diferente.estado == "PENDIENTE"
-        assert bancario_diferente.estado == "PENDIENTE"
+        assert len(conciliaciones) == 1
+        assert (
+            conciliaciones[0].movimiento_bancario_id
+            == ids["b_comunidad"]
+        )
+        assert (
+            conciliaciones[0].movimiento_previsto_id
+            == ids["p_comunidad"]
+        )
+        assert conciliaciones[0].importe_asociado == 10000
+
+    # Al volver a la pantalla, la fila aceptada ha desaparecido.
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+    assert "Comunidad septiembre" not in response.text
+    assert "Alquiler septiembre" in response.text
+    assert "Seguro septiembre" in response.text
+
+
+def test_aceptar_segunda_propuesta_individual() -> None:
+    """Permite aceptar otra fila en una operación independiente."""
+
+    client, session_factory, ids = (
+        crear_escenario_aceptacion_individual()
+    )
+
+    # El usuario acepta el recibo de comunidad.
+    response = client.post(
+        (
+            "/conciliacion/revisar/"
+            f"{ids['b_comunidad']}/aceptar"
+        ),
+        data={
+            "previsto_id": ids["p_comunidad"],
+        },
+    )
+
+    assert response.status_code == 302
+
+    # Después acepta también el ingreso del alquiler.
+    response = client.post(
+        (
+            "/conciliacion/revisar/"
+            f"{ids['b_alquiler']}/aceptar"
+        ),
+        data={
+            "previsto_id": ids["p_alquiler"],
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        conciliaciones = session.scalars(
+            select(Conciliacion)
+        ).all()
+
+        parejas = {
+            (
+                c.movimiento_bancario_id,
+                c.movimiento_previsto_id,
+            )
+            for c in conciliaciones
+        }
+
+        assert parejas == {
+            (ids["b_comunidad"], ids["p_comunidad"]),
+            (ids["b_alquiler"], ids["p_alquiler"]),
+        }
+
+        assert session.get(
+            MovimientoBancario, ids["b_diferente"]
+        ).estado == "PENDIENTE"
+
+        assert session.get(
+            MovimientoPrevisto, ids["p_diferente"]
+        ).estado == "PENDIENTE"
+
+
+def test_no_aceptar_propuesta_con_importes_diferentes() -> None:
+    """Una discrepancia no puede confirmarse por la ruta normal."""
+
+    client, session_factory, ids = (
+        crear_escenario_aceptacion_individual()
+    )
+
+    # El usuario intenta aceptar una discrepancia de importe.
+    response = client.post(
+        (
+            "/conciliacion/revisar/"
+            f"{ids['b_diferente']}/aceptar"
+        ),
+        data={
+            "previsto_id": ids["p_diferente"],
+        },
+    )
+
+    assert response.status_code == 400
+
+    # El intento no ha producido ningún cambio.
+    with session_factory() as session:
+        assert session.get(
+            MovimientoBancario, ids["b_diferente"]
+        ).estado == "PENDIENTE"
+
+        assert session.get(
+            MovimientoPrevisto, ids["p_diferente"]
+        ).estado == "PENDIENTE"
+
+        assert session.scalars(
+            select(Conciliacion)
+        ).all() == []
+
+
+def test_no_aceptar_pareja_distinta_de_la_propuesta() -> None:
+    """El servidor no acepta una asociación manipulada."""
+
+    client, session_factory, ids = (
+        crear_escenario_aceptacion_individual()
+    )
+
+    # El usuario envía un previsto distinto al de la fila.
+    response = client.post(
+        (
+            "/conciliacion/revisar/"
+            f"{ids['b_comunidad']}/aceptar"
+        ),
+        data={
+            "previsto_id": ids["p_alquiler"],
+        },
+    )
+
+    assert response.status_code == 400
+
+    with session_factory() as session:
+        assert session.get(
+            MovimientoBancario, ids["b_comunidad"]
+        ).estado == "PENDIENTE"
+
+        assert session.get(
+            MovimientoPrevisto, ids["p_comunidad"]
+        ).estado == "PENDIENTE"
+
+        assert session.scalars(
+            select(Conciliacion)
+        ).all() == []
+
+
+def test_no_aceptar_dos_veces_la_misma_propuesta() -> None:
+    """Una doble pulsación no crea conciliaciones duplicadas."""
+
+    client, session_factory, ids = (
+        crear_escenario_aceptacion_individual()
+    )
+
+    url = (
+        "/conciliacion/revisar/"
+        f"{ids['b_comunidad']}/aceptar"
+    )
+
+    datos = {
+        "previsto_id": ids["p_comunidad"],
+    }
+
+    # Primera aceptación: la conciliación se guarda.
+    response = client.post(url, data=datos)
+
+    assert response.status_code == 302
+
+    # Segunda aceptación: la pareja ya no está pendiente.
+    response = client.post(url, data=datos)
+
+    assert response.status_code == 400
+
+    with session_factory() as session:
+        conciliaciones = session.scalars(
+            select(Conciliacion)
+        ).all()
 
         assert len(conciliaciones) == 1
 
-        conciliacion = conciliaciones[0]
+        assert session.get(
+            MovimientoBancario, ids["b_comunidad"]
+        ).estado == "CONCILIADO"
 
-        assert (
-            conciliacion.movimiento_bancario_id
-            == bancario_exacto_id
-        )
-        assert (
-            conciliacion.movimiento_previsto_id
-            == previsto_exacto_id
-        )
-        assert conciliacion.importe_asociado == 10000
+        assert session.get(
+            MovimientoPrevisto, ids["p_comunidad"]
+        ).estado == "CONCILIADO"
 
 
-def test_confirmar_propuestas_respeta_movimiento_rechazado() -> None:
-    """No confirma una propuesta que el usuario ha dejado pendiente."""
+def test_no_aceptar_propuesta_modificada_desde_revision() -> None:
+    """Revalida una propuesta aunque la pantalla sea antigua."""
 
-    app = create_app(
-        databases={
-            "test": "sqlite:///:memory:",
-        },
-        secret_key="test-secret-key",
-        bancos={
-            "test": "IBERCAJA",
-        },
-        aliases_conciliacion={
-            "test": [
-                (
-                    "COMUNIDAD",
-                    "LOCAL-1",
-                    "C.P. LOCAL PRUEBA",
-                ),
-            ],
-        },
+    client, session_factory, ids = (
+        crear_escenario_aceptacion_individual()
     )
 
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
+    # El usuario abre la revisión con una propuesta válida.
+    response = client.get("/conciliacion/revisar")
 
-    Base.metadata.create_all(
-        session_factory.kw["bind"]
-    )
+    assert response.status_code == 200
+    assert "Comunidad septiembre" in response.text
 
+    # Antes de aceptar, cambia el importe del movimiento previsto.
     with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-1",
-            tipo="L",
-            codigo_facturacion="L1",
-            descripcion="Local comercial",
-            direccion="Dirección",
-            poblacion="Madrid",
-            provincia="Madrid",
-        )
+        with session.begin():
+            previsto = session.get(
+                MovimientoPrevisto,
+                ids["p_comunidad"],
+            )
+            previsto.importe_esperado = 11000
 
-        previsto = MovimientoPrevisto(
-            inmueble=inmueble,
-            fecha_prevista_desde=date(2026, 9, 1),
-            fecha_prevista_hasta=date(2026, 9, 5),
-            naturaleza="GASTO",
-            concepto="Comunidad septiembre",
-            importe_esperado=10000,
-            contraparte="",
-            estado="PENDIENTE",
-        )
-
-        bancario = MovimientoBancario(
-            fecha=date(2026, 9, 2),
-            naturaleza="GASTO",
-            importe=10000,
-            tipo_original="RECIBO",
-            descripcion_original="C.P. LOCAL PRUEBA",
-            referencia_bancaria="",
-            huella_importacion="a" * 64,
-            estado="PENDIENTE",
-        )
-
-        session.add_all(
-            [
-                inmueble,
-                previsto,
-                bancario,
-            ]
-        )
-        session.commit()
-
-        previsto_id = previsto.id
-        bancario_id = bancario.id
-
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    # El usuario rechaza la propuesta automática.
+    # El usuario intenta aceptar la propuesta antigua.
     response = client.post(
         (
-            f"/conciliacion/revisar/"
-            f"{bancario_id}/dejar-pendiente"
-        )
+            "/conciliacion/revisar/"
+            f"{ids['b_comunidad']}/aceptar"
+        ),
+        data={
+            "previsto_id": ids["p_comunidad"],
+        },
     )
 
-    assert response.status_code == 302
+    assert response.status_code == 400
 
-    # Después confirma el resto de propuestas de la revisión.
-    response = client.post(
-        "/conciliacion/revisar/confirmar"
-    )
-
-    assert response.status_code == 302
-
-    # La propuesta rechazada no se ha conciliado.
+    # No se concilia ningún movimiento con datos desactualizados.
     with session_factory() as session:
-        bancario = session.get(
-            MovimientoBancario,
-            bancario_id,
-        )
-        previsto = session.get(
-            MovimientoPrevisto,
-            previsto_id,
-        )
+        assert session.get(
+            MovimientoBancario, ids["b_comunidad"]
+        ).estado == "PENDIENTE"
 
-        conciliaciones = session.scalars(
+        assert session.get(
+            MovimientoPrevisto, ids["p_comunidad"]
+        ).estado == "PENDIENTE"
+
+        assert session.scalars(
             select(Conciliacion)
-        ).all()
+        ).all() == []
 
-        assert bancario is not None
-        assert previsto is not None
 
-        assert bancario.estado == "PENDIENTE"
-        assert previsto.estado == "PENDIENTE"
-        assert conciliaciones == []
+def test_aceptar_movimiento_bancario_inexistente() -> None:
+    """Identificar un movimiento inexistente produce un 404."""
+
+    client, session_factory, ids = (
+        crear_escenario_aceptacion_individual()
+    )
+
+    # Se solicita la aceptación de un movimiento inexistente.
+    response = client.post(
+        "/conciliacion/revisar/999999/aceptar",
+        data={
+            "previsto_id": ids["p_comunidad"],
+        },
+    )
+
+    assert response.status_code == 404
+
+    with session_factory() as session:
+        assert session.scalars(
+            select(Conciliacion)
+        ).all() == []
 
 
 def test_conciliar_movimiento_previsto_manualmente_desde_interfaz() -> None:
@@ -1505,5 +1690,205 @@ def test_deshacer_conciliacion_manual_desde_interfaz() -> None:
         assert movimiento.metodo_conciliacion is None
         assert movimiento.notas is None
         assert movimiento.conciliaciones == []
+
+
+
+def test_descartar_pendiente_desde_revision() -> None:
+    """Descarta un movimiento y permanece en la revisión."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        bancario_descartable = MovimientoBancario(
+            fecha=date(2026, 10, 2),
+            naturaleza="GASTO",
+            importe=4500,
+            tipo_original="TARJETA",
+            descripcion_original="Compra particular octubre",
+            referencia_bancaria="",
+            huella_importacion="a" * 64,
+            estado="PENDIENTE",
+        )
+
+        bancario_pendiente = MovimientoBancario(
+            fecha=date(2026, 10, 3),
+            naturaleza="GASTO",
+            importe=7800,
+            tipo_original="RECIBO",
+            descripcion_original="Recibo por investigar",
+            referencia_bancaria="",
+            huella_importacion="b" * 64,
+            estado="PENDIENTE",
+        )
+
+        session.add_all([
+            bancario_descartable,
+            bancario_pendiente,
+        ])
+        session.commit()
+
+        descartable_id = bancario_descartable.id
+        pendiente_id = bancario_pendiente.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario abre Revisar conciliación.
+    response = client.get(
+        "/conciliacion/revisar"
+    )
+
+    assert response.status_code == 200
+    assert "Compra particular octubre" in response.text
+    assert "Recibo por investigar" in response.text
+
+    # La fila pendiente ofrece Descartar y permite
+    # regresar directamente a la revisión.
+    assert (
+        f"/conciliacion/movimientos/{descartable_id}/descartar"
+        in response.text
+    )
+    assert 'name="origen"' in response.text
+    assert 'value="revision"' in response.text
+    assert "Descartar" in response.text
+
+    # El usuario descarta el movimiento particular.
+    response = client.post(
+        (
+            f"/conciliacion/movimientos/"
+            f"{descartable_id}/descartar"
+        ),
+        data={
+            "origen": "revision",
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.location.endswith(
+        "/conciliacion/revisar"
+    )
+
+    # Sólo el movimiento seleccionado cambia de estado.
+    with session_factory() as session:
+        descartado = session.get(
+            MovimientoBancario,
+            descartable_id,
+        )
+        pendiente = session.get(
+            MovimientoBancario,
+            pendiente_id,
+        )
+
+        assert descartado is not None
+        assert pendiente is not None
+
+        assert descartado.estado == "DESCARTADO"
+        assert pendiente.estado == "PENDIENTE"
+
+    # Al volver a la revisión, el descartado desaparece.
+    response = client.get(
+        "/conciliacion/revisar"
+    )
+
+    assert response.status_code == 200
+    assert "Compra particular octubre" not in response.text
+    assert "Recibo por investigar" in response.text
+
+    # El movimiento sigue conservado y puede restaurarse.
+    response = client.get(
+        "/conciliacion/?estado=DESCARTADO"
+    )
+
+    assert response.status_code == 200
+    assert "Compra particular octubre" in response.text
+    assert "Restaurar" in response.text
+
+
+def test_no_descartar_conciliado_desde_revision() -> None:
+    """No permite descartar un movimiento ya conciliado."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        movimiento = MovimientoBancario(
+            fecha=date(2026, 10, 2),
+            naturaleza="INGRESO",
+            importe=85000,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original="Alquiler ya conciliado",
+            referencia_bancaria="",
+            huella_importacion="c" * 64,
+            estado="CONCILIADO",
+        )
+
+        session.add(movimiento)
+        session.commit()
+
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # Se intenta descartar un movimiento ya conciliado.
+    response = client.post(
+        (
+            f"/conciliacion/movimientos/"
+            f"{movimiento_id}/descartar"
+        ),
+        data={
+            "origen": "revision",
+        },
+    )
+
+    assert response.status_code == 400
+
+    # La petición incorrecta no modifica la conciliación.
+    with session_factory() as session:
+        movimiento = session.get(
+            MovimientoBancario,
+            movimiento_id,
+        )
+
+        assert movimiento is not None
+        assert movimiento.estado == "CONCILIADO"
+
+
+def test_descartar_inexistente_desde_revision() -> None:
+    """Un movimiento bancario inexistente produce un 404."""
+
+    app = crear_app_test()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario solicita descartar un movimiento inexistente.
+    response = client.post(
+        "/conciliacion/movimientos/999999/descartar",
+        data={
+            "origen": "revision",
+        },
+    )
+
+    assert response.status_code == 404
 
 

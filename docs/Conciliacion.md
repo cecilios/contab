@@ -108,9 +108,17 @@ No se utiliza por ahora coincidencia aproximada, aprendizaje automático ni comp
 
 ## Confirmación automática individual
 
-Una propuesta automática nunca modifica los movimientos hasta que el usuario la confirma.
+Una propuesta automática nunca modifica los movimientos hasta que el usuario la acepta expresamente.
 
-Para confirmar automáticamente una correspondencia individual, ambos movimientos deben tener la misma naturaleza y exactamente el mismo importe.
+La pantalla **Revisar conciliación** muestra las correspondencias propuestas por Contab.
+
+Cada propuesta con importes coincidentes dispone de un botón **Aceptar**. Al pulsarlo, se confirma inmediatamente y de forma individual esa correspondencia. No existe una confirmación global.
+
+Las propuestas que el usuario no acepta permanecen pendientes, sin necesidad de rechazarlas expresamente.
+
+Para aceptar una correspondencia individual, ambos movimientos deben estar pendientes, tener la misma naturaleza y exactamente el mismo importe.
+
+Antes de guardar la conciliación, el servidor vuelve a calcular la propuesta y verifica que la correspondencia seleccionada sigue siendo válida.
 
 Al confirmarla:
 
@@ -119,11 +127,23 @@ Al confirmarla:
 * el método del movimiento previsto queda registrado como **Individual**;
 * se conserva la relación entre ambos movimientos.
 
-Las propuestas con importes diferentes se muestran separadamente y no pueden confirmarse mediante el proceso automático normal.
+La operación afecta exclusivamente a la pareja aceptada. Después se vuelve a mostrar la revisión con las propuestas actualizadas.
 
-El usuario también puede utilizar **Dejar pendiente** para rechazar temporalmente una propuesta durante la sesión de revisión.
+Las propuestas con importes diferentes se muestran separadamente y no pueden aceptarse mediante este procedimiento. Requieren investigación o resolución manual.
 
-La confirmación conjunta vuelve a calcular las propuestas antes de guardarlas y sólo confirma las correspondencias exactas que continúan siendo válidas.
+### Descarte de movimientos bancarios
+
+La sección **Pendientes** de la pantalla Revisar conciliación permite descartar individualmente movimientos personales o ajenos a Contab mediante el botón **Descartar**.
+
+El descarte es inmediato y no requiere una segunda confirmación.
+
+El movimiento pasa a estado **Descartado** y deja de aparecer en la revisión, que considera únicamente movimientos bancarios pendientes.
+
+El descarte no elimina el movimiento de la base de datos ni modifica los apuntes contables.
+
+Los movimientos descartados siguen disponibles en **Movimientos bancarios**, utilizando el filtro de estado existente. Desde esa pantalla pueden restaurarse a **Pendiente**.
+
+La operación utiliza el mismo servicio de descarte que el listado de movimientos bancarios.
 
 ## Conciliación manual
 

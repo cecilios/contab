@@ -559,7 +559,8 @@ and
 no tie for best score
 ```
 
-Mismatched amounts are shown separately and cannot be bulk-confirmed.
+
+Mismatched amounts are shown separately and cannot be accepted through normal automatic reconciliation.
 
 The review screen is:
 
@@ -567,15 +568,64 @@ The review screen is:
 /conciliacion/revisar
 ```
 
-Rejected proposals for the current review session are stored in:
+Reconciliation proposals are accepted individually.
 
-```python
-session["conciliacion_rechazados"]
+Each exact-amount proposal has an **Aceptar** button. Pressing it immediately confirms only the selected bank/expected movement pair.
+
+There is no bulk confirmation and no temporary proposal rejection mechanism. Unaccepted proposals simply remain pending.
+
+The individual acceptance endpoint is:
+
+```text
+POST /conciliacion/revisar/<movimiento_id>/aceptar
 ```
 
-Bulk confirmation recalculates proposals server-side and only confirms exact-amount matches.
+The form submits:
 
-A confirmed normal correspondence creates a persistent `Conciliacion` and marks both movements reconciled. The expected movement records method `INDIVIDUAL`.
+```text
+previsto_id
+```
+
+Before accepting, the server:
+
+1. verifies that the bank movement is pending;
+2. recalculates its proposal using current pending expected movements and configured aliases;
+3. verifies that the proposed expected movement matches `previsto_id`;
+4. delegates domain validation and state changes to `confirmar_conciliacion()`.
+
+The operation runs in a database transaction.
+
+A successful acceptance creates a persistent `Conciliacion`, marks both movements reconciled and sets the expected movement method to `INDIVIDUAL`.
+
+The user is redirected to the review screen, where proposals are recalculated.
+
+### Discarding bank movements during review
+
+The **Pendientes** section of the review screen offers a **Descartar** button for each bank movement.
+
+It reuses the existing endpoint:
+
+```text
+POST /conciliacion/movimientos/<movimiento_id>/descartar
+```
+
+The review form includes:
+
+```text
+origen = revision
+```
+
+This makes the endpoint redirect back to the review screen after a successful discard.
+
+Discarding is immediate, requires no additional confirmation, and changes the bank movement state to `DESCARTADO`.
+
+Discarded movements no longer appear in reconciliation review because that screen queries only `PENDIENTE` bank movements.
+
+They remain accessible and reversible from the **Movimientos bancarios** listing.
+
+The existing bank movement state filter is sufficient for the user's current needs. No additional discarded/non-discarded filter or special row coloring is required.
+
+The acceptance and discard workflows are covered by route integration tests, including validation failures and persistence.
 
 ## Manual reconciliation
 
