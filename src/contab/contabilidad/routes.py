@@ -929,9 +929,7 @@ def nuevo_apunte():
 
                 session.add(apunte)
 
-                if (movimiento["crear"]
-                    and apunte.tratamiento != "REPERCUTIR"
-                ):
+                if movimiento["crear"]:
                     movimiento_previsto = crear_movimiento_desde_apunte(
                         apunte=apunte,
                         fecha_prevista_desde=movimiento[

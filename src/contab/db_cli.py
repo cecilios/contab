@@ -72,6 +72,28 @@ def main() -> None:
         required=True,
     )
 
+    stamp_parser = subparsers.add_parser(
+        "stamp",
+        help="Marca la base de datos con una revisión sin ejecutar migraciones.",
+    )
+    stamp_parser.add_argument(
+        "--database",
+        help="Base de datos configurada que se quiere marcar.",
+    )
+    stamp_parser.add_argument(
+        "revision",
+        nargs="?",
+        default="head",
+        help="Revisión que se marcará (por defecto: head).",
+    )
+    stamp_parser.add_argument(
+        "--purge",
+        action="store_true",
+        help=(
+            "Elimina primero las revisiones registradas en alembic_version."
+        ),
+    )
+
     args = parser.parse_args()
 
     config = _alembic_config(args.database)
@@ -84,11 +106,18 @@ def main() -> None:
             config,
             args.revision,
         )
-    
+
     elif args.command == "revision":
         command.revision(
             config,
             message=args.message,
             autogenerate=args.autogenerate,
+        )
+
+    elif args.command == "stamp":
+        command.stamp(
+            config,
+            args.revision,
+            purge=args.purge,
         )
 

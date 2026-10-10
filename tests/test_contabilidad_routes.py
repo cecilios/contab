@@ -548,7 +548,7 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
         assert movimiento.metodo_conciliacion is None
 
 
-def test_crear_apunte_repercutir_no_crea_movimiento_previsto(
+def test_crear_apunte_repercutir_crea_movimiento_previsto(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -663,16 +663,18 @@ def test_crear_apunte_repercutir_no_crea_movimiento_previsto(
     assert response.status_code == 302
 
     with session_factory() as session:
-        apunte = session.scalar(
-            select(ApunteContable)
-        )
+        apunte = session.scalar(select(ApunteContable))
+        movimiento = session.scalar(select(MovimientoPrevisto))
 
         assert apunte is not None
         assert apunte.tratamiento == "REPERCUTIR"
 
-        assert session.scalar(
-            select(MovimientoPrevisto)
-        ) is None
+
+        assert movimiento is not None
+        assert movimiento.apunte_id == apunte.id
+        assert movimiento.naturaleza == "GASTO"
+        assert movimiento.importe_esperado == apunte.total
+        assert movimiento.estado == "PENDIENTE"
 
 
 def test_crear_apunte_sin_movimiento_previsto(
@@ -3243,38 +3245,5 @@ GAS_TRIBUTOS.IBI = IBI
         assert movimiento.fecha_prevista_hasta == date(
             2026, 9, 30
         )
-
-
-def test_formulario_incluye_logica_para_repercutir_sin_movimiento() -> None:
-    app = crear_app_test()
-    client = app.test_client()
-
-    client.post(
-        "/",
-        data={"database": "test"},
-    )
-
-    response = client.get(
-        "/contabilidad/nuevo"
-    )
-
-    assert response.status_code == 200
-
-    assert (
-        'input[name="tratamiento"]:checked'
-        in response.text
-    )
-    assert (
-        'tratamiento === "REPERCUTIR"'
-        in response.text
-    )
-    assert (
-        "crearMovimiento.disabled = true"
-        in response.text
-    )
-    assert (
-        "crearMovimiento.checked = false"
-        in response.text
-    )
 
 
