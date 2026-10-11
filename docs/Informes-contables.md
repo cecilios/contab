@@ -64,15 +64,19 @@ El objetivo es producir archivos fáciles de inspeccionar, reutilizar y adaptar,
 ## Apuntes incluidos
 --------------------
 
-Los informes contables ordinarios incluyen únicamente los apuntes con tratamiento **CONTABILIZAR**.
+El tratamiento del apunte determina qué parte constituye realmente ingreso o gasto del propietario.
 
-Los tratamientos tienen esta interpretación:
+El criterio funcional es:
 
 - **CONTABILIZAR:** el ingreso o gasto forma parte de la contabilidad del propietario.
-- **REPERCUTIR:** el importe se traslada al inquilino y no forma parte de los informes contables ordinarios.
-- **FACTURAR:** el importe se incluirá en una factura al inquilino y queda fuera del informe hasta que el proceso correspondiente genere los apuntes definitivos.
+- **REPERCUTIR:** la parte atribuida a un inquilino y posteriormente reembolsada no constituye gasto del propietario. La parte que no pueda atribuirse a ningún contrato permanece como gasto del propietario.
+- **FACTURAR:** el gasto forma parte íntegramente de la contabilidad del propietario. Cuando posteriormente se facture al inquilino, la factura producirá además su correspondiente ingreso contable.
 
-Esta separación evita contabilizar como gasto propio importes que realmente corresponden al inquilino.
+Por tanto, `FACTURAR` no elimina ni aplaza contablemente el gasto original.
+
+En `REPERCUTIR`, la exclusión de los informes debe aplicarse únicamente a la parte efectivamente atribuida a contratos. Una parte sin contrato aplicable sigue correspondiendo al propietario.
+
+La implementación de los informes deberá utilizar las distribuciones e imputaciones persistidas cuando esos procesos estén completados, evitando recalcular decisiones históricas.
 
 ## Clasificación contable
 -------------------------
@@ -158,16 +162,22 @@ Es una estimación orientativa, no un cálculo fiscal definitivo.
 ## Inmuebles subdivididos
 -------------------------
 
-Un inmueble subdividido representa la propiedad común de varios locales alquilables. Algunos gastos, como el IBI o la comunidad, pertenecen al inmueble completo.
+Un inmueble de tipo `T` representa la propiedad común de varios locales alquilables. Algunos gastos, como el IBI, el seguro o la comunidad, pertenecen al conjunto de la propiedad.
 
-El tratamiento depende del informe:
+Los apuntes registrados en un inmueble `T` no constituyen contabilidad propia del contenedor. Al crearse se distribuyen entre sus locales hijo según la participación configurada.
 
-- En el control del IVA, un apunte **CONTABILIZAR** del inmueble subdividido puede mostrarse como gasto del propio inmueble.
-- En informes orientados al IRPF, esos gastos deberán repartirse proporcionalmente entre los locales, porque Hacienda exige declarar ingresos y gastos por inmueble o contrato alquilado.
-- Los apuntes **REPERCUTIR** no se incluyen como gastos del propietario.
-- Los apuntes **FACTURAR** producirán el gasto y, posteriormente, el ingreso correspondiente mediante la facturación.
+La distribución se conserva persistentemente en `DistribucionApunte`, incluyendo la participación utilizada y los importes resultantes. De esta forma, un cambio posterior de participaciones no altera el reparto histórico.
 
-No se ha creado por ahora una tabla permanente de distribuciones. El reparto podrá calcularse al generar cada informe, salvo que una necesidad real demuestre que conviene conservarlo.
+A partir de cada distribución se aplica el tratamiento del apunte:
+
+- **CONTABILIZAR:** toda la parte distribuida corresponde al propietario y debe aparecer en la contabilidad del local.
+- **REPERCUTIR:** la parte atribuida temporalmente a contratos se excluye como gasto del propietario; los períodos sin contrato permanecen como gasto del propietario.
+- **FACTURAR:** toda la parte distribuida continúa siendo gasto del propietario. La parte atribuida a contratos podrá incorporarse posteriormente a factura.
+
+La distribución espacial y la atribución temporal son operaciones distintas:
+
+- `DistribucionApunte` determina a qué local corresponde el gasto;
+- `ImputacionContrato` determina qué parte de ese gasto corresponde a cada contrato.
 
 ## Datos catastrales
 --------------------
@@ -216,7 +226,7 @@ Los siguientes informes se decidirán a partir de necesidades fiscales reales. L
 
 1. Informes básicos para la declaración trimestral del IVA.
 2. Informes anuales orientados al IRPF o IRNR.
-3. Distribución proporcional de gastos comunes de inmuebles subdivididos cuando el informe lo requiera.
+3. Integración de `DistribucionApunte` e `ImputacionContrato` en los distintos informes fiscales.
 4. Nuevas agrupaciones cuando cambien los formularios de Hacienda.
 
 El criterio rector es conservar datos suficientemente detallados y generar sólo los informes que aporten utilidad comprobada, manteniendo el código y la interfaz lo más sencillos posible.

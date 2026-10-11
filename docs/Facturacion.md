@@ -546,16 +546,23 @@ Cuando ya existen efectos que no pueden eliminarse mediante los flujos ordinario
 
 ---
 
-La factura puede contener gastos que deban cobrarse al inquilino además de la renta.
+Una factura puede contener, además de la renta, gastos previamente registrados en contabilidad que deban cobrarse al inquilino.
 
 Debe distinguirse claramente entre:
 
-- **distribuir** un gasto entre inmuebles a efectos contables o analíticos;
-- **repercutir** al inquilino una cantidad que debe pagar.
+- **distribuir**: repartir espacialmente un gasto común de un inmueble `T` entre sus locales;
+- **repercutir**: exigir al inquilino el reembolso de un gasto sin convertirlo en ingreso fiscal;
+- **facturar**: incorporar a una factura un gasto que sigue siendo contablemente del propietario.
 
-El modelo contempla líneas de repercusión de gastos, pero el flujo completo de gastos, distribución y repercusión todavía no está desarrollado.
+La distribución de los gastos de inmuebles `T` ya se conserva mediante `DistribucionApunte`.
 
-Esta funcionalidad se abordará a partir de casos reales, especialmente los gastos agrupados que aparecen durante el ejercicio, evitando introducir manualmente en facturación información que ya pueda existir en contabilidad.
+La atribución temporal de un gasto a contratos se representa mediante `ImputacionContrato`. Esa atribución se calcula a partir del período del gasto y de los contratos que cubren cada parte de dicho período.
+
+Para los apuntes con tratamiento `FACTURAR`, el gasto original continúa formando parte de la contabilidad del propietario. Posteriormente, la parte atribuida a un contrato podrá convertirse en una línea adicional de factura.
+
+La factura producirá entonces su ingreso contable ordinario y su propio movimiento previsto de cobro. Ese movimiento es independiente del movimiento previsto de gasto utilizado para conciliar el pago original al proveedor.
+
+La incorporación automática de estos gastos a la preparación de facturas todavía está pendiente de desarrollo. Debe reutilizar la información ya existente en contabilidad y evitar que el usuario tenga que introducir manualmente una segunda vez el mismo gasto.
 
 ## Contratos sin factura
 

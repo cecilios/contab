@@ -67,11 +67,24 @@ La jerarquía se muestra claramente en el listado para distinguir la propiedad c
 ## Participación
 ----------------
 
-La participación representa el porcentaje que corresponde a cada parte dentro de un inmueble subdividido.
+La participación representa el porcentaje que corresponde a cada local dentro de un inmueble subdividido.
 
-Servirá para repartir gastos comunes en los informes que lo necesiten, especialmente los orientados al IRPF. No todos los informes deben aplicar ese reparto de la misma forma.
+Los hijos de un inmueble de tipo `T` deben tener participaciones positivas cuya suma sea exactamente el 100 %.
 
-El reparto se calculará cuando sea necesario. No se mantiene por ahora un histórico permanente de distribuciones, porque no aporta utilidad suficiente.
+Cuando se registra un apunte contable en el inmueble `T`, Contab utiliza esas participaciones para generar inmediatamente una distribución persistente entre los locales hijo.
+
+La distribución conserva como instantánea:
+
+- el local;
+- la participación utilizada;
+- base;
+- IVA;
+- retención;
+- total.
+
+De esta forma, una modificación posterior de las participaciones no altera la distribución histórica de los apuntes ya registrados.
+
+La participación realiza únicamente el reparto espacial. La posible atribución posterior del gasto a contratos se calcula separadamente según el período del apunte y la vigencia temporal de los contratos.
 
 ## Estado del inmueble
 ----------------------
@@ -335,6 +348,6 @@ Entre las necesidades previsibles están:
 - utilizar el destino del local en documentos e informes;
 - incorporar los valores catastrales a informes fiscales;
 - emplear las rutas documentales al generar facturas;
-- distribuir gastos comunes en los informes que lo exijan.
+- utilizar las distribuciones e imputaciones ya registradas en los informes fiscales que lo requieran.
 
 El criterio rector es mantener un modelo suficientemente previsor, pero desarrollar sólo la interfaz y los procesos que aporten utilidad real al cliente.

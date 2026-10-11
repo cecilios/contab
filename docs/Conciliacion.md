@@ -65,11 +65,20 @@ Al crear manualmente un apunte contable, Contab propone generar también su movi
 
 El movimiento reutiliza del apunte el inmueble, naturaleza, concepto, importe total y tercero. Las fechas previstas son independientes de la fecha contable y pueden dejarse vacías.
 
-Mientras el movimiento está pendiente o cancelado, las modificaciones del apunte se trasladan al movimiento previsto.
+La generación del movimiento previsto no depende del tratamiento contable del apunte. Un gasto `CONTABILIZAR`, `REPERCUTIR` o `FACTURAR` representa igualmente un posible pago al proveedor y puede generar su correspondiente movimiento previsto de gasto.
+
+En `REPERCUTIR` y `FACTURAR` pueden aparecer posteriormente otras operaciones bancarias independientes:
+
+- el ingreso del inquilino correspondiente a una solicitud de reembolso;
+- el cobro de una factura que incluya el gasto.
+
+Estas operaciones posteriores tendrán sus propios movimientos previstos. No sustituyen al movimiento previsto asociado al pago original al proveedor.
+
+Mientras el movimiento del apunte está pendiente o cancelado, las modificaciones del apunte se trasladan al movimiento previsto.
 
 Una vez conciliado total o parcialmente, el inmueble, la naturaleza y el importe del apunte quedan protegidos. Los cambios descriptivos siguen siendo posibles y se sincronizan sin alterar las fechas previstas, estado, método ni notas de conciliación.
 
-Esta relación permite introducir el hecho económico una sola vez y conservar después la separación entre información contable y resolución bancaria.
+Esta separación permite registrar una sola vez el hecho económico original y mantener independientes su tratamiento contable y las distintas operaciones bancarias que puedan derivarse de él.
 
 ## Estado y método de conciliación
 

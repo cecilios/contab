@@ -26,11 +26,13 @@ Esta operativa obliga a registrar información varias veces y a rehacer agrupaci
 ## Operativa prevista con Contab
 --------------------------------
 
-- La facturación creará automáticamente los apuntes de ingresos cuando se implemente su emisión completa.
-- Los gastos y otros ingresos se introducirán manualmente al recibir su documento soporte.
+- La facturación crea automáticamente los apuntes de ingresos al contabilizar una factura o un alquiler sin factura.
+- Los gastos y otros ingresos se introducen manualmente al recibir su documento soporte.
 - Al crear manualmente un apunte se genera por defecto un movimiento previsto para conciliación; el usuario puede desactivar expresamente esta generación cuando no corresponda.
+- La generación de ese movimiento previsto es independiente del tratamiento contable elegido. Un gasto `CONTABILIZAR`, `REPERCUTIR` o `FACTURAR` puede producir igualmente un pago al proveedor que debe conciliarse.
 - Los apuntes pueden corregirse mientras sus movimientos previstos no estén conciliados. Si existe una conciliación total o parcial, no pueden modificarse el inmueble, la naturaleza ni el importe, aunque sí los datos descriptivos.
-- Los apuntes pueden eliminarse mientras no tengan movimientos previstos conciliados total o parcialmente.- Los informes sustituirán la transcripción trimestral y facilitarán las agrupaciones fiscales anuales.
+- Los apuntes pueden eliminarse mientras no tengan movimientos previstos conciliados total o parcialmente.
+- Los informes sustituirán la transcripción trimestral y facilitarán las agrupaciones fiscales anuales.
 - La conciliación bancaria permitirá concentrar la revisión en movimientos no conciliados, duplicados o ausencias esperadas.
 
 ## Entrada de un apunte
@@ -53,6 +55,19 @@ Los períodos servirán más adelante para detectar recibos duplicados, huecos y
 
 Al crear un apunte, el formulario propone generar también un movimiento previsto para conciliación. Esta opción está activada por defecto, pero el usuario puede desactivarla cuando el apunte no deba producir una expectativa bancaria.
 
+La creación del movimiento previsto asociado al apunte es independiente de su tratamiento contable. El tratamiento determina cómo se atribuye posteriormente el gasto, pero no elimina el hecho bancario original.
+
+Por tanto, un gasto marcado como `CONTABILIZAR`, `REPERCUTIR` o `FACTURAR` puede generar un movimiento previsto de gasto correspondiente al pago al proveedor.
+
+En los dos últimos casos podrán aparecer posteriormente operaciones bancarias distintas:
+
+- en `REPERCUTIR`, el ingreso correspondiente al reembolso del inquilino;
+- en `FACTURAR`, el cobro de la factura en la que se incorpore el gasto.
+
+Esas operaciones posteriores tendrán sus propios movimientos previstos y no sustituyen al movimiento previsto del pago original.
+
+El tratamiento determina cómo se utilizará posteriormente el apunte,
+pero no elimina el movimiento bancario correspondiente al pago original.
 Si se genera, el movimiento previsto reutiliza automáticamente:
 
 - el inmueble;
@@ -111,15 +126,18 @@ El formulario sigue el proceso `Validar` y después `Guardar`:
 
 Cada apunte tiene uno de estos tratamientos:
 
-- **Contabilizar**: forma parte de la contabilidad y de los informes.
-- **Trasladar el gasto**: queda pendiente de trasladarlo al inquilino o, en un inmueble subdividido, de distribuirlo entre sus locales.
-- **Facturar**: queda pendiente de incorporarlo a una factura.
+- **Contabilizar (`CONTABILIZAR`)**: el ingreso o gasto pertenece al propietario y forma parte de su contabilidad.
+- **Trasladar el gasto (`REPERCUTIR`)**: el propietario paga inicialmente el gasto, pero la parte atribuible a un inquilino deberá ser reembolsada por éste. Esa parte no constituye gasto fiscal del propietario ni el reembolso constituye ingreso fiscal.
+- **Facturar (`FACTURAR`)**: el gasto pertenece al propietario y forma parte de su contabilidad. Además, la parte atribuible a un inquilino se incorporará posteriormente a una factura, cuyo ingreso se contabilizará normalmente.
 
-Inicialmente, los apuntes marcados para trasladar o facturar se excluyen de los informes contables.
+El tratamiento contable no modifica la conciliación del pago original al proveedor.
 
-En un inmueble normal, trasladar o facturar exige que exista un contrato vigente. Un inmueble sin contrato puede seguir registrando apuntes ordinarios. Un inmueble subdividido puede contabilizar gastos comunes o marcarlos para distribuirlos, pero no facturarlos directamente.
+La existencia de un contrato vigente en la fecha del apunte no es requisito para seleccionar `REPERCUTIR` o `FACTURAR`. La atribución efectiva a contratos se determina posteriormente utilizando el período del gasto y los contratos que correspondan a ese período.
 
-No existe un indicador genérico de «gestionado». El estado se deducirá del proceso correspondiente: distribución, traslado al inquilino o inclusión en factura. Así se evitan estados incoherentes.
+Cuando una parte del gasto no pueda atribuirse a ningún contrato, queda a cargo del propietario.
+
+No existe un indicador genérico de «gestionado». El estado se deduce del proceso correspondiente: imputación a contratos, solicitud de reembolso o inclusión en factura.
+
 
 ## Control de duplicados
 -------------------------
@@ -133,17 +151,23 @@ Más adelante se añadirán avisos de duplicado probable para apuntes sin emisor
 ## Inmuebles subdivididos
 --------------------------
 
-Los gastos comunes se registran en el inmueble subdividido. Su distribución analítica entre los locales se abordará con los informes contables.
+Los gastos comunes de un inmueble de tipo `T` se registran en el inmueble subdividido.
+
+Al crear el apunte, Contab genera automáticamente una distribución persistente entre los locales hijo según sus participaciones. La distribución conserva una copia de los coeficientes y de los importes atribuidos en ese momento.
+
+El pago al proveedor sigue correspondiendo al apunte original del inmueble `T` y su movimiento previsto se vincula a ese apunte, no a cada distribución.
+
+Posteriormente, cada parte distribuida puede atribuirse temporalmente a uno o varios contratos según el período del gasto.
 
 Se mantiene esta distinción terminológica:
 
-- **distribuir**: repartir un gasto común entre los locales para informes;
-- **trasladar o repercutir**: exigir al inquilino el pago de un gasto.
+- **distribuir**: repartir espacialmente un gasto común entre los locales;
+- **repercutir**: exigir al inquilino el reembolso de un gasto;
+- **facturar**: incorporar a una factura un gasto que sigue siendo contablemente del propietario.
 
 ## Trabajo pendiente relacionado
 ---------------------------------
 
-- Distribución de gastos comunes entre locales.
 - Gestión de gastos pendientes de trasladar o facturar.
 - Avisos de duplicados probables, huecos y solapamientos de períodos.
 - Plantillas de conceptos habituales configurables en `contab.ini`.
