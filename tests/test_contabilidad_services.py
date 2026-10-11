@@ -17,6 +17,7 @@ from contab.contabilidad.services import (
     crear_apunte_contable,
     eliminar_apunte_contable,
     modificar_apunte_contable,
+    preparar_imputaciones_contrato,
     proponer_nombre_documento,
 )
 from contab.models import (
@@ -2009,5 +2010,195 @@ def test_imputacion_contrato_no_duplica_contrato_en_distribucion(
         session.flush()
 
     session.rollback()
+
+
+def test_preparar_imputaciones_apunte_normal_contrato_completo() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    imputaciones, propietario = preparar_imputaciones_contrato(
+        apunte=apunte,
+    )
+
+    assert propietario == 0
+    assert len(imputaciones) == 1
+
+    imputacion = imputaciones[0]
+
+    assert imputacion.apunte is apunte
+    assert imputacion.distribucion_apunte is None
+    assert imputacion.contrato is contrato
+    assert imputacion.importe == 10000
+
+
+def test_preparar_imputaciones_apunte_normal_deja_resto_propietario() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 4),
+        fecha_fin=date(2026, 10, 8),
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 10),
+        criterio_periodo="INCLUIR_AMBOS",
+    )
+
+    imputaciones, propietario = preparar_imputaciones_contrato(
+        apunte=apunte,
+    )
+
+    assert propietario == 5000
+    assert len(imputaciones) == 1
+
+    imputacion = imputaciones[0]
+
+    assert imputacion.apunte is apunte
+    assert imputacion.distribucion_apunte is None
+    assert imputacion.contrato is contrato
+    assert imputacion.importe == 5000
+
+
+def test_preparar_imputaciones_apunte_subdividido_usa_distribuciones() -> None:
+    inmueble, local_a, local_b = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    contrato_a = _contrato_para_imputacion(
+        local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    contrato_b = _contrato_para_imputacion(
+        local_b,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    imputaciones, propietario = preparar_imputaciones_contrato(
+        apunte=apunte,
+    )
+
+    assert propietario == 0
+    assert len(imputaciones) == 2
+
+    por_contrato = {
+        imputacion.contrato: imputacion
+        for imputacion in imputaciones
+    }
+
+    imputacion_a = por_contrato[contrato_a]
+    imputacion_b = por_contrato[contrato_b]
+
+    assert imputacion_a.apunte is None
+    assert imputacion_b.apunte is None
+
+    assert (
+        imputacion_a.distribucion_apunte.inmueble
+        is local_a
+    )
+    assert (
+        imputacion_b.distribucion_apunte.inmueble
+        is local_b
+    )
+
+    assert imputacion_a.importe == 6000
+    assert imputacion_b.importe == 4000
+
+
+def test_preparar_imputaciones_subdividido_sin_contrato_deja_parte_propietario() -> None:
+    inmueble, local_a, local_b = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    contrato_a = _contrato_para_imputacion(
+        local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+    )
+
+    imputaciones, propietario = preparar_imputaciones_contrato(
+        apunte=apunte,
+    )
+
+    assert propietario == 4000
+    assert len(imputaciones) == 1
+
+    imputacion = imputaciones[0]
+
+    assert imputacion.contrato is contrato_a
+    assert imputacion.apunte is None
+    assert (
+        imputacion.distribucion_apunte.inmueble
+        is local_a
+    )
+    assert imputacion.importe == 6000
+
+    assert all(
+        imputacion.distribucion_apunte.inmueble
+        is not local_b
+        for imputacion in imputaciones
+    )
 
 

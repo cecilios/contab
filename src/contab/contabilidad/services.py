@@ -14,6 +14,7 @@ from contab.models import (
     ApunteContable,
     Contrato,
     DistribucionApunte,
+    ImputacionContrato,
     Inmueble,
 )
 
@@ -428,6 +429,64 @@ def calcular_reparto_contratos(
             )
 
     return reparto, propietario
+
+
+def preparar_imputaciones_contrato(
+    *,
+    apunte: ApunteContable,
+) -> tuple[list[ImputacionContrato], int]:
+    """Prepara la atribución de un gasto a contratos y propietario."""
+
+    imputaciones: list[
+        ImputacionContrato
+    ] = []
+    propietario = 0
+
+    if apunte.inmueble.tipo != "T":
+        reparto, propietario = calcular_reparto_contratos(
+            inmueble=apunte.inmueble,
+            importe=apunte.total,
+            fecha=apunte.fecha,
+            periodo_desde=apunte.periodo_desde,
+            periodo_hasta=apunte.periodo_hasta,
+            criterio_periodo=apunte.criterio_periodo,
+        )
+
+        for contrato, importe in reparto:
+            imputaciones.append(
+                ImputacionContrato(
+                    apunte=apunte,
+                    contrato=contrato,
+                    importe=importe,
+                )
+            )
+
+        return imputaciones, propietario
+
+    for distribucion in apunte.distribuciones:
+        reparto, parte_propietario = (
+            calcular_reparto_contratos(
+                inmueble=distribucion.inmueble,
+                importe=distribucion.total,
+                fecha=apunte.fecha,
+                periodo_desde=apunte.periodo_desde,
+                periodo_hasta=apunte.periodo_hasta,
+                criterio_periodo=apunte.criterio_periodo,
+            )
+        )
+
+        propietario += parte_propietario
+
+        for contrato, importe in reparto:
+            imputaciones.append(
+                ImputacionContrato(
+                    distribucion_apunte=distribucion,
+                    contrato=contrato,
+                    importe=importe,
+                )
+            )
+
+    return imputaciones, propietario
 
 
 def _preparar_distribuciones(
