@@ -11,6 +11,7 @@ from contab.contabilidad.routes import bp as contabilidad_bp
 from contab.informes.routes import bp as informes_bp
 from contab.conciliacion.routes import bp as conciliacion_bp
 from contab.facturacion.routes import bp as facturacion_bp
+from contab.reembolsos.routes import bp as reembolsos_bp
 from contab.config import (
     cargar_alias_conciliacion,
     cargar_bancos,
@@ -73,6 +74,7 @@ def create_app(
     app.register_blueprint(informes_bp)
     app.register_blueprint(conciliacion_bp)
     app.register_blueprint(facturacion_bp)
+    app.register_blueprint(reembolsos_bp)
 
     @app.route("/", methods=["GET", "POST"])
     def index():

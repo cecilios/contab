@@ -13,6 +13,8 @@ from contab.config import (
 from contab.contabilidad.services import (
     ContabilidadError,
     buscar_documentos_duplicados,
+    buscar_gastos_repercutibles_pendientes,
+    calcular_reparto_contratos_detallado,
     calcular_reparto_contratos,
     crear_apunte_contable,
     eliminar_apunte_contable,
@@ -2200,5 +2202,331 @@ def test_preparar_imputaciones_subdividido_sin_contrato_deja_parte_propietario()
         is not local_b
         for imputacion in imputaciones
     )
+
+
+def test_buscar_gastos_repercutibles_pendientes_apunte_normal(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    pendientes = (
+        buscar_gastos_repercutibles_pendientes(
+            session,
+            contrato=contrato,
+        )
+    )
+
+    assert len(pendientes) == 1
+
+    pendiente = pendientes[0]
+
+    assert pendiente.apunte is apunte
+    assert pendiente.imputacion.apunte is apunte
+    assert (
+        pendiente.imputacion.distribucion_apunte
+        is None
+    )
+    assert pendiente.imputacion.contrato is contrato
+    assert pendiente.imputacion.importe == 10000
+
+
+def test_buscar_gastos_repercutibles_pendientes_ignora_otros_tratamientos(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    for tratamiento in (
+        "CONTABILIZAR",
+        "FACTURAR",
+    ):
+        apunte = crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=_categorias_gastos_comunes(),
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto=tratamiento,
+            base=10000,
+            tratamiento=tratamiento,
+        )
+
+        session.add(apunte)
+
+    session.add_all([
+        inmueble,
+        contrato,
+    ])
+    session.commit()
+
+    pendientes = (
+        buscar_gastos_repercutibles_pendientes(
+            session,
+            contrato=contrato,
+        )
+    )
+
+    assert pendientes == []
+
+
+def test_buscar_gastos_repercutibles_pendientes_subdividido_muestra_apunte_original(
+    session,
+) -> None:
+    inmueble, local_a, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    contrato = _contrato_para_imputacion(
+        local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad edificio",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    pendientes = (
+        buscar_gastos_repercutibles_pendientes(
+            session,
+            contrato=contrato,
+        )
+    )
+
+    assert len(pendientes) == 1
+
+    pendiente = pendientes[0]
+
+    assert pendiente.apunte is apunte
+    assert pendiente.imputacion.apunte is None
+    assert (
+        pendiente.imputacion
+        .distribucion_apunte
+        .apunte
+        is apunte
+    )
+    assert (
+        pendiente.imputacion
+        .distribucion_apunte
+        .inmueble
+        is local_a
+    )
+    assert pendiente.imputacion.importe == 6000
+
+
+def test_gasto_repercutible_puede_estar_gestionado_para_un_contrato_y_pendiente_para_otro(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato_1 = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 1),
+        fecha_fin=date(2026, 10, 4),
+    )
+
+    contrato_2 = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 5),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 10),
+        criterio_periodo="INCLUIR_AMBOS",
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato_1,
+        contrato_2,
+        apunte,
+    ])
+    session.commit()
+
+    session.add(
+        ImputacionContrato(
+            apunte=apunte,
+            contrato=contrato_1,
+            importe=4000,
+        )
+    )
+    session.commit()
+
+    pendientes_1 = (
+        buscar_gastos_repercutibles_pendientes(
+            session,
+            contrato=contrato_1,
+        )
+    )
+
+    pendientes_2 = (
+        buscar_gastos_repercutibles_pendientes(
+            session,
+            contrato=contrato_2,
+        )
+    )
+
+    assert pendientes_1 == []
+
+    assert len(pendientes_2) == 1
+    assert pendientes_2[0].apunte is apunte
+    assert (
+        pendientes_2[0].imputacion.contrato
+        is contrato_2
+    )
+    assert pendientes_2[0].imputacion.importe == 6000
+
+
+def test_reparto_detallado_conserva_dias_del_prorrateo() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 7, 1),
+        fecha_fin=None,
+    )
+
+    reparto, propietario, dias_totales = (
+        calcular_reparto_contratos_detallado(
+            inmueble=inmueble,
+            importe=2839,
+            fecha=date(2026, 8, 13),
+            periodo_desde=date(2026, 6, 1),
+            periodo_hasta=date(2026, 8, 1),
+            criterio_periodo="EXCLUIR_HASTA",
+        )
+    )
+
+    assert dias_totales == 61
+    assert propietario == 1396
+
+    assert len(reparto) == 1
+
+    parte = reparto[0]
+
+    assert parte.contrato is contrato
+    assert parte.dias == 31
+    assert parte.importe == 1443
+
+
+def test_reparto_detallado_sin_periodo_no_tiene_dias() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    reparto, propietario, dias_totales = (
+        calcular_reparto_contratos_detallado(
+            inmueble=inmueble,
+            importe=10000,
+            fecha=date(2026, 10, 1),
+            periodo_desde=None,
+            periodo_hasta=None,
+            criterio_periodo=None,
+        )
+    )
+
+    assert propietario == 0
+    assert dias_totales is None
+    assert len(reparto) == 1
+    assert reparto[0].contrato is contrato
+    assert reparto[0].importe == 10000
+    assert reparto[0].dias is None
 
 

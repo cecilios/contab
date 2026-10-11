@@ -425,3 +425,65 @@ tbody tr:has(
     text-align: right;
 }
 
+/* Reembolsos */
+
+.reembolso-grupo {
+    margin-bottom: 3rem;
+}
+
+.reembolsos-pendientes,
+.reembolso-revision {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.reembolsos-pendientes th,
+.reembolsos-pendientes td,
+.reembolso-revision th,
+.reembolso-revision td {
+    border: 1px solid #999;
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.reembolsos-pendientes th,
+.reembolso-revision th {
+    background-color: #eeeeee;
+}
+
+.reembolsos-pendientes
+input[type="checkbox"] {
+    width: auto;
+    min-width: 0;
+}
+
+.reembolsos-pendientes .numero,
+.reembolso-revision .numero {
+    white-space: nowrap;
+    text-align: right;
+}
+
+.reembolso-revision tfoot th {
+    border-top: 2px solid #666;
+}
+
+.reembolso-texto {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 18rem;
+    font-family: inherit;
+    line-height: 1.5;
+}
+
+.reembolso-acciones {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    align-items: center;
+}
+
+.reembolso-acciones--revision {
+    margin-top: 2rem;
+}

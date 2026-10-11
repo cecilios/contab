@@ -260,6 +260,13 @@ class Contrato(Base):
         back_populates="contrato",
         passive_deletes="all",
     )
+    solicitudes_reembolso: Mapped[
+        list["SolicitudReembolso"]
+    ] = relationship(
+        back_populates="contrato",
+        passive_deletes="all",
+    )
+
 
 class ContratoInquilino(Base):
     """Relaciona un contrato con uno de sus titulares y establece su orden."""
@@ -1127,6 +1134,142 @@ class ImputacionContrato(Base):
     contrato: Mapped["Contrato"] = relationship(
         back_populates="imputaciones",
     )
+
+
+class SolicitudReembolso(Base):
+    """Representa una solicitud de reembolso enviada a un contrato."""
+
+    __tablename__ = "solicitud_reembolso"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    contrato_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "contrato.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    fecha_envio: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    contrato: Mapped["Contrato"] = relationship(
+        back_populates="solicitudes_reembolso",
+    )
+
+    lineas: Mapped[
+        list["SolicitudReembolsoLinea"]
+    ] = relationship(
+        back_populates="solicitud",
+        passive_deletes="all",
+    )
+
+    @property
+    def total(self) -> int:
+        """Devuelve el importe total de la solicitud."""
+
+        return sum(
+            linea.importe
+            for linea in self.lineas
+        )
+
+
+class SolicitudReembolsoLinea(Base):
+    """Conserva un gasto incluido en una solicitud de reembolso."""
+
+    __tablename__ = "solicitud_reembolso_linea"
+
+    __table_args__ = (
+        CheckConstraint(
+            """
+            (
+                apunte_id IS NOT NULL
+                AND distribucion_apunte_id IS NULL
+            )
+            OR
+            (
+                apunte_id IS NULL
+                AND distribucion_apunte_id IS NOT NULL
+            )
+            """,
+            name="ck_solicitud_reembolso_linea_origen",
+        ),
+        CheckConstraint(
+            "importe > 0",
+            name="ck_solicitud_reembolso_linea_importe",
+        ),
+        UniqueConstraint(
+            "solicitud_id",
+            "apunte_id",
+            name="uq_solicitud_reembolso_linea_apunte",
+        ),
+        UniqueConstraint(
+            "solicitud_id",
+            "distribucion_apunte_id",
+            name="uq_solicitud_reembolso_linea_distribucion",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    solicitud_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "solicitud_reembolso.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    apunte_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "apunte_contable.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+
+    distribucion_apunte_id: Mapped[
+        int | None
+    ] = mapped_column(
+        ForeignKey(
+            "distribucion_apunte.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+
+    concepto: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    importe: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    solicitud: Mapped[
+        "SolicitudReembolso"
+    ] = relationship(
+        back_populates="lineas",
+    )
+
+    apunte: Mapped[
+        "ApunteContable | None"
+    ] = relationship()
+
+    distribucion_apunte: Mapped[
+        "DistribucionApunte | None"
+    ] = relationship()
 
 
 class MovimientoPrevisto(Base):

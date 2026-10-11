@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Revisar solicitud de reembolso - Contab
+{% endblock %}
+
+{% block content %}
+<h1>Solicitud de reembolso</h1>
+
+<div class="reembolso-cabecera">
+    <p>
+        <strong>Inmueble:</strong>
+        {{ solicitud.contrato.inmueble.referencia }}
+    </p>
+
+    <p>
+        <strong>Contrato:</strong>
+        {{ destinatario }}
+    </p>
+</div>
+
+<h2>Gastos incluidos</h2>
+
+<table class="reembolso-revision">
+    <thead>
+        <tr>
+            <th>Fecha</th>
+            <th>Factura</th>
+            <th>Total</th>
+            <th>Aplicable</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for linea in solicitud.lineas %}
+            <tr>
+                <td>
+                    {{ fecha_a_texto(linea.apunte.fecha) }}
+                </td>
+
+                <td>
+                    {{ linea.concepto }}
+                </td>
+
+                <td class="numero">
+                    {{ importe_a_texto(
+                        linea.importe_total
+                    ) }}
+                </td>
+
+                <td class="numero">
+                    {{ importe_a_texto(
+                        linea.importe_aplicable
+                    ) }}
+                </td>
+            </tr>
+        {% endfor %}
+    </tbody>
+
+    <tfoot>
+        <tr>
+            <th colspan="2">
+                Total
+            </th>
+
+            <th class="numero">
+                {{ importe_a_texto(
+                    solicitud.lineas
+                    | sum(attribute="importe_total")
+                ) }}
+            </th>
+
+            <th class="numero">
+                {{ importe_a_texto(
+                    solicitud.total
+                ) }}
+            </th>
+        </tr>
+    </tfoot>
+</table>
+
+<h2>Texto para el correo</h2>
+
+<textarea
+    class="reembolso-texto"
+    readonly
+>{{ texto_copiable }}</textarea>
+
+<div class="reembolso-acciones reembolso-acciones--revision">
+    <a href="{{ url_for('reembolsos.listar_pendientes') }}">
+        Volver
+    </a>
+
+    <form method="post">
+        {% for origen in origenes %}
+            <input
+                type="hidden"
+                name="origen"
+                value="{{ origen }}"
+            >
+        {% endfor %}
+
+        <button
+            type="button"
+            disabled
+            title="La confirmación se implementará en el siguiente paso."
+        >
+            Marcar como enviado
+        </button>
+    </form>
+</div>
+{% endblock %}

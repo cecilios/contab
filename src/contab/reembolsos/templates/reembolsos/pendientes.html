@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Reembolsos - Contab
+{% endblock %}
+
+{% block content %}
+<h1>Reembolsos pendientes</h1>
+
+{% if grupos %}
+    {% for grupo in grupos %}
+        <section class="reembolso-grupo">
+            <h2>
+                {{ grupo.contrato.inmueble.referencia }}
+            </h2>
+
+            <p>
+                {{ grupo.destinatario }}
+            </p>
+
+            <form
+                method="post"
+                action="{{ url_for(
+                    'reembolsos.revisar_solicitud',
+                    contrato_id=grupo.contrato.id
+                ) }}"
+            >
+                <table class="reembolsos-pendientes">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Fecha</th>
+                            <th>Concepto</th>
+                            <th>Período</th>
+                            <th>Importe a repercutir</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for gasto in grupo.gastos %}
+                            <tr>
+                                <td>
+                                    <input
+                                        type="checkbox"
+                                        name="origen"
+                                        value="{{ clave_origen(gasto) }}"
+                                    >
+                                </td>
+
+                                <td>
+                                    {{ fecha_a_texto(
+                                        gasto.apunte.fecha
+                                    ) }}
+                                </td>
+
+                                <td>
+                                    {{ gasto.apunte.concepto }}
+                                </td>
+
+                                <td>
+                                    {% if gasto.apunte.periodo_desde %}
+                                        {{ fecha_a_texto(
+                                            gasto.apunte.periodo_desde
+                                        ) }}
+                                        –
+                                        {{ fecha_a_texto(
+                                            gasto.apunte.periodo_hasta
+                                        ) }}
+                                    {% endif %}
+                                </td>
+
+                                <td class="numero">
+                                    {{ importe_a_texto(
+                                        gasto.imputacion.importe
+                                    ) }}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <div class="reembolso-acciones">
+                    <button type="submit">
+                        Preparar solicitud
+                    </button>
+                </div>
+            </form>
+        </section>
+    {% endfor %}
+{% else %}
+    <p>No hay gastos pendientes de repercutir.</p>
+{% endif %}
+{% endblock %}

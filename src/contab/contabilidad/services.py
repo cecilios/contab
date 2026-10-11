@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 from calendar import monthrange
+from dataclasses import dataclass
 
 from contab.calculos import redondear_division
 from contab.config import (
@@ -22,6 +23,24 @@ from contab.models import (
 
 class ContabilidadError(Exception):
     """Indica que no puede crearse un apunte contable válido."""
+
+
+@dataclass(frozen=True)
+class GastoRepercutiblePendiente:
+    """Describe una parte pendiente de repercutir a un contrato."""
+
+    apunte: ApunteContable
+    imputacion: ImputacionContrato
+
+
+@dataclass(frozen=True)
+class RepartoContratoCalculado:
+    """Describe la parte de un importe atribuida a un contrato."""
+
+    contrato: Contrato
+    importe: int
+    dias: int | None
+
 
 
 def _datos_apunte_contable(
@@ -262,7 +281,87 @@ def _repartir_importe(
     return repartos
 
 
-def calcular_reparto_contratos(
+def _preparar_distribuciones(
+    apunte: ApunteContable,
+) -> None:
+    """Distribuye un apunte de un inmueble subdividido entre sus locales."""
+
+    inmueble = apunte.inmueble
+
+    if inmueble.tipo != "T":
+        return
+
+    locales = sorted(
+        inmueble.locales,
+        key=lambda local: local.referencia,
+    )
+
+    if not locales:
+        raise ContabilidadError(
+            "Un inmueble subdividido debe tener locales "
+            "para distribuir sus apuntes."
+        )
+
+    if sum(
+        local.participacion
+        for local in locales
+    ) != 10000:
+        raise ContabilidadError(
+            "Las participaciones de los locales deben "
+            "sumar el 100 %."
+        )
+
+    bases = _repartir_importe(
+        apunte.base,
+        locales,
+    )
+    ivas = _repartir_importe(
+        apunte.iva_importe,
+        locales,
+    )
+    retenciones = _repartir_importe(
+        apunte.retencion_importe,
+        locales,
+    )
+
+    for local, base, iva, retencion in zip(
+        locales,
+        bases,
+        ivas,
+        retenciones,
+        strict=True,
+    ):
+        apunte.distribuciones.append(
+            DistribucionApunte(
+                inmueble=local,
+                participacion=local.participacion,
+                base=base,
+                iva_importe=iva,
+                retencion_importe=retencion,
+                total=base + iva - retencion,
+            )
+        )
+
+
+def _eliminar_distribuciones(
+    session: Session,
+    apunte: ApunteContable,
+) -> None:
+    """Elimina las distribuciones de un apunte."""
+
+    for distribucion in list(
+        apunte.distribuciones
+    ):
+        apunte.distribuciones.remove(
+            distribucion
+        )
+
+        if inspect(distribucion).persistent:
+            session.delete(distribucion)
+
+
+
+def calcular_reparto_contratos_detallado(
     *,
     inmueble: Inmueble,
     importe: int,
@@ -270,8 +369,12 @@ def calcular_reparto_contratos(
     periodo_desde: date | None,
     periodo_hasta: date | None,
     criterio_periodo: str | None,
-) -> tuple[list[tuple[Contrato, int]], int]:
-    """Reparte un importe entre contratos y propietario según su período."""
+) -> tuple[
+    list[RepartoContratoCalculado],
+    int,
+    int | None,
+]:
+    """Reparte un importe y conserva los días usados en el cálculo."""
 
     if periodo_desde is None:
         contratos = [
@@ -290,9 +393,15 @@ def calcular_reparto_contratos(
             )
 
         if not contratos:
-            return [], importe
+            return [], importe, None
 
-        return [(contratos[0], importe)], 0
+        return [
+            RepartoContratoCalculado(
+                contrato=contratos[0],
+                importe=importe,
+                dias=None,
+            )
+        ], 0, None
 
     if periodo_hasta is None or criterio_periodo is None:
         raise ContabilidadError(
@@ -397,11 +506,12 @@ def calcular_reparto_contratos(
         )
 
     if not destinos:
-        return [], importe
+        return [], importe, dias_totales
 
     reparto: list[
-        tuple[Contrato, int]
+        RepartoContratoCalculado
     ] = []
+
     propietario = 0
     acumulado = 0
 
@@ -425,10 +535,45 @@ def calcular_reparto_contratos(
             propietario = parte
         elif parte:
             reparto.append(
-                (contrato, parte)
+                RepartoContratoCalculado(
+                    contrato=contrato,
+                    importe=parte,
+                    dias=dias,
+                )
             )
 
-    return reparto, propietario
+    return reparto, propietario, dias_totales
+
+
+def calcular_reparto_contratos(
+    *,
+    inmueble: Inmueble,
+    importe: int,
+    fecha: date,
+    periodo_desde: date | None,
+    periodo_hasta: date | None,
+    criterio_periodo: str | None,
+) -> tuple[list[tuple[Contrato, int]], int]:
+    """Reparte un importe entre contratos y propietario según su período."""
+
+    reparto, propietario, _ = (
+        calcular_reparto_contratos_detallado(
+            inmueble=inmueble,
+            importe=importe,
+            fecha=fecha,
+            periodo_desde=periodo_desde,
+            periodo_hasta=periodo_hasta,
+            criterio_periodo=criterio_periodo,
+        )
+    )
+
+    return [
+        (
+            parte.contrato,
+            parte.importe,
+        )
+        for parte in reparto
+    ], propietario
 
 
 def preparar_imputaciones_contrato(
@@ -489,84 +634,87 @@ def preparar_imputaciones_contrato(
     return imputaciones, propietario
 
 
-def _preparar_distribuciones(
-    apunte: ApunteContable,
-) -> None:
-    """Distribuye un apunte de un inmueble subdividido entre sus locales."""
+def buscar_gastos_repercutibles_pendientes(
+    session: Session,
+    *,
+    contrato: Contrato,
+) -> list[GastoRepercutiblePendiente]:
+    """Obtiene gastos todavía pendientes de repercutir a un contrato."""
 
-    inmueble = apunte.inmueble
-
-    if inmueble.tipo != "T":
-        return
-
-    locales = sorted(
-        inmueble.locales,
-        key=lambda local: local.referencia,
-    )
-
-    if not locales:
-        raise ContabilidadError(
-            "Un inmueble subdividido debe tener locales "
-            "para distribuir sus apuntes."
+    imputaciones_existentes = session.scalars(
+        select(ImputacionContrato)
+        .where(
+            ImputacionContrato.contrato_id
+            == contrato.id
         )
+    ).all()
 
-    if sum(
-        local.participacion
-        for local in locales
-    ) != 10000:
-        raise ContabilidadError(
-            "Las participaciones de los locales deben "
-            "sumar el 100 %."
+    apuntes_gestionados = {
+        imputacion.apunte_id
+        for imputacion in imputaciones_existentes
+        if imputacion.apunte_id is not None
+    }
+
+    distribuciones_gestionadas = {
+        imputacion.distribucion_apunte_id
+        for imputacion in imputaciones_existentes
+        if imputacion.distribucion_apunte_id
+        is not None
+    }
+
+    apuntes = session.scalars(
+        select(ApunteContable)
+        .where(
+            ApunteContable.naturaleza == "GASTO",
+            ApunteContable.tratamiento == "REPERCUTIR",
         )
+        .order_by(
+            ApunteContable.fecha,
+            ApunteContable.id,
+        )
+    ).all()
 
-    bases = _repartir_importe(
-        apunte.base,
-        locales,
-    )
-    ivas = _repartir_importe(
-        apunte.iva_importe,
-        locales,
-    )
-    retenciones = _repartir_importe(
-        apunte.retencion_importe,
-        locales,
-    )
+    pendientes: list[
+        GastoRepercutiblePendiente
+    ] = []
 
-    for local, base, iva, retencion in zip(
-        locales,
-        bases,
-        ivas,
-        retenciones,
-        strict=True,
-    ):
-        apunte.distribuciones.append(
-            DistribucionApunte(
-                inmueble=local,
-                participacion=local.participacion,
-                base=base,
-                iva_importe=iva,
-                retencion_importe=retencion,
-                total=base + iva - retencion,
+    for apunte in apuntes:
+        imputaciones, _ = (
+            preparar_imputaciones_contrato(
+                apunte=apunte,
             )
         )
 
+        for imputacion in imputaciones:
+            if imputacion.contrato is not contrato:
+                continue
 
-def _eliminar_distribuciones(
-    session: Session,
-    apunte: ApunteContable,
-) -> None:
-    """Elimina las distribuciones de un apunte."""
+            if imputacion.apunte is not None:
+                if (
+                    imputacion.apunte.id
+                    in apuntes_gestionados
+                ):
+                    continue
 
-    for distribucion in list(
-        apunte.distribuciones
-    ):
-        apunte.distribuciones.remove(
-            distribucion
-        )
+            else:
+                distribucion = (
+                    imputacion.distribucion_apunte
+                )
 
-        if inspect(distribucion).persistent:
-            session.delete(distribucion)
+                if (
+                    distribucion.id
+                    in distribuciones_gestionadas
+                ):
+                    continue
 
+            pendientes.append(
+                GastoRepercutiblePendiente(
+                    apunte=apunte,
+                    imputacion=imputacion,
+                )
+            )
+
+    return pendientes
 
 
 def proponer_nombre_documento(
