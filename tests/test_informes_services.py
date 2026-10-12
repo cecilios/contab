@@ -14,6 +14,8 @@ from contab.informes.services import (
 from contab.models import (
     ApunteContable,
     Contrato,
+    DistribucionApunte,
+    ImputacionContrato,
     Inmueble,
 )
 
@@ -140,20 +142,29 @@ def test_generar_csv_iva_clasifica_y_totaliza_apuntes(
         "",
     ]
 
+    assert filas[posicion + 3] == [
+        "",
+        "Gasto repercutido",
+        "",
+        "30,00",
+        "",
+        "",
+    ]
+
     # Debe existir una fila vacía antes de los totales.
     # Los trimestres con apuntes no separan los totales.
-    assert filas[posicion + 3] == [
+    assert filas[posicion + 4] == [
         "",
         "Totales 1T",
         "1.000,00",
-        "200,00",
+        "230,00",
         "210,00",
         "190,00",
     ]
-    assert filas[posicion + 4] == [
+    assert filas[posicion + 5] == [
         "",
         "Ingresos netos",
-        "800,00",
+        "770,00",
         "",
         "",
         "",
@@ -161,7 +172,6 @@ def test_generar_csv_iva_clasifica_y_totaliza_apuntes(
 
     # Comprobamos filtros y presencia de los cuatro trimestres.
     assert "Gasto de otro año" not in contenido
-    assert "Gasto repercutido" not in contenido
 
     assert sum(
         fila[1] in {"1T", "2T", "3T", "4T"}
@@ -174,7 +184,7 @@ def test_generar_csv_iva_clasifica_y_totaliza_apuntes(
         "",
         "Totales del año",
         "1.000,00",
-        "200,00",
+        "230,00",
         "210,00",
         "190,00",
     ] in filas
@@ -182,7 +192,7 @@ def test_generar_csv_iva_clasifica_y_totaliza_apuntes(
     assert [
         "",
         "Ingresos netos",
-        "800,00",
+        "770,00",
         "",
         "",
         "",
@@ -313,6 +323,17 @@ def test_seleccionar_inmuebles_exportacion_iva(
         activo=False,
     )
 
+    inactivo_con_facturable = Inmueble(
+        referencia="INACTIVO-CON-FACTURABLE",
+        tipo="L",
+        codigo_facturacion="ICF",
+        descripcion="Inactivo con gasto facturable",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        activo=False,
+    )
+
     apunte_actual = ApunteContable(
         inmueble=inactivo_con_apuntes,
         fecha=date(2026, 3, 1),
@@ -341,13 +362,29 @@ def test_seleccionar_inmuebles_exportacion_iva(
         nombre_documento="Comunidad antigua.pdf",
     )
 
+    apunte_facturable = ApunteContable(
+        inmueble=inactivo_con_facturable,
+        fecha=date(2026, 4, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Gasto facturable",
+        base=12000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=12000,
+        tratamiento="FACTURAR",
+        nombre_documento="Gasto facturable.pdf",
+    )
+
     session.add_all(
         [
             activo_sin_apuntes,
             inactivo_con_apuntes,
             inactivo_otro_anio,
+            inactivo_con_facturable,
             apunte_actual,
             apunte_antiguo,
+            apunte_facturable,
         ]
     )
     session.commit()
@@ -358,12 +395,14 @@ def test_seleccionar_inmuebles_exportacion_iva(
             inmuebles=[
                 inactivo_otro_anio,
                 inactivo_con_apuntes,
+                inactivo_con_facturable,
                 activo_sin_apuntes,
                 inmueble,
             ],
             apuntes=[
                 apunte_antiguo,
                 apunte_actual,
+                apunte_facturable,
             ],
             anio=2026,
         )
@@ -375,6 +414,7 @@ def test_seleccionar_inmuebles_exportacion_iva(
     ] == [
         "ACTIVO-SIN-APUNTES",
         "INACTIVO-CON-APUNTES",
+        "INACTIVO-CON-FACTURABLE",
         "LOCAL-1",
     ]
 
@@ -603,6 +643,47 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
             tratamiento="CONTABILIZAR",
             nombre_documento="Comunidad inmueble.pdf",
         ),
+        ApunteContable(
+            inmueble=local,
+            fecha=date(2026, 3, 1),
+            naturaleza="GASTO",
+            categoria="GAS_REPARACIONES",
+            concepto="Reparación a facturar",
+            base=5000,
+            iva_importe=1050,
+            retencion_importe=0,
+            total=6050,
+            tratamiento="FACTURAR",
+            nombre_documento="Reparación a facturar.pdf",
+        ),
+    ]
+
+    gasto_repercutido = ApunteContable(
+            inmueble=piso,
+            fecha=date(2026, 3, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad repercutida",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tratamiento="REPERCUTIR",
+            nombre_documento="Comunidad repercutida.pdf",
+        )
+
+    imputacion = ImputacionContrato(
+        apunte=gasto_repercutido,
+        contrato=contrato_piso,
+        base=6000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=6000,
+    )
+
+    apuntes=[
+        *apuntes,
+        gasto_repercutido,
     ]
 
     session.add_all(
@@ -613,6 +694,7 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
             subdividido_con_apuntes,
             contrato_local,
             contrato_piso,
+            imputacion,
             *apuntes,
         ]
     )
@@ -647,33 +729,28 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
     assert [
         "LOCAL-1",
         "1.000,00",
-        "200,00",
+        "250,00",
         "190,00",
         "210,00",
-        "400,00",
+        "350,00",
     ] in filas
 
     # El piso aplica la estimación indicada del 25 %:
-    # 800 - 100 - 200 = 500.
+    # 800 - 140 - 200 = 460.
     assert [
         "PISO-1",
         "800,00",
-        "100,00",
+        "140,00",
         "200,00",
         "0,00",
-        "500,00",
+        "460,00",
     ] in filas
 
-    # El local subdividido con apuntes aparece
-    # sólo tiene un gasto de 100,00; no tiene ingresos, IVA ni retención
-    assert [
-        "SUBDIVIDIDO-CON-APUNTES",
-        "0,00",
-        "100,00",
-        "0,00",
-        "0,00",
-        "-100,00",
-    ] in filas
+    # Un local subdividido no aparece pues toto se reparte entre sus locales
+    assert (
+        "SUBDIVIDIDO-CON-APUNTES"
+        not in contenido
+    )
     assert (
         "SUBDIVIDIDO-SIN-APUNTES"
         not in contenido
@@ -684,5 +761,687 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
     assert "Totales 1T" in contenido
     assert "Totales del año 2026" in contenido
     assert "Hacienda (25,00%)" in contenido
+
+
+def test_generar_csv_iva_incluye_gasto_facturable(
+    session,
+    inmueble,
+) -> None:
+    """Un gasto FACTURAR sigue siendo gasto del propietario."""
+
+    gasto = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 3, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Gasto a facturar",
+        base=12000,
+        iva_importe=2520,
+        retencion_importe=0,
+        total=14520,
+        tratamiento="FACTURAR",
+        nombre_documento="Gasto a facturar.pdf",
+    )
+
+    session.add(gasto)
+    session.commit()
+
+    contenido = generar_csv_iva(
+        inmueble=inmueble,
+        apuntes=[gasto],
+        anio=2026,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    assert [
+        "",
+        "Gasto a facturar",
+        "",
+        "120,00",
+        "",
+        "",
+    ] in filas
+
+    assert [
+        "",
+        "Totales 1T",
+        "0,00",
+        "120,00",
+        "0,00",
+        "0,00",
+    ] in filas
+
+
+def test_generar_csv_iva_usa_distribucion_de_inmueble_subdividido(
+    session,
+) -> None:
+    """Un gasto de un T se informa en el local hijo según su distribución."""
+
+    inmueble_total = Inmueble(
+        referencia="TOTAL-1",
+        tipo="T",
+        codigo_facturacion="T1",
+        descripcion="Inmueble subdividido",
+        direccion="Dirección total",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    local = Inmueble(
+        inmueble_padre=inmueble_total,
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección local A",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=6000,
+    )
+
+    apunte = ApunteContable(
+        inmueble=inmueble_total,
+        fecha=date(2026, 2, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad general",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=0,
+        total=12100,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Comunidad general.pdf",
+    )
+
+    distribucion = DistribucionApunte(
+        apunte=apunte,
+        inmueble=local,
+        participacion=6000,
+        base=6000,
+        iva_importe=1260,
+        retencion_importe=0,
+        total=7260,
+    )
+
+    session.add_all(
+        [
+            inmueble_total,
+            local,
+            apunte,
+            distribucion,
+        ]
+    )
+    session.commit()
+
+    contenido = generar_csv_iva(
+        inmueble=local,
+        apuntes=[apunte],
+        anio=2026,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    assert [
+        "",
+        "Comunidad general",
+        "",
+        "60,00",
+        "",
+        "",
+    ] in filas
+
+    assert [
+        "",
+        "Totales 1T",
+        "0,00",
+        "60,00",
+        "0,00",
+        "0,00",
+    ] in filas
+
+
+
+
+def test_generar_csv_iva_repercutir_incluye_solo_parte_propietario(
+    session,
+    inmueble,
+    contrato,
+) -> None:
+    """REPERCUTIR excluye la parte atribuida al contrato."""
+
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 3, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad repercutida",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=0,
+        total=12100,
+        tratamiento="REPERCUTIR",
+        nombre_documento="Comunidad repercutida.pdf",
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        base=6000,
+        iva_importe=1260,
+        retencion_importe=0,
+        importe=7260,
+    )
+
+    session.add_all(
+        [
+            apunte,
+            imputacion,
+        ]
+    )
+    session.commit()
+
+    contenido = generar_csv_iva(
+        inmueble=inmueble,
+        apuntes=[apunte],
+        anio=2026,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    assert [
+        "",
+        "Comunidad repercutida",
+        "",
+        "40,00",
+        "",
+        "",
+    ] in filas
+
+    assert [
+        "",
+        "Totales 1T",
+        "0,00",
+        "40,00",
+        "0,00",
+        "0,00",
+    ] in filas
+
+
+def test_generar_csv_iva_repercutir_distribucion_incluye_resto_propietario(
+    session,
+) -> None:
+    """REPERCUTIR sobre un T excluye sólo la parte imputada al contrato."""
+
+    inmueble_total = Inmueble(
+        referencia="TOTAL-1",
+        tipo="T",
+        codigo_facturacion="T1",
+        descripcion="Inmueble subdividido",
+        direccion="Dirección total",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    local = Inmueble(
+        inmueble_padre=inmueble_total,
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección local A",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=6000,
+    )
+
+    contrato = Contrato(
+        inmueble=local,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="",
+        poblacion_facturacion="",
+        provincia_facturacion="",
+        concepto_factura="",
+    )
+
+    apunte = ApunteContable(
+        inmueble=inmueble_total,
+        fecha=date(2026, 2, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad repercutida",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=0,
+        total=12100,
+        tratamiento="REPERCUTIR",
+        nombre_documento="Comunidad repercutida.pdf",
+    )
+
+    distribucion = DistribucionApunte(
+        apunte=apunte,
+        inmueble=local,
+        participacion=6000,
+        base=6000,
+        iva_importe=1260,
+        retencion_importe=0,
+        total=7260,
+    )
+
+    imputacion = ImputacionContrato(
+        distribucion_apunte=distribucion,
+        contrato=contrato,
+        base=4000,
+        iva_importe=840,
+        retencion_importe=0,
+        importe=4840,
+    )
+
+    session.add_all(
+        [
+            inmueble_total,
+            local,
+            contrato,
+            apunte,
+            distribucion,
+            imputacion,
+        ]
+    )
+    session.commit()
+
+    contenido = generar_csv_iva(
+        inmueble=local,
+        apuntes=[apunte],
+        anio=2026,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    assert [
+        "",
+        "Comunidad repercutida",
+        "",
+        "20,00",
+        "",
+        "",
+    ] in filas
+
+    assert [
+        "",
+        "Totales 1T",
+        "0,00",
+        "20,00",
+        "0,00",
+        "0,00",
+    ] in filas
+
+
+def test_generar_csv_resumen_iva_usa_distribucion_de_inmueble_subdividido(
+    session,
+) -> None:
+    """El resumen atribuye al local hijo los gastos distribuidos de un T."""
+
+    inmueble_total = Inmueble(
+        referencia="TOTAL-1",
+        tipo="T",
+        codigo_facturacion="T1",
+        descripcion="Inmueble subdividido",
+        direccion="Dirección total",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    local = Inmueble(
+        inmueble_padre=inmueble_total,
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección local A",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=6000,
+    )
+
+    contrato = Contrato(
+        inmueble=local,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="",
+        poblacion_facturacion="",
+        provincia_facturacion="",
+        concepto_factura="",
+    )
+
+    apunte = ApunteContable(
+        inmueble=inmueble_total,
+        fecha=date(2026, 2, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad general",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Comunidad general.pdf",
+    )
+
+    distribucion = DistribucionApunte(
+        apunte=apunte,
+        inmueble=local,
+        participacion=6000,
+        base=6000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=6000,
+    )
+
+    session.add_all(
+        [
+            inmueble_total,
+            local,
+            contrato,
+            apunte,
+            distribucion,
+        ]
+    )
+    session.commit()
+
+    contenido = generar_csv_resumen_iva(
+        inmuebles=[
+            inmueble_total,
+            local,
+        ],
+        contratos=[
+            contrato,
+        ],
+        apuntes=[
+            apunte,
+        ],
+        anio=2026,
+        porcentaje_irpf_estimado=2500,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    assert [
+        "LOCAL-A",
+        "0,00",
+        "60,00",
+        "0,00",
+        "0,00",
+        "-60,00",
+    ] in filas
+
+    assert "TOTAL-1" not in contenido
+
+
+def test_generar_csv_resumen_iva_repercutir_distribucion_incluye_resto_propietario(
+    session,
+) -> None:
+    """El resumen excluye de una distribución sólo la parte repercutida."""
+
+    inmueble_total = Inmueble(
+        referencia="TOTAL-1",
+        tipo="T",
+        codigo_facturacion="T1",
+        descripcion="Inmueble subdividido",
+        direccion="Dirección total",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    local = Inmueble(
+        inmueble_padre=inmueble_total,
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección local A",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=6000,
+    )
+
+    contrato = Contrato(
+        inmueble=local,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="",
+        poblacion_facturacion="",
+        provincia_facturacion="",
+        concepto_factura="",
+    )
+
+    apunte = ApunteContable(
+        inmueble=inmueble_total,
+        fecha=date(2026, 2, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad repercutida",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=0,
+        total=12100,
+        tratamiento="REPERCUTIR",
+        nombre_documento="Comunidad repercutida.pdf",
+    )
+
+    distribucion = DistribucionApunte(
+        apunte=apunte,
+        inmueble=local,
+        participacion=6000,
+        base=6000,
+        iva_importe=1260,
+        retencion_importe=0,
+        total=7260,
+    )
+
+    imputacion = ImputacionContrato(
+        distribucion_apunte=distribucion,
+        contrato=contrato,
+        base=4000,
+        iva_importe=840,
+        retencion_importe=0,
+        importe=4840,
+    )
+
+    session.add_all(
+        [
+            inmueble_total,
+            local,
+            contrato,
+            apunte,
+            distribucion,
+            imputacion,
+        ]
+    )
+    session.commit()
+
+    contenido = generar_csv_resumen_iva(
+        inmuebles=[
+            inmueble_total,
+            local,
+        ],
+        contratos=[
+            contrato,
+        ],
+        apuntes=[
+            apunte,
+        ],
+        anio=2026,
+        porcentaje_irpf_estimado=2500,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    assert [
+        "LOCAL-A",
+        "0,00",
+        "20,00",
+        "0,00",
+        "0,00",
+        "-20,00",
+    ] in filas
+
+    assert "TOTAL-1" not in contenido
+
+
+def test_generar_csv_resumen_iva_repercutir_distribucion_completa_deja_gasto_cero(
+    session,
+) -> None:
+    """Una distribución totalmente repercutida no deja gasto al propietario."""
+
+    inmueble_total = Inmueble(
+        referencia="TOTAL-1",
+        tipo="T",
+        codigo_facturacion="T1",
+        descripcion="Inmueble subdividido",
+        direccion="Dirección total",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    local = Inmueble(
+        inmueble_padre=inmueble_total,
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección local A",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=6000,
+    )
+
+    contrato = Contrato(
+        inmueble=local,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="",
+        poblacion_facturacion="",
+        provincia_facturacion="",
+        concepto_factura="",
+    )
+
+    apunte = ApunteContable(
+        inmueble=inmueble_total,
+        fecha=date(2026, 2, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad repercutida",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tratamiento="REPERCUTIR",
+        nombre_documento="Comunidad repercutida.pdf",
+    )
+
+    distribucion = DistribucionApunte(
+        apunte=apunte,
+        inmueble=local,
+        participacion=6000,
+        base=6000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=6000,
+    )
+
+    imputacion = ImputacionContrato(
+        distribucion_apunte=distribucion,
+        contrato=contrato,
+        base=6000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=6000,
+    )
+
+    session.add_all(
+        [
+            inmueble_total,
+            local,
+            contrato,
+            apunte,
+            distribucion,
+            imputacion,
+        ]
+    )
+    session.commit()
+
+    contenido = generar_csv_resumen_iva(
+        inmuebles=[
+            inmueble_total,
+            local,
+        ],
+        contratos=[
+            contrato,
+        ],
+        apuntes=[
+            apunte,
+        ],
+        anio=2026,
+        porcentaje_irpf_estimado=2500,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    assert [
+        "LOCAL-A",
+        "0,00",
+        "0,00",
+        "0,00",
+        "0,00",
+        "0,00",
+    ] in filas
 
 

@@ -5,13 +5,93 @@ from datetime import date
 from collections.abc import Sequence
 from io import BytesIO, StringIO
 from zipfile import ZIP_DEFLATED, ZipFile
-
 from werkzeug.utils import secure_filename
+
 from contab.models import (
     ApunteContable,
     Contrato,
+    DistribucionApunte,
+    ImputacionContrato,
     Inmueble,
 )
+
+
+
+def _base_propietario(
+    apunte: ApunteContable,
+) -> int:
+    """Devuelve la base del apunte que corresponde al propietario."""
+
+    if apunte.tratamiento in {
+        "CONTABILIZAR",
+        "FACTURAR",
+    }:
+        return apunte.base
+
+    if apunte.tratamiento == "REPERCUTIR":
+        return apunte.base - sum(
+            imputacion.base
+            for imputacion in apunte.imputaciones_contrato
+        )
+
+    return 0
+
+
+def _distribucion_inmueble(
+    *,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+):
+    """Devuelve la distribución del apunte correspondiente al inmueble."""
+
+    return next(
+        (
+            distribucion
+            for distribucion in apunte.distribuciones
+            if distribucion.inmueble_id == inmueble.id
+        ),
+        None,
+    )
+
+
+def _base_propietario_distribucion(
+    distribucion: DistribucionApunte,
+) -> int:
+    """Devuelve la base de la distribución que corresponde al propietario."""
+
+    if distribucion.apunte.tratamiento in {
+        "CONTABILIZAR",
+        "FACTURAR",
+    }:
+        return distribucion.base
+
+    if distribucion.apunte.tratamiento == "REPERCUTIR":
+        return distribucion.base - sum(
+            imputacion.base
+            for imputacion in distribucion.imputaciones_contrato
+        )
+
+    return 0
+
+
+def _base_propietario_inmueble(
+    *,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+) -> int:
+    """Devuelve la base del apunte atribuible al propietario del inmueble."""
+
+    distribucion = _distribucion_inmueble(
+        apunte=apunte,
+        inmueble=inmueble,
+    )
+
+    if distribucion is not None:
+        return _base_propietario_distribucion(
+            distribucion
+        )
+
+    return _base_propietario(apunte)
 
 
 def _importe_irpf_estimado(
@@ -72,11 +152,22 @@ def _totales_inmueble_trimestre(
     apuntes_aplicables = [
         apunte
         for apunte in apuntes
-        if apunte.inmueble_id == inmueble.id
+        if (
+            apunte.inmueble_id == inmueble.id
+            or _distribucion_inmueble(
+                apunte=apunte,
+                inmueble=inmueble,
+            )
+            is not None
+        )
         and apunte.fecha.year == anio
         and (apunte.fecha.month - 1) // 3 + 1
         == trimestre
-        and apunte.tratamiento == "CONTABILIZAR"
+        and apunte.tratamiento in {
+            "CONTABILIZAR",
+            "FACTURAR",
+            "REPERCUTIR",
+        }
     ]
 
     ingresos = sum(
@@ -84,16 +175,22 @@ def _totales_inmueble_trimestre(
         for apunte in apuntes_aplicables
         if apunte.naturaleza == "INGRESO"
     )
+
     gastos = sum(
-        apunte.base
+        _base_propietario_inmueble(
+            apunte=apunte,
+            inmueble=inmueble,
+        )
         for apunte in apuntes_aplicables
         if apunte.naturaleza == "GASTO"
     )
+
     iva = sum(
         apunte.iva_importe
         for apunte in apuntes_aplicables
         if apunte.naturaleza == "INGRESO"
     )
+
     retencion = sum(
         apunte.retencion_importe
         for apunte in apuntes_aplicables
@@ -148,18 +245,35 @@ def seleccionar_inmuebles_exportacion_iva(
 ) -> list[Inmueble]:
     """Selecciona los inmuebles que deben incluirse en la exportación conjunta.
 
-    - Incluye todos los inmuebles activos.
-    - Incluye los inmuebles inactivos que tengan algún apunte
-      CONTABILIZAR durante el año solicitado.
-    - Excluye los inmuebles inactivos sin apuntes aplicables.
+    - Incluye los inmuebles activos que no sean de tipo T.
+    - Incluye los inmuebles inactivos con apuntes aplicables durante el año.
+    - Para apuntes de inmuebles T, incluye los locales de sus distribuciones.
+    - Excluye los inmuebles T como contabilidad propia.
+    - Considera los tratamientos CONTABILIZAR, FACTURAR y REPERCUTIR.
     - Devuelve los inmuebles ordenados por referencia.
     """
-    inmuebles_con_apuntes = {
-        apunte.inmueble_id
-        for apunte in apuntes
-        if apunte.fecha.year == anio
-        and apunte.tratamiento == "CONTABILIZAR"
-    }
+    inmuebles_con_apuntes: set[int] = set()
+
+    for apunte in apuntes:
+        if apunte.fecha.year != anio:
+            continue
+
+        if apunte.tratamiento not in {
+            "CONTABILIZAR",
+            "FACTURAR",
+            "REPERCUTIR",
+        }:
+            continue
+
+        if apunte.inmueble.tipo == "T":
+            inmuebles_con_apuntes.update(
+                distribucion.inmueble_id
+                for distribucion in apunte.distribuciones
+            )
+        else:
+            inmuebles_con_apuntes.add(
+                apunte.inmueble_id
+            )
 
     return sorted(
         (
@@ -201,9 +315,20 @@ def generar_csv_iva(
         (
             apunte
             for apunte in apuntes
-            if apunte.inmueble_id == inmueble.id
+            if (
+                apunte.inmueble_id == inmueble.id
+                or _distribucion_inmueble(
+                    apunte=apunte,
+                    inmueble=inmueble,
+                )
+                is not None
+            )
             and apunte.fecha.year == anio
-            and apunte.tratamiento == "CONTABILIZAR"
+            and apunte.tratamiento in {
+                "CONTABILIZAR",
+                "FACTURAR",
+                "REPERCUTIR",
+            }
         ),
         key=lambda apunte: (
             apunte.fecha,
@@ -275,14 +400,26 @@ def generar_csv_iva(
                 )
 
             else:
-                gastos += apunte.base
+                distribucion = _distribucion_inmueble(
+                    apunte=apunte,
+                    inmueble=inmueble,
+                )
+
+                if distribucion is not None:
+                    base_propietario = _base_propietario_distribucion(
+                        distribucion
+                    )
+                else:
+                    base_propietario = _base_propietario(apunte)
+
+                gastos += base_propietario
 
                 filas.append(
                     [
                         "",
                         apunte.concepto,
                         "",
-                        _formatear_importe(apunte.base),
+                        _formatear_importe(base_propietario),
                         "",
                         "",
                     ]
@@ -400,16 +537,20 @@ def generar_csv_resumen_iva(
     porcentaje_irpf_estimado: int,
 ) -> str:
     """Genera el resumen anual de IVA de todos los inmuebles aplicables.
-        - Incluye todos los inmuebles activos.
-        - Incluye los inactivos con apuntes CONTABILIZAR en el año.
-        - Genera cuatro bloques trimestrales.
-        - Separa los contratos facturables de los pisos y otros.
-        - Calcula ingresos, gastos, retención o IRPF estimado, IVA y neto.
-        - Utiliza la retención registrada cuando existe.
-        - Estima el IRPF al 24 % cuando no existe retención.
-        - Calcula totales trimestrales y anuales.
-        - Utiliza punto y coma como separador y coma decimal.
-        - Genera valores calculados, no fórmulas.
+
+    - Incluye los inmuebles aplicables al ejercicio.
+    - Excluye los inmuebles T como contabilidad propia.
+    - Usa las distribuciones persistidas para atribuir gastos de inmuebles T.
+    - Aplica los tratamientos CONTABILIZAR, FACTURAR y REPERCUTIR.
+    - En REPERCUTIR excluye sólo la parte imputada a contratos.
+    - Genera cuatro bloques trimestrales.
+    - Separa los contratos facturables de los pisos y otros.
+    - Calcula ingresos, gastos, retención o IRPF estimado, IVA y neto.
+    - Utiliza la retención registrada cuando existe.
+    - Estima el IRPF con el porcentaje indicado cuando no existe retención.
+    - Calcula totales trimestrales y anuales.
+    - Utiliza punto y coma como separador y coma decimal.
+    - Genera valores calculados, no fórmulas.
     """
     seleccionados = seleccionar_inmuebles_exportacion_iva(
         inmuebles=inmuebles,
@@ -562,11 +703,14 @@ def generar_zip_iva(
     anio: int,
 ) -> bytes:
     """Genera un ZIP con un CSV anual por cada inmueble aplicable.
-        - Incluye todos los inmuebles activos.
-        - Incluye los inactivos con apuntes CONTABILIZAR en el año.
-        - Genera cada CSV mediante generar_csv_iva.
-        - Utiliza la referencia del inmueble en el nombre del archivo.
-        - Devuelve el contenido completo del ZIP en memoria.
+
+    - Incluye los inmuebles aplicables al ejercicio.
+    - Excluye los inmuebles T como contabilidad propia.
+    - Usa sus distribuciones para incluir los locales correspondientes.
+    - Considera los tratamientos CONTABILIZAR, FACTURAR y REPERCUTIR.
+    - Genera cada CSV mediante generar_csv_iva.
+    - Utiliza la referencia del inmueble en el nombre del archivo.
+    - Devuelve el contenido completo del ZIP en memoria.
     """
     seleccionados = (
         seleccionar_inmuebles_exportacion_iva(
