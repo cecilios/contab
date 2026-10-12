@@ -1,6 +1,6 @@
 [project]
 name = "contab"
-version = "1.4.2a"
+version = "1.4.3a"
 description = "Gestión y conciliación contable de inmuebles"
 requires-python = ">=3.13,<3.14"
 
@@ -51,4 +51,7 @@ contab = [
 ]
 "contab.inquilinos" = [
     "templates/inquilinos/*.html",
+]
+"contab.reembolsos" = [
+    "templates/reembolsos/*.html",
 ]

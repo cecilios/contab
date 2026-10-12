@@ -1,8 +1,8 @@
 """Crear esquema inicial
 
-Revision ID: d8069a13ec24
+Revision ID: b391f7694ec0
 Revises: 
-Create Date: 2026-10-10 18:59:15.182862
+Create Date: 2026-10-12 13:45:38.326602
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'd8069a13ec24'
+revision: str = 'b391f7694ec0'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -183,31 +183,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('apunte_id', 'inmueble_id', name='uq_distribucion_apunte_inmueble')
     )
-    op.create_table('movimiento_previsto',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('inmueble_id', sa.Integer(), nullable=False),
-    sa.Column('contrato_id', sa.Integer(), nullable=True),
-    sa.Column('apunte_id', sa.Integer(), nullable=True),
-    sa.Column('fecha_prevista_desde', sa.Date(), nullable=True),
-    sa.Column('fecha_prevista_hasta', sa.Date(), nullable=True),
-    sa.Column('naturaleza', sa.Text(), nullable=False),
-    sa.Column('concepto', sa.Text(), nullable=False),
-    sa.Column('importe_esperado', sa.Integer(), nullable=False),
-    sa.Column('contraparte', sa.Text(), nullable=False),
-    sa.Column('estado', sa.Text(), nullable=False),
-    sa.Column('metodo_conciliacion', sa.Text(), nullable=True),
-    sa.Column('notas', sa.Text(), nullable=True),
-    sa.CheckConstraint("\n            metodo_conciliacion IS NULL\n            OR metodo_conciliacion IN ('INDIVIDUAL', 'MANUAL')\n            ", name='ck_movimiento_previsto_metodo_conciliacion'),
-    sa.CheckConstraint("estado IN ('PENDIENTE', 'PARCIAL', 'CONCILIADO', 'CANCELADO')", name='ck_movimiento_previsto_estado'),
-    sa.CheckConstraint("naturaleza IN ('INGRESO', 'GASTO')", name='ck_movimiento_previsto_naturaleza'),
-    sa.CheckConstraint('\n            fecha_prevista_desde IS NULL\n            OR fecha_prevista_hasta IS NULL\n            OR fecha_prevista_hasta >= fecha_prevista_desde\n            ', name='ck_movimiento_previsto_fechas_orden'),
-    sa.CheckConstraint('\n            fecha_prevista_hasta IS NULL\n            OR fecha_prevista_desde IS NOT NULL\n            ', name='ck_movimiento_previsto_fechas_completas'),
-    sa.CheckConstraint('importe_esperado > 0', name='ck_movimiento_previsto_importe'),
-    sa.ForeignKeyConstraint(['apunte_id'], ['apunte_contable.id'], ondelete='RESTRICT'),
-    sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
-    sa.ForeignKeyConstraint(['inmueble_id'], ['inmueble.id'], ondelete='RESTRICT'),
-    sa.PrimaryKeyConstraint('id')
-    )
     op.create_table('revision_renta',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('contrato_id', sa.Integer(), nullable=False),
@@ -221,6 +196,13 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('contrato_id', 'fecha_prevista', name='uq_revision_renta_fecha_prevista')
+    )
+    op.create_table('solicitud_reembolso',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('contrato_id', sa.Integer(), nullable=False),
+    sa.Column('fecha_envio', sa.Date(), nullable=False),
+    sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_table('ajuste_renta',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -236,17 +218,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['anexo_id'], ['anexo_contrato.id'], ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('conciliacion',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('movimiento_bancario_id', sa.Integer(), nullable=False),
-    sa.Column('movimiento_previsto_id', sa.Integer(), nullable=False),
-    sa.Column('importe_asociado', sa.Integer(), nullable=False),
-    sa.CheckConstraint('importe_asociado > 0', name='ck_conciliacion_importe_positivo'),
-    sa.ForeignKeyConstraint(['movimiento_bancario_id'], ['movimiento_bancario.id'], ondelete='RESTRICT'),
-    sa.ForeignKeyConstraint(['movimiento_previsto_id'], ['movimiento_previsto.id'], ondelete='RESTRICT'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('movimiento_bancario_id', 'movimiento_previsto_id', name='uq_conciliacion_movimientos')
     )
     op.create_table('factura',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -296,14 +267,49 @@ def upgrade() -> None:
     sa.Column('distribucion_apunte_id', sa.Integer(), nullable=True),
     sa.Column('contrato_id', sa.Integer(), nullable=False),
     sa.Column('importe', sa.Integer(), nullable=False),
+    sa.Column('base', sa.Integer(), nullable=False),
+    sa.Column('iva_importe', sa.Integer(), nullable=False),
+    sa.Column('retencion_importe', sa.Integer(), nullable=False),
     sa.CheckConstraint('\n            (\n                apunte_id IS NOT NULL\n                AND distribucion_apunte_id IS NULL\n            )\n            OR\n            (\n                apunte_id IS NULL\n                AND distribucion_apunte_id IS NOT NULL\n            )\n            ', name='ck_imputacion_contrato_origen'),
+    sa.CheckConstraint('base >= 0', name='ck_imputacion_contrato_base'),
+    sa.CheckConstraint('importe = base + iva_importe - retencion_importe', name='ck_imputacion_contrato_total'),
     sa.CheckConstraint('importe > 0', name='ck_imputacion_contrato_importe'),
+    sa.CheckConstraint('iva_importe >= 0', name='ck_imputacion_contrato_iva'),
+    sa.CheckConstraint('retencion_importe >= 0', name='ck_imputacion_contrato_retencion'),
     sa.ForeignKeyConstraint(['apunte_id'], ['apunte_contable.id'], ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['distribucion_apunte_id'], ['distribucion_apunte.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('apunte_id', 'contrato_id', name='uq_imputacion_contrato_apunte'),
     sa.UniqueConstraint('distribucion_apunte_id', 'contrato_id', name='uq_imputacion_contrato_distribucion')
+    )
+    op.create_table('movimiento_previsto',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('inmueble_id', sa.Integer(), nullable=False),
+    sa.Column('contrato_id', sa.Integer(), nullable=True),
+    sa.Column('apunte_id', sa.Integer(), nullable=True),
+    sa.Column('solicitud_reembolso_id', sa.Integer(), nullable=True),
+    sa.Column('fecha_prevista_desde', sa.Date(), nullable=True),
+    sa.Column('fecha_prevista_hasta', sa.Date(), nullable=True),
+    sa.Column('naturaleza', sa.Text(), nullable=False),
+    sa.Column('concepto', sa.Text(), nullable=False),
+    sa.Column('importe_esperado', sa.Integer(), nullable=False),
+    sa.Column('contraparte', sa.Text(), nullable=False),
+    sa.Column('estado', sa.Text(), nullable=False),
+    sa.Column('metodo_conciliacion', sa.Text(), nullable=True),
+    sa.Column('notas', sa.Text(), nullable=True),
+    sa.CheckConstraint("\n            metodo_conciliacion IS NULL\n            OR metodo_conciliacion IN ('INDIVIDUAL', 'MANUAL')\n            ", name='ck_movimiento_previsto_metodo_conciliacion'),
+    sa.CheckConstraint("estado IN ('PENDIENTE', 'PARCIAL', 'CONCILIADO', 'CANCELADO')", name='ck_movimiento_previsto_estado'),
+    sa.CheckConstraint("naturaleza IN ('INGRESO', 'GASTO')", name='ck_movimiento_previsto_naturaleza'),
+    sa.CheckConstraint('\n            fecha_prevista_desde IS NULL\n            OR fecha_prevista_hasta IS NULL\n            OR fecha_prevista_hasta >= fecha_prevista_desde\n            ', name='ck_movimiento_previsto_fechas_orden'),
+    sa.CheckConstraint('\n            fecha_prevista_hasta IS NULL\n            OR fecha_prevista_desde IS NOT NULL\n            ', name='ck_movimiento_previsto_fechas_completas'),
+    sa.CheckConstraint('importe_esperado > 0', name='ck_movimiento_previsto_importe'),
+    sa.ForeignKeyConstraint(['apunte_id'], ['apunte_contable.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['inmueble_id'], ['inmueble.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['solicitud_reembolso_id'], ['solicitud_reembolso.id'], ondelete='RESTRICT'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('solicitud_reembolso_id')
     )
     op.create_table('renta_contrato',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -317,6 +323,33 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('contrato_id', 'fecha_desde', name='uq_renta_contrato_fecha_desde')
+    )
+    op.create_table('solicitud_reembolso_linea',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('solicitud_id', sa.Integer(), nullable=False),
+    sa.Column('apunte_id', sa.Integer(), nullable=True),
+    sa.Column('distribucion_apunte_id', sa.Integer(), nullable=True),
+    sa.Column('concepto', sa.Text(), nullable=False),
+    sa.Column('importe', sa.Integer(), nullable=False),
+    sa.CheckConstraint('\n            (\n                apunte_id IS NOT NULL\n                AND distribucion_apunte_id IS NULL\n            )\n            OR\n            (\n                apunte_id IS NULL\n                AND distribucion_apunte_id IS NOT NULL\n            )\n            ', name='ck_solicitud_reembolso_linea_origen'),
+    sa.CheckConstraint('importe > 0', name='ck_solicitud_reembolso_linea_importe'),
+    sa.ForeignKeyConstraint(['apunte_id'], ['apunte_contable.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['distribucion_apunte_id'], ['distribucion_apunte.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['solicitud_id'], ['solicitud_reembolso.id'], ondelete='RESTRICT'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('solicitud_id', 'apunte_id', name='uq_solicitud_reembolso_linea_apunte'),
+    sa.UniqueConstraint('solicitud_id', 'distribucion_apunte_id', name='uq_solicitud_reembolso_linea_distribucion')
+    )
+    op.create_table('conciliacion',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('movimiento_bancario_id', sa.Integer(), nullable=False),
+    sa.Column('movimiento_previsto_id', sa.Integer(), nullable=False),
+    sa.Column('importe_asociado', sa.Integer(), nullable=False),
+    sa.CheckConstraint('importe_asociado > 0', name='ck_conciliacion_importe_positivo'),
+    sa.ForeignKeyConstraint(['movimiento_bancario_id'], ['movimiento_bancario.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['movimiento_previsto_id'], ['movimiento_previsto.id'], ondelete='RESTRICT'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('movimiento_bancario_id', 'movimiento_previsto_id', name='uq_conciliacion_movimientos')
     )
     op.create_table('factura_destinatario',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -347,13 +380,15 @@ def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_table('factura_linea')
     op.drop_table('factura_destinatario')
+    op.drop_table('conciliacion')
+    op.drop_table('solicitud_reembolso_linea')
     op.drop_table('renta_contrato')
+    op.drop_table('movimiento_previsto')
     op.drop_table('imputacion_contrato')
     op.drop_table('factura')
-    op.drop_table('conciliacion')
     op.drop_table('ajuste_renta')
+    op.drop_table('solicitud_reembolso')
     op.drop_table('revision_renta')
-    op.drop_table('movimiento_previsto')
     op.drop_table('distribucion_apunte')
     op.drop_table('contrato_inquilino')
     op.drop_table('anexo_contrato')

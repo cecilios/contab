@@ -1071,6 +1071,22 @@ class ImputacionContrato(Base):
             "importe > 0",
             name="ck_imputacion_contrato_importe",
         ),
+        CheckConstraint(
+            "base >= 0",
+            name="ck_imputacion_contrato_base",
+        ),
+        CheckConstraint(
+            "iva_importe >= 0",
+            name="ck_imputacion_contrato_iva",
+        ),
+        CheckConstraint(
+            "retencion_importe >= 0",
+            name="ck_imputacion_contrato_retencion",
+        ),
+        CheckConstraint(
+            "importe = base + iva_importe - retencion_importe",
+            name="ck_imputacion_contrato_total",
+        ),
         UniqueConstraint(
             "apunte_id",
             "contrato_id",
@@ -1115,6 +1131,21 @@ class ImputacionContrato(Base):
     )
 
     importe: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    base: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    iva_importe: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    retencion_importe: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
     )

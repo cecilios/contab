@@ -1777,6 +1777,9 @@ def test_imputacion_contrato_persiste_origen_apunte(
     imputacion = ImputacionContrato(
         apunte=apunte,
         contrato=contrato,
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
         importe=10000,
     )
 
@@ -1823,6 +1826,9 @@ def test_imputacion_contrato_persiste_origen_distribucion(
     imputacion = ImputacionContrato(
         distribucion_apunte=distribucion,
         contrato=contrato,
+        base=distribucion.base,
+        iva_importe=distribucion.iva_importe,
+        retencion_importe=distribucion.retencion_importe,
         importe=distribucion.total,
     )
 
@@ -1886,6 +1892,9 @@ def test_imputacion_contrato_exige_un_unico_origen(
         apunte=apunte,
         distribucion_apunte=distribucion,
         contrato=contrato,
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
         importe=10000,
     )
 
@@ -1898,16 +1907,22 @@ def test_imputacion_contrato_exige_un_unico_origen(
 
 
 @pytest.mark.parametrize(
-    "importe",
+    (
+        "importe",
+        "base",
+        "retencion_importe",
+    ),
     [
-        0,
-        -1,
+        (0, 0, 0),
+        (-1, 0, 1),
     ],
 )
 def test_imputacion_contrato_exige_importe_positivo(
     session,
     contrato,
     importe: int,
+    base: int,
+    retencion_importe: int,
 ) -> None:
     apunte = crear_apunte_contable(
         inmueble=contrato.inmueble,
@@ -1922,6 +1937,9 @@ def test_imputacion_contrato_exige_importe_positivo(
     imputacion = ImputacionContrato(
         apunte=apunte,
         contrato=contrato,
+        base=base,
+        iva_importe=0,
+        retencion_importe=retencion_importe,
         importe=importe,
     )
 
@@ -1951,11 +1969,17 @@ def test_imputacion_contrato_no_duplica_contrato_en_apunte(
         ImputacionContrato(
             apunte=apunte,
             contrato=contrato,
+            base=5000,
+            iva_importe=0,
+            retencion_importe=0,
             importe=5000,
         ),
         ImputacionContrato(
             apunte=apunte,
             contrato=contrato,
+            base=5000,
+            iva_importe=0,
+            retencion_importe=0,
             importe=5000,
         ),
     ])
@@ -1999,11 +2023,17 @@ def test_imputacion_contrato_no_duplica_contrato_en_distribucion(
         ImputacionContrato(
             distribucion_apunte=distribucion,
             contrato=contrato,
+            base=3000,
+            iva_importe=0,
+            retencion_importe=0,
             importe=3000,
         ),
         ImputacionContrato(
             distribucion_apunte=distribucion,
             contrato=contrato,
+            base=3000,
+            iva_importe=0,
+            retencion_importe=0,
             importe=3000,
         ),
     ])
@@ -2080,7 +2110,9 @@ def test_preparar_imputaciones_apunte_normal_deja_resto_propietario() -> None:
         naturaleza="GASTO",
         categoria="GAS_COMUNIDAD",
         concepto="Comunidad",
-        base=10000,
+        base=10001,
+        iva_importe=2101,
+        retencion_importe=1901,
         periodo_desde=date(2026, 10, 1),
         periodo_hasta=date(2026, 10, 10),
         criterio_periodo="INCLUIR_AMBOS",
@@ -2090,7 +2122,7 @@ def test_preparar_imputaciones_apunte_normal_deja_resto_propietario() -> None:
         apunte=apunte,
     )
 
-    assert propietario == 5000
+    assert propietario == 5100
     assert len(imputaciones) == 1
 
     imputacion = imputaciones[0]
@@ -2098,7 +2130,18 @@ def test_preparar_imputaciones_apunte_normal_deja_resto_propietario() -> None:
     assert imputacion.apunte is apunte
     assert imputacion.distribucion_apunte is None
     assert imputacion.contrato is contrato
-    assert imputacion.importe == 5000
+
+    assert imputacion.base == 5001
+    assert imputacion.iva_importe == 1051
+    assert imputacion.retencion_importe == 951
+    assert imputacion.importe == 5101
+
+    assert (
+        imputacion.base
+        + imputacion.iva_importe
+        - imputacion.retencion_importe
+        == imputacion.importe
+    )
 
 
 def test_preparar_imputaciones_apunte_subdividido_usa_distribuciones() -> None:
@@ -2125,7 +2168,9 @@ def test_preparar_imputaciones_apunte_subdividido_usa_distribuciones() -> None:
         naturaleza="GASTO",
         categoria="GAS_COMUNIDAD",
         concepto="Comunidad",
-        base=10000,
+        base=10001,
+        iva_importe=2101,
+        retencion_importe=1901,
     )
 
     imputaciones, propietario = preparar_imputaciones_contrato(
@@ -2155,8 +2200,15 @@ def test_preparar_imputaciones_apunte_subdividido_usa_distribuciones() -> None:
         is local_b
     )
 
-    assert imputacion_a.importe == 6000
-    assert imputacion_b.importe == 4000
+    assert imputacion_a.base == 6001
+    assert imputacion_a.iva_importe == 1261
+    assert imputacion_a.retencion_importe == 1141
+    assert imputacion_a.importe == 6121
+
+    assert imputacion_b.base == 4000
+    assert imputacion_b.iva_importe == 840
+    assert imputacion_b.retencion_importe == 760
+    assert imputacion_b.importe == 4080
 
 
 def test_preparar_imputaciones_subdividido_sin_contrato_deja_parte_propietario() -> None:
@@ -2424,6 +2476,9 @@ def test_gasto_repercutible_puede_estar_gestionado_para_un_contrato_y_pendiente_
         ImputacionContrato(
             apunte=apunte,
             contrato=contrato_1,
+            base=4000,
+            iva_importe=0,
+            retencion_importe=0,
             importe=4000,
         )
     )

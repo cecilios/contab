@@ -191,6 +191,9 @@ def _imputacion_contrato_transitoria(
     *,
     contrato: Contrato,
     importe: int,
+    base: int,
+    iva_importe: int,
+    retencion_importe: int,
     apunte: ApunteContable | None = None,
     distribucion_apunte: DistribucionApunte | None = None,
 ) -> ImputacionContrato:
@@ -209,6 +212,9 @@ def _imputacion_contrato_transitoria(
         ),
         contrato_id=contrato.id,
         importe=importe,
+        base=base,
+        iva_importe=iva_importe,
+        retencion_importe=retencion_importe,
     )
 
     set_committed_value(
@@ -230,6 +236,119 @@ def _imputacion_contrato_transitoria(
     )
 
     return imputacion
+
+
+def _repartir_componentes_contratos(
+    *,
+    inmueble: Inmueble,
+    base: int,
+    iva_importe: int,
+    retencion_importe: int,
+    fecha: date,
+    periodo_desde: date | None,
+    periodo_hasta: date | None,
+    criterio_periodo: str | None,
+) -> tuple[
+    list[tuple[Contrato, int, int, int, int]],
+    int,
+]:
+    """Reparte por contrato los componentes contables de un gasto."""
+
+    reparto_base, propietario_base = (
+        calcular_reparto_contratos(
+            inmueble=inmueble,
+            importe=base,
+            fecha=fecha,
+            periodo_desde=periodo_desde,
+            periodo_hasta=periodo_hasta,
+            criterio_periodo=criterio_periodo,
+        )
+    )
+
+    reparto_iva, propietario_iva = (
+        calcular_reparto_contratos(
+            inmueble=inmueble,
+            importe=iva_importe,
+            fecha=fecha,
+            periodo_desde=periodo_desde,
+            periodo_hasta=periodo_hasta,
+            criterio_periodo=criterio_periodo,
+        )
+    )
+
+    reparto_retencion, propietario_retencion = (
+        calcular_reparto_contratos(
+            inmueble=inmueble,
+            importe=retencion_importe,
+            fecha=fecha,
+            periodo_desde=periodo_desde,
+            periodo_hasta=periodo_hasta,
+            criterio_periodo=criterio_periodo,
+        )
+    )
+
+    bases = dict(reparto_base)
+    ivas = dict(reparto_iva)
+    retenciones = dict(reparto_retencion)
+
+    contratos = {
+        *bases,
+        *ivas,
+        *retenciones,
+    }
+
+    reparto: list[
+        tuple[Contrato, int, int, int, int]
+    ] = []
+
+    for contrato in sorted(
+        contratos,
+        key=lambda contrato: (
+            contrato.fecha_inicio,
+            contrato.id or 0,
+        ),
+    ):
+        parte_base = bases.get(
+            contrato,
+            0,
+        )
+
+        parte_iva = ivas.get(
+            contrato,
+            0,
+        )
+
+        parte_retencion = retenciones.get(
+            contrato,
+            0,
+        )
+
+        importe = (
+            parte_base
+            + parte_iva
+            - parte_retencion
+        )
+
+        if importe <= 0:
+            continue
+
+        reparto.append(
+            (
+                contrato,
+                parte_base,
+                parte_iva,
+                parte_retencion,
+                importe,
+            )
+        )
+
+    propietario = (
+        propietario_base
+        + propietario_iva
+        - propietario_retencion
+    )
+
+    return reparto, propietario
 
 
 
@@ -632,23 +751,43 @@ def preparar_imputaciones_contrato(
     imputaciones: list[
         ImputacionContrato
     ] = []
+
     propietario = 0
 
     if apunte.inmueble.tipo != "T":
-        reparto, propietario = calcular_reparto_contratos(
-            inmueble=apunte.inmueble,
-            importe=apunte.total,
-            fecha=apunte.fecha,
-            periodo_desde=apunte.periodo_desde,
-            periodo_hasta=apunte.periodo_hasta,
-            criterio_periodo=apunte.criterio_periodo,
+        reparto, propietario = (
+            _repartir_componentes_contratos(
+                inmueble=apunte.inmueble,
+                base=apunte.base,
+                iva_importe=apunte.iva_importe,
+                retencion_importe=(
+                    apunte.retencion_importe
+                ),
+                fecha=apunte.fecha,
+                periodo_desde=apunte.periodo_desde,
+                periodo_hasta=apunte.periodo_hasta,
+                criterio_periodo=(
+                    apunte.criterio_periodo
+                ),
+            )
         )
 
-        for contrato, importe in reparto:
+        for (
+            contrato,
+            base,
+            iva_importe,
+            retencion_importe,
+            importe,
+        ) in reparto:
             imputaciones.append(
                 _imputacion_contrato_transitoria(
                     apunte=apunte,
                     contrato=contrato,
+                    base=base,
+                    iva_importe=iva_importe,
+                    retencion_importe=(
+                        retencion_importe
+                    ),
                     importe=importe,
                 )
             )
@@ -657,23 +796,44 @@ def preparar_imputaciones_contrato(
 
     for distribucion in apunte.distribuciones:
         reparto, parte_propietario = (
-            calcular_reparto_contratos(
+            _repartir_componentes_contratos(
                 inmueble=distribucion.inmueble,
-                importe=distribucion.total,
+                base=distribucion.base,
+                iva_importe=(
+                    distribucion.iva_importe
+                ),
+                retencion_importe=(
+                    distribucion.retencion_importe
+                ),
                 fecha=apunte.fecha,
                 periodo_desde=apunte.periodo_desde,
                 periodo_hasta=apunte.periodo_hasta,
-                criterio_periodo=apunte.criterio_periodo,
+                criterio_periodo=(
+                    apunte.criterio_periodo
+                ),
             )
         )
 
         propietario += parte_propietario
 
-        for contrato, importe in reparto:
+        for (
+            contrato,
+            base,
+            iva_importe,
+            retencion_importe,
+            importe,
+        ) in reparto:
             imputaciones.append(
                 _imputacion_contrato_transitoria(
-                    distribucion_apunte=distribucion,
+                    distribucion_apunte=(
+                        distribucion
+                    ),
                     contrato=contrato,
+                    base=base,
+                    iva_importe=iva_importe,
+                    retencion_importe=(
+                        retencion_importe
+                    ),
                     importe=importe,
                 )
             )
