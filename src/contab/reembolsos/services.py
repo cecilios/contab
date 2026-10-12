@@ -1,16 +1,24 @@
 """Implementa la lógica de negocio de los reembolsos de gastos."""
 
 from dataclasses import dataclass
+from datetime import date
 
-from contab.contabilidad.services import (
-    GastoRepercutiblePendiente,
-    calcular_reparto_contratos_detallado,
+from contab.conciliacion.services import (
+    crear_movimiento_previsto,
 )
 from contab.models import (
     ApunteContable,
     Contrato,
     ImputacionContrato,
+    MovimientoPrevisto,
+    SolicitudReembolso,
+    SolicitudReembolsoLinea,
 )
+from contab.contabilidad.services import (
+    GastoRepercutiblePendiente,
+    calcular_reparto_contratos_detallado,
+)
+
 
 
 class ReembolsoError(Exception):
@@ -18,13 +26,29 @@ class ReembolsoError(Exception):
 
 
 @dataclass(frozen=True)
-class LineaSolicitudReembolsoPreparada:
-    """Describe un gasto incluido en una solicitud preparada."""
+class RepartoEspacialReembolso:
+    participacion: int
+    importe_base: int
+    importe_resultante: int
 
+
+@dataclass(frozen=True)
+class ProrrateoTemporalReembolso:
+    dias_totales: int
+    dias_contrato: int
+    importe_base: int
+    importe_resultante: int
+
+
+@dataclass(frozen=True)
+class LineaSolicitudReembolsoPreparada:
     apunte: ApunteContable
     imputacion: ImputacionContrato
     concepto: str
-    importe: int
+    importe_total: int
+    importe_aplicable: int
+    reparto_espacial: RepartoEspacialReembolso | None
+    prorrateo_temporal: ProrrateoTemporalReembolso | None
 
 
 @dataclass(frozen=True)
@@ -40,29 +64,31 @@ class SolicitudReembolsoPreparada:
 
 
 @dataclass(frozen=True)
-class ProrrateoTemporalReembolso:
-    dias_totales: int
-    dias_contrato: int
-    importe_base: int
-    importe_resultante: int
+class ConfirmacionSolicitudReembolso:
+    """Agrupa los efectos de confirmar una solicitud de reembolso."""
+
+    solicitud: SolicitudReembolso
+    imputaciones: tuple[
+        ImputacionContrato,
+        ...,
+    ]
+    movimiento: MovimientoPrevisto
 
 
 @dataclass(frozen=True)
-class RepartoEspacialReembolso:
-    participacion: int
-    importe_base: int
-    importe_resultante: int
+class EliminacionSolicitudReembolso:
+    """Agrupa los objetos que deben eliminarse al deshacer una solicitud."""
 
-
-@dataclass(frozen=True)
-class LineaSolicitudReembolsoPreparada:
-    apunte: ApunteContable
-    imputacion: ImputacionContrato
-    concepto: str
-    importe_total: int
-    importe_aplicable: int
-    reparto_espacial: RepartoEspacialReembolso | None
-    prorrateo_temporal: ProrrateoTemporalReembolso | None
+    solicitud: SolicitudReembolso
+    lineas: tuple[
+        SolicitudReembolsoLinea,
+        ...,
+    ]
+    imputaciones: tuple[
+        ImputacionContrato,
+        ...,
+    ]
+    movimiento: MovimientoPrevisto
 
 
 
@@ -222,3 +248,152 @@ def preparar_solicitud_reembolso(
         lineas=tuple(lineas),
         total=total,
     )
+
+
+def confirmar_solicitud_reembolso(
+    *,
+    preparada: SolicitudReembolsoPreparada,
+    fecha_envio: date,
+) -> ConfirmacionSolicitudReembolso:
+    """Prepara los efectos de marcar una solicitud como enviada."""
+
+    contrato = preparada.contrato
+
+    solicitud = SolicitudReembolso(
+        contrato=contrato,
+        fecha_envio=fecha_envio,
+    )
+
+    imputaciones: list[
+        ImputacionContrato
+    ] = []
+
+    for linea in preparada.lineas:
+        imputacion = linea.imputacion
+
+        if imputacion.contrato is not contrato:
+            raise ReembolsoError(
+                "Todos los gastos deben corresponder "
+                "al contrato de la solicitud."
+            )
+
+        solicitud.lineas.append(
+            SolicitudReembolsoLinea(
+                apunte=imputacion.apunte,
+                distribucion_apunte=(
+                    imputacion.distribucion_apunte
+                ),
+                concepto=linea.concepto,
+                importe=linea.importe_aplicable,
+            )
+        )
+
+        imputaciones.append(
+            imputacion
+        )
+
+    contraparte = " / ".join(
+        titular.inquilino.nombre
+        for titular in sorted(
+            contrato.titulares,
+            key=lambda titular: titular.orden,
+        )
+    )
+
+    movimiento = crear_movimiento_previsto(
+        inmueble=contrato.inmueble,
+        contrato=contrato,
+        naturaleza="INGRESO",
+        concepto="Reembolso de gastos",
+        importe_esperado=preparada.total,
+        contraparte=contraparte,
+    )
+
+    movimiento.solicitud_reembolso = solicitud
+
+    return ConfirmacionSolicitudReembolso(
+        solicitud=solicitud,
+        imputaciones=tuple(imputaciones),
+        movimiento=movimiento,
+    )
+
+
+def preparar_eliminacion_solicitud_reembolso(
+    solicitud: SolicitudReembolso,
+) -> EliminacionSolicitudReembolso:
+    """Valida y prepara los efectos de deshacer una solicitud."""
+
+    movimiento = solicitud.movimiento_previsto
+
+    if movimiento is None:
+        raise ReembolsoError(
+            "La solicitud no tiene movimiento previsto asociado."
+        )
+
+    if movimiento.estado not in {
+        "PENDIENTE",
+        "CANCELADO",
+    }:
+        if movimiento.estado == "PARCIAL":
+            raise ReembolsoError(
+                "No puede eliminarse una solicitud con un "
+                "movimiento parcialmente conciliado."
+            )
+
+        if movimiento.estado == "CONCILIADO":
+            raise ReembolsoError(
+                "No puede eliminarse una solicitud con un "
+                "movimiento conciliado."
+            )
+
+        raise ReembolsoError(
+            "El estado del movimiento previsto no permite "
+            "eliminar la solicitud."
+        )
+
+    lineas = tuple(
+        solicitud.lineas
+    )
+
+    imputaciones: list[
+        ImputacionContrato
+    ] = []
+
+    for linea in lineas:
+        if linea.apunte is not None:
+            candidatos = (
+                linea.apunte.imputaciones_contrato
+            )
+        else:
+            candidatos = (
+                linea.distribucion_apunte
+                .imputaciones_contrato
+            )
+
+        imputacion = next(
+            (
+                candidata
+                for candidata in candidatos
+                if candidata.contrato is solicitud.contrato
+            ),
+            None,
+        )
+
+        if imputacion is None:
+            raise ReembolsoError(
+                "La solicitud no tiene la imputación "
+                "de contrato esperada."
+            )
+
+        imputaciones.append(
+            imputacion
+        )
+
+    return EliminacionSolicitudReembolso(
+        solicitud=solicitud,
+        lineas=lineas,
+        imputaciones=tuple(imputaciones),
+        movimiento=movimiento,
+    )
+
+

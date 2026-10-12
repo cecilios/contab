@@ -1,13 +1,16 @@
 """Define las rutas web para preparar reembolsos de gastos."""
 
 from dataclasses import dataclass
+from datetime import date
 
+from sqlalchemy import select
 from flask import (
     Blueprint,
+    redirect,
     render_template,
     request,
+    url_for,
 )
-from sqlalchemy import select
 
 from contab.context import (
     get_database_name,
@@ -21,10 +24,16 @@ from contab.formato import (
     fecha_a_texto,
     importe_a_texto,
 )
-from contab.models import Contrato
+from contab.models import (
+    Contrato,
+    MovimientoPrevisto,
+    SolicitudReembolso,
+)
 from contab.reembolsos.services import (
     ReembolsoError,
     SolicitudReembolsoPreparada,
+    confirmar_solicitud_reembolso,
+    preparar_eliminacion_solicitud_reembolso,
     preparar_solicitud_reembolso,
 )
 
@@ -47,6 +56,15 @@ class ReembolsosContratoPendientes:
         GastoRepercutiblePendiente,
         ...,
     ]
+
+
+@dataclass(frozen=True)
+class SolicitudReembolsoVisible:
+    """Datos visibles de una solicitud enviada."""
+
+    solicitud: SolicitudReembolso
+    destinatario: str
+
 
 
 def _destinatario_contrato(
@@ -218,6 +236,29 @@ def _texto_solicitud(
     return "\n\n".join(partes)
 
 
+def _render_revision(
+    *,
+    solicitud: SolicitudReembolsoPreparada,
+    origenes: list[str],
+):
+    """Muestra la revisión de una solicitud preparada."""
+
+    return render_template(
+        "reembolsos/revision.html",
+        solicitud=solicitud,
+        origenes=origenes,
+        destinatario=_destinatario_contrato(
+            solicitud.contrato
+        ),
+        database_name=get_database_name(),
+        fecha_a_texto=fecha_a_texto,
+        importe_a_texto=importe_a_texto,
+        texto_copiable=_texto_solicitud(
+            solicitud
+        ),
+    )
+
+
 
 
 @bp.get("/")
@@ -259,9 +300,40 @@ def listar_pendientes():
                 )
             )
 
+        solicitudes_activas = session.scalars(
+            select(SolicitudReembolso)
+            .join(
+                SolicitudReembolso.movimiento_previsto
+            )
+            .where(
+                MovimientoPrevisto.estado.in_(
+                    (
+                        "PENDIENTE",
+                        "PARCIAL",
+                        "CANCELADO",
+                    )
+                )
+            )
+            .order_by(
+                SolicitudReembolso.fecha_envio.desc(),
+                SolicitudReembolso.id.desc(),
+            )
+        ).all()
+
+        solicitudes = [
+            SolicitudReembolsoVisible(
+                solicitud=solicitud,
+                destinatario=_destinatario_contrato(
+                    solicitud.contrato
+                ),
+            )
+            for solicitud in solicitudes_activas
+        ]
+
         return render_template(
             "reembolsos/pendientes.html",
             grupos=grupos,
+            solicitudes=solicitudes,
             database_name=get_database_name(),
             fecha_a_texto=fecha_a_texto,
             importe_a_texto=importe_a_texto,
@@ -319,24 +391,127 @@ def revisar_solicitud(
         return str(exc), 400
 
 
-def _render_revision(
-    *,
-    solicitud: SolicitudReembolsoPreparada,
-    origenes: list[str],
+@bp.post("/<int:contrato_id>/enviar")
+def marcar_como_enviado(
+    contrato_id: int,
 ):
-    """Muestra la revisión de una solicitud preparada."""
+    """Confirma que una solicitud de reembolso ha sido enviada."""
 
-    return render_template(
-        "reembolsos/revision.html",
-        solicitud=solicitud,
-        origenes=origenes,
-        destinatario=_destinatario_contrato(
-            solicitud.contrato
-        ),
-        database_name=get_database_name(),
-        fecha_a_texto=fecha_a_texto,
-        importe_a_texto=importe_a_texto,
-        texto_copiable=_texto_solicitud(
-            solicitud
-        ),
+    origenes = request.form.getlist(
+        "origen"
     )
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                contrato = session.get(
+                    Contrato,
+                    contrato_id,
+                )
+
+                if contrato is None:
+                    return (
+                        "Contrato no encontrado.",
+                        404,
+                    )
+
+                pendientes = (
+                    buscar_gastos_repercutibles_pendientes(
+                        session,
+                        contrato=contrato,
+                    )
+                )
+
+                seleccionados = _seleccionar_gastos(
+                    pendientes,
+                    origenes,
+                )
+
+                preparada = (
+                    preparar_solicitud_reembolso(
+                        contrato=contrato,
+                        gastos=seleccionados,
+                    )
+                )
+
+                confirmacion = (
+                    confirmar_solicitud_reembolso(
+                        preparada=preparada,
+                        fecha_envio=date.today(),
+                    )
+                )
+
+                session.add_all([
+                    confirmacion.solicitud,
+                    confirmacion.movimiento,
+                    *confirmacion.imputaciones,
+                ])
+
+    except ReembolsoError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "reembolsos.listar_pendientes"
+        )
+    )
+
+
+@bp.post("/<int:solicitud_id>/eliminar")
+def eliminar_solicitud_reembolso(
+    solicitud_id: int,
+):
+    """Elimina una solicitud reversible y restaura sus gastos pendientes."""
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as session:
+            with session.begin():
+                solicitud = session.get(
+                    SolicitudReembolso,
+                    solicitud_id,
+                )
+
+                if solicitud is None:
+                    return (
+                        "Solicitud de reembolso no encontrada.",
+                        404,
+                    )
+
+                eliminacion = (
+                    preparar_eliminacion_solicitud_reembolso(
+                        solicitud
+                    )
+                )
+
+                session.delete(
+                    eliminacion.movimiento
+                )
+
+                for linea in eliminacion.lineas:
+                    session.delete(
+                        linea
+                    )
+
+                for imputacion in eliminacion.imputaciones:
+                    session.delete(
+                        imputacion
+                    )
+
+                session.delete(
+                    eliminacion.solicitud
+                )
+
+    except ReembolsoError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for(
+            "reembolsos.listar_pendientes"
+        )
+    )
+
+

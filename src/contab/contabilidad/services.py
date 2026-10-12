@@ -1,10 +1,11 @@
 """Implementa la lógica de negocio de los apuntes contables."""
 
 from datetime import date, timedelta
-from sqlalchemy import inspect, select
-from sqlalchemy.orm import Session
 from calendar import monthrange
 from dataclasses import dataclass
+from sqlalchemy import inspect, select
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from contab.calculos import redondear_division
 from contab.config import (
@@ -184,6 +185,52 @@ def _texto_comparable(texto: str) -> str:
     return " ".join(
         texto.strip().split()
     ).casefold()
+
+
+def _imputacion_contrato_transitoria(
+    *,
+    contrato: Contrato,
+    importe: int,
+    apunte: ApunteContable | None = None,
+    distribucion_apunte: DistribucionApunte | None = None,
+) -> ImputacionContrato:
+    """Crea una imputación calculada sin modificar colecciones ORM."""
+
+    imputacion = ImputacionContrato(
+        apunte_id=(
+            apunte.id
+            if apunte is not None
+            else None
+        ),
+        distribucion_apunte_id=(
+            distribucion_apunte.id
+            if distribucion_apunte is not None
+            else None
+        ),
+        contrato_id=contrato.id,
+        importe=importe,
+    )
+
+    set_committed_value(
+        imputacion,
+        "apunte",
+        apunte,
+    )
+
+    set_committed_value(
+        imputacion,
+        "distribucion_apunte",
+        distribucion_apunte,
+    )
+
+    set_committed_value(
+        imputacion,
+        "contrato",
+        contrato,
+    )
+
+    return imputacion
+
 
 
 def buscar_documentos_duplicados(
@@ -599,7 +646,7 @@ def preparar_imputaciones_contrato(
 
         for contrato, importe in reparto:
             imputaciones.append(
-                ImputacionContrato(
+                _imputacion_contrato_transitoria(
                     apunte=apunte,
                     contrato=contrato,
                     importe=importe,
@@ -624,7 +671,7 @@ def preparar_imputaciones_contrato(
 
         for contrato, importe in reparto:
             imputaciones.append(
-                ImputacionContrato(
+                _imputacion_contrato_transitoria(
                     distribucion_apunte=distribucion,
                     contrato=contrato,
                     importe=importe,

@@ -90,4 +90,80 @@
 {% else %}
     <p>No hay gastos pendientes de repercutir.</p>
 {% endif %}
+
+<h1>Solicitudes enviadas</h1>
+
+{% if solicitudes %}
+    <table class="reembolsos-enviados">
+        <thead>
+            <tr>
+                <th>Fecha</th>
+                <th>Inmueble</th>
+                <th>Contrato</th>
+                <th>Total</th>
+                <th>Estado del cobro</th>
+                <th></th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for item in solicitudes %}
+                {% set solicitud = item.solicitud %}
+                {% set movimiento = solicitud.movimiento_previsto %}
+
+                <tr>
+                    <td>
+                        {{ fecha_a_texto(
+                            solicitud.fecha_envio
+                        ) }}
+                    </td>
+
+                    <td>
+                        {{ solicitud.contrato.inmueble.referencia }}
+                    </td>
+
+                    <td>
+                        {{ item.destinatario }}
+                    </td>
+
+                    <td class="numero">
+                        {{ importe_a_texto(
+                            solicitud.total
+                        ) }}
+                    </td>
+
+                    <td>
+                        {% if movimiento %}
+                            {{ movimiento.estado }}
+                        {% else %}
+                            Sin movimiento
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if (
+                            movimiento
+                            and movimiento.estado
+                                in ["PENDIENTE", "CANCELADO"]
+                        ) %}
+                            <form
+                                method="post"
+                                action="{{ url_for(
+                                    'reembolsos.eliminar_solicitud_reembolso',
+                                    solicitud_id=solicitud.id
+                                ) }}"
+                            >
+                                <button type="submit">
+                                    Eliminar solicitud
+                                </button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p>No hay solicitudes de reembolso enviadas.</p>
+{% endif %}
 {% endblock %}

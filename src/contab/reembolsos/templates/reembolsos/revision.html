@@ -91,7 +91,13 @@
         Volver
     </a>
 
-    <form method="post">
+    <form
+        method="post"
+        action="{{ url_for(
+            'reembolsos.marcar_como_enviado',
+            contrato_id=solicitud.contrato.id
+        ) }}"
+    >
         {% for origen in origenes %}
             <input
                 type="hidden"
@@ -100,11 +106,7 @@
             >
         {% endfor %}
 
-        <button
-            type="button"
-            disabled
-            title="La confirmación se implementará en el siguiente paso."
-        >
+        <button type="submit">
             Marcar como enviado
         </button>
     </form>

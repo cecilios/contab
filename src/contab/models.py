@@ -1170,6 +1170,13 @@ class SolicitudReembolso(Base):
         passive_deletes="all",
     )
 
+    movimiento_previsto: Mapped[
+        "MovimientoPrevisto | None"
+    ] = relationship(
+        back_populates="solicitud_reembolso",
+        uselist=False,
+    )
+
     @property
     def total(self) -> int:
         """Devuelve el importe total de la solicitud."""
@@ -1340,6 +1347,16 @@ class MovimientoPrevisto(Base):
         ),
     )
 
+    solicitud_reembolso_id: Mapped[
+        int | None
+    ] = mapped_column(
+        ForeignKey(
+            "solicitud_reembolso.id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+    )
+
     fecha_prevista_desde: Mapped[
         date | None
     ] = mapped_column(
@@ -1395,6 +1412,12 @@ class MovimientoPrevisto(Base):
 
     apunte: Mapped["ApunteContable | None"] = relationship(
         back_populates="movimientos_previstos",
+    )
+
+    solicitud_reembolso: Mapped[
+        "SolicitudReembolso | None"
+    ] = relationship(
+        back_populates="movimiento_previsto",
     )
 
     conciliaciones: Mapped[

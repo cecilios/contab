@@ -432,6 +432,7 @@ tbody tr:has(
 }
 
 .reembolsos-pendientes,
+.reembolsos-enviados,
 .reembolso-revision {
     width: 100%;
     border-collapse: collapse;
@@ -439,6 +440,8 @@ tbody tr:has(
 
 .reembolsos-pendientes th,
 .reembolsos-pendientes td,
+.reembolsos-enviados th,
+.reembolsos-enviados td,
 .reembolso-revision th,
 .reembolso-revision td {
     border: 1px solid #999;
@@ -448,6 +451,7 @@ tbody tr:has(
 }
 
 .reembolsos-pendientes th,
+.reembolsos-enviados th,
 .reembolso-revision th {
     background-color: #eeeeee;
 }
@@ -462,6 +466,15 @@ input[type="checkbox"] {
 .reembolso-revision .numero {
     white-space: nowrap;
     text-align: right;
+}
+
+.reembolsos-enviados .numero {
+    white-space: nowrap;
+    text-align: right;
+}
+
+.reembolsos-enviados form {
+    margin: 0;
 }
 
 .reembolso-revision tfoot th {

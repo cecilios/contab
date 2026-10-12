@@ -19,8 +19,11 @@ from contab.contabilidad.services import (
 )
 from contab.reembolsos.services import (
     ReembolsoError,
+    confirmar_solicitud_reembolso,
+    preparar_eliminacion_solicitud_reembolso,
     preparar_solicitud_reembolso,
 )
+
 
 
 def _categorias_gastos():
@@ -827,5 +830,457 @@ def test_preparar_solicitud_no_explica_periodo_completamente_cubierto(
     assert linea.importe_aplicable == 2839
     assert linea.reparto_espacial is None
     assert linea.prorrateo_temporal is None
+
+
+def test_confirmar_solicitud_reembolso_prepara_todos_los_efectos(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    gastos = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=gastos,
+    )
+
+    confirmacion = confirmar_solicitud_reembolso(
+        preparada=preparada,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    solicitud = confirmacion.solicitud
+
+    assert solicitud.contrato is contrato
+    assert solicitud.fecha_envio == date(2026, 10, 20)
+    assert solicitud.total == 10000
+
+    assert len(solicitud.lineas) == 1
+
+    linea = solicitud.lineas[0]
+
+    assert linea.apunte is apunte
+    assert linea.distribucion_apunte is None
+    assert linea.concepto == "Comunidad octubre"
+    assert linea.importe == 10000
+
+    assert len(confirmacion.imputaciones) == 1
+
+    imputacion = confirmacion.imputaciones[0]
+
+    assert imputacion.apunte is apunte
+    assert imputacion.contrato is contrato
+    assert imputacion.importe == 10000
+
+    movimiento = confirmacion.movimiento
+
+    assert movimiento.solicitud_reembolso is solicitud
+    assert movimiento.apunte is None
+    assert movimiento.contrato is contrato
+    assert movimiento.inmueble is inmueble
+    assert movimiento.naturaleza == "INGRESO"
+    assert movimiento.concepto == "Reembolso de gastos"
+    assert movimiento.importe_esperado == 10000
+    assert movimiento.estado == "PENDIENTE"
+    assert movimiento.fecha_prevista_desde is None
+    assert movimiento.fecha_prevista_hasta is None
+
+    # comprobar la persistencia
+    session.add_all([
+        confirmacion.solicitud,
+        confirmacion.movimiento,
+        *confirmacion.imputaciones,
+    ])
+    session.commit()
+
+    assert confirmacion.solicitud.id is not None
+    assert confirmacion.movimiento.id is not None
+    assert confirmacion.imputaciones[0].id is not None
+
+    pendientes = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert pendientes == []
+
+
+def test_preparar_eliminacion_solicitud_reembolso(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    gastos = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=gastos,
+    )
+
+    confirmacion = confirmar_solicitud_reembolso(
+        preparada=preparada,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    session.add_all([
+        confirmacion.solicitud,
+        confirmacion.movimiento,
+        *confirmacion.imputaciones,
+    ])
+    session.commit()
+
+    eliminacion = (
+        preparar_eliminacion_solicitud_reembolso(
+            confirmacion.solicitud
+        )
+    )
+
+    assert eliminacion.solicitud is confirmacion.solicitud
+    assert eliminacion.movimiento is confirmacion.movimiento
+
+    assert tuple(
+        eliminacion.solicitud.lineas
+    ) == eliminacion.lineas
+
+    assert (
+        eliminacion.imputaciones
+        == confirmacion.imputaciones
+    )
+
+
+def test_preparar_eliminacion_solicitud_reembolso_permite_cancelado(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    gastos = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=gastos,
+    )
+
+    confirmacion = confirmar_solicitud_reembolso(
+        preparada=preparada,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    confirmacion.movimiento.estado = "CANCELADO"
+
+    session.add_all([
+        confirmacion.solicitud,
+        confirmacion.movimiento,
+        *confirmacion.imputaciones,
+    ])
+    session.commit()
+
+    eliminacion = (
+        preparar_eliminacion_solicitud_reembolso(
+            confirmacion.solicitud
+        )
+    )
+
+    assert eliminacion.movimiento.estado == "CANCELADO"
+
+
+@pytest.mark.parametrize(
+    ("estado", "mensaje"),
+    [
+        (
+            "PARCIAL",
+            "movimiento parcialmente conciliado",
+        ),
+        (
+            "CONCILIADO",
+            "movimiento conciliado",
+        ),
+    ],
+)
+def test_preparar_eliminacion_solicitud_reembolso_rechaza_conciliacion(
+    session,
+    estado: str,
+    mensaje: str,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    gastos = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=gastos,
+    )
+
+    confirmacion = confirmar_solicitud_reembolso(
+        preparada=preparada,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    confirmacion.movimiento.estado = estado
+
+    session.add_all([
+        confirmacion.solicitud,
+        confirmacion.movimiento,
+        *confirmacion.imputaciones,
+    ])
+    session.commit()
+
+    with pytest.raises(
+        ReembolsoError,
+        match=mensaje,
+    ):
+        preparar_eliminacion_solicitud_reembolso(
+            confirmacion.solicitud
+        )
+
+
+def test_preparar_eliminacion_solicitud_reembolso_exige_movimiento(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+
+    solicitud = SolicitudReembolso(
+        contrato=contrato,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        solicitud,
+    ])
+    session.commit()
+
+    with pytest.raises(
+        ReembolsoError,
+        match="movimiento previsto",
+    ):
+        preparar_eliminacion_solicitud_reembolso(
+            solicitud
+        )
+
+
+def test_eliminar_solicitud_hace_que_el_gasto_vuelva_a_estar_pendiente(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    gastos = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=gastos,
+    )
+
+    confirmacion = confirmar_solicitud_reembolso(
+        preparada=preparada,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    session.add_all([
+        confirmacion.solicitud,
+        confirmacion.movimiento,
+        *confirmacion.imputaciones,
+    ])
+    session.commit()
+
+    assert (
+        buscar_gastos_repercutibles_pendientes(
+            session,
+            contrato=contrato,
+        )
+        == []
+    )
+
+    eliminacion = (
+        preparar_eliminacion_solicitud_reembolso(
+            confirmacion.solicitud
+        )
+    )
+
+    session.delete(eliminacion.movimiento)
+
+    for linea in eliminacion.lineas:
+        session.delete(linea)
+
+    for imputacion in eliminacion.imputaciones:
+        session.delete(imputacion)
+
+    session.delete(eliminacion.solicitud)
+
+    session.commit()
+
+    pendientes = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert len(pendientes) == 1
+    assert pendientes[0].apunte is apunte
+    assert pendientes[0].imputacion.importe == 10000
 
 
