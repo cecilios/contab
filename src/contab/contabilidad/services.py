@@ -351,6 +351,25 @@ def _repartir_componentes_contratos(
     return reparto, propietario
 
 
+def _tiene_imputaciones_persistidas(
+    apunte: ApunteContable,
+) -> bool:
+    """Indica si el apunte tiene alguna imputación de contrato persistida."""
+
+    if any(
+        inspect(imputacion).persistent
+        for imputacion in apunte.imputaciones_contrato
+    ):
+        return True
+
+    return any(
+        inspect(imputacion).persistent
+        for distribucion in apunte.distribuciones
+        for imputacion in distribucion.imputaciones_contrato
+    )
+
+
+
 
 def buscar_documentos_duplicados(
     session: Session,
@@ -1060,6 +1079,12 @@ def eliminar_apunte_contable(
 ) -> None:
     """Elimina un apunte y sus movimientos todavía pendientes."""
 
+    if _tiene_imputaciones_persistidas(apunte):
+        raise ContabilidadError(
+            "No puede eliminarse un apunte con "
+            "imputaciones de contrato persistidas."
+        )
+
     if any(
         movimiento.estado in {
             "CONCILIADO",
@@ -1174,6 +1199,19 @@ def modificar_apunte_contable(
         total=datos["total"],
     )
 
+    validar_modificacion_con_imputaciones(
+        apunte=apunte,
+        inmueble=inmueble,
+        fecha=datos["fecha"],
+        base=datos["base"],
+        iva_importe=datos["iva_importe"],
+        retencion_importe=datos["retencion_importe"],
+        periodo_desde=datos["periodo_desde"],
+        periodo_hasta=datos["periodo_hasta"],
+        criterio_periodo=datos["criterio_periodo"],
+        tratamiento=datos["tratamiento"],
+    )
+
     recalcular_distribuciones = (
         inmueble is not apunte.inmueble
         or datos["base"] != apunte.base
@@ -1207,5 +1245,104 @@ def modificar_apunte_contable(
         movimiento.contraparte = apunte.tercero_nombre
 
     return apunte
+
+
+def validar_modificacion_con_imputaciones(
+    *,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+    fecha: date,
+    base: int,
+    iva_importe: int,
+    retencion_importe: int,
+    periodo_desde: date | None,
+    periodo_hasta: date | None,
+    criterio_periodo: str | None,
+    tratamiento: str,
+) -> None:
+    """Impide invalidar imputaciones de contrato ya persistidas."""
+
+    if not _tiene_imputaciones_persistidas(apunte):
+        return
+
+    cambia_reparto = (
+        inmueble is not apunte.inmueble
+        or fecha != apunte.fecha
+        or base != apunte.base
+        or iva_importe != apunte.iva_importe
+        or retencion_importe != apunte.retencion_importe
+        or periodo_desde != apunte.periodo_desde
+        or periodo_hasta != apunte.periodo_hasta
+        or criterio_periodo != apunte.criterio_periodo
+        or tratamiento != apunte.tratamiento
+    )
+
+    if cambia_reparto:
+        raise ContabilidadError(
+            "No pueden modificarse los datos que afectan al reparto "
+            "de un apunte con imputaciones de contrato persistidas."
+        )
+
+
+def test_eliminar_apunte_subdividido_con_imputacion_persistida_se_rechaza(
+    session,
+) -> None:
+    inmueble, local_a, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    contrato = _contrato_para_imputacion(
+        local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    distribucion = next(
+        distribucion
+        for distribucion in apunte.distribuciones
+        if distribucion.inmueble is local_a
+    )
+
+    imputacion = ImputacionContrato(
+        distribucion_apunte=distribucion,
+        contrato=contrato,
+        base=distribucion.base,
+        iva_importe=distribucion.iva_importe,
+        retencion_importe=distribucion.retencion_importe,
+        importe=distribucion.total,
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+        imputacion,
+    ])
+    session.commit()
+
+    with pytest.raises(
+        ContabilidadError,
+        match="imputaciones",
+    ):
+        eliminar_apunte_contable(
+            session,
+            apunte,
+        )
+
+    assert session.get(
+        ApunteContable,
+        apunte.id,
+    ) is apunte
 
 

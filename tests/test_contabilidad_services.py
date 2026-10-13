@@ -2585,3 +2585,384 @@ def test_reparto_detallado_sin_periodo_no_tiene_dias() -> None:
     assert reparto[0].dias is None
 
 
+def test_modificar_apunte_con_imputacion_persistida_rechaza_cambio_economico(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=10000,
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+        imputacion,
+    ])
+    session.commit()
+
+    with pytest.raises(
+        ContabilidadError,
+        match="imputaciones",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            inmueble=inmueble,
+            categorias=_categorias_gastos_comunes(),
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=12000,
+            tratamiento="REPERCUTIR",
+        )
+
+    assert apunte.base == 10000
+    assert apunte.total == 10000
+
+
+@pytest.mark.parametrize(
+    "cambios",
+    [
+        {
+            "fecha": date(2026, 10, 2),
+        },
+        {
+            "base": 12000,
+        },
+        {
+            "iva_importe": 2100,
+        },
+        {
+            "retencion_importe": 1000,
+        },
+        {
+            "periodo_desde": date(2026, 9, 1),
+            "periodo_hasta": date(2026, 9, 30),
+            "criterio_periodo": "INCLUIR_AMBOS",
+        },
+        {
+            "tratamiento": "FACTURAR",
+        },
+    ],
+)
+def test_modificar_apunte_con_imputacion_persistida_rechaza_cambios_de_reparto(
+    session,
+    cambios,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=10000,
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+        imputacion,
+    ])
+    session.commit()
+
+    datos = {
+        "fecha": apunte.fecha,
+        "base": apunte.base,
+        "iva_importe": apunte.iva_importe,
+        "retencion_importe": apunte.retencion_importe,
+        "periodo_desde": apunte.periodo_desde,
+        "periodo_hasta": apunte.periodo_hasta,
+        "criterio_periodo": apunte.criterio_periodo,
+        "tratamiento": apunte.tratamiento,
+    }
+
+    datos.update(cambios)
+
+    with pytest.raises(
+        ContabilidadError,
+        match="imputaciones",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            inmueble=inmueble,
+            categorias=_categorias_gastos_comunes(),
+            fecha=datos["fecha"],
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=datos["base"],
+            iva_importe=datos["iva_importe"],
+            retencion_importe=datos["retencion_importe"],
+            periodo_desde=datos["periodo_desde"],
+            periodo_hasta=datos["periodo_hasta"],
+            criterio_periodo=datos["criterio_periodo"],
+            tratamiento=datos["tratamiento"],
+        )
+
+
+def test_modificar_apunte_con_imputacion_persistida_permite_cambiar_notas(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+        notas="Nota original",
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=10000,
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+        imputacion,
+    ])
+    session.commit()
+
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=apunte.fecha,
+        naturaleza=apunte.naturaleza,
+        categoria=apunte.categoria,
+        concepto=apunte.concepto,
+        base=apunte.base,
+        iva_importe=apunte.iva_importe,
+        retencion_importe=apunte.retencion_importe,
+        periodo_desde=apunte.periodo_desde,
+        periodo_hasta=apunte.periodo_hasta,
+        criterio_periodo=apunte.criterio_periodo,
+        tratamiento=apunte.tratamiento,
+        notas="Nota corregida",
+    )
+
+    assert apunte.notas == "Nota corregida"
+
+
+def test_modificar_apunte_subdividido_con_imputacion_persistida_rechaza_cambio_economico(
+    session,
+) -> None:
+    inmueble, local_a, _ = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    contrato = _contrato_para_imputacion(
+        local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    distribucion = next(
+        distribucion
+        for distribucion in apunte.distribuciones
+        if distribucion.inmueble is local_a
+    )
+
+    imputacion = ImputacionContrato(
+        distribucion_apunte=distribucion,
+        contrato=contrato,
+        base=distribucion.base,
+        iva_importe=distribucion.iva_importe,
+        retencion_importe=distribucion.retencion_importe,
+        importe=distribucion.total,
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+        imputacion,
+    ])
+    session.commit()
+
+    with pytest.raises(
+        ContabilidadError,
+        match="imputaciones",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            inmueble=inmueble,
+            categorias=_categorias_gastos_comunes(),
+            fecha=apunte.fecha,
+            naturaleza=apunte.naturaleza,
+            categoria=apunte.categoria,
+            concepto=apunte.concepto,
+            base=12000,
+            iva_importe=apunte.iva_importe,
+            retencion_importe=apunte.retencion_importe,
+            periodo_desde=apunte.periodo_desde,
+            periodo_hasta=apunte.periodo_hasta,
+            criterio_periodo=apunte.criterio_periodo,
+            tratamiento=apunte.tratamiento,
+        )
+
+    assert apunte.base == 10000
+
+
+def test_eliminar_apunte_con_imputacion_persistida_se_rechaza(
+    session,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=10000,
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+        imputacion,
+    ])
+    session.commit()
+
+    with pytest.raises(
+        ContabilidadError,
+        match="imputaciones",
+    ):
+        eliminar_apunte_contable(
+            session,
+            apunte,
+        )
+
+    assert session.get(
+        ApunteContable,
+        apunte.id,
+    ) is apunte
+
+

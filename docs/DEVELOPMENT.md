@@ -39,7 +39,9 @@ The user's local tree may be ahead of GitHub between commits. Once the user says
 
 ## Development workflow
 
-The user is an experienced C++ developer but knows little Python/Flask. Instructions should be precise and concrete and should identify exact files, functions and changes instead of asking the user to search the repository.
+The user is an experienced C++ developer but knows little Python/Flask.
+
+Instructions should therefore be precise and concrete. Identify exact files, functions and changes instead of asking the user to search the repository.
 
 Preferred workflow:
 
@@ -65,15 +67,23 @@ TDD-style development is preferred when practical, but strict test-first work is
 
 Long integration tests should contain short comments explaining the user actions being simulated.
 
-Automated pytest/integration tests are preferred over time-consuming artificial browser setup. Manual end-to-end tests are most valuable with real client data or when a UI interaction is being finalized.
+Automated pytest/integration tests are preferred over time-consuming artificial browser setup.
 
-When providing a complete replacement for a function or file, provide genuinely complete code. Never use placeholders such as `# ...` inside code the user is expected to paste.
+Manual end-to-end tests are most valuable with real client data or when a UI interaction is being finalized.
+
+When providing a complete replacement for a function or file, provide genuinely complete code. Never use placeholders such as:
+
+```text
+# ...
+```
+
+inside code the user is expected to paste.
 
 Before relying on a function signature, inspect the current implementation.
 
 When a test receives a pytest fixture as a parameter, its dependencies should also be expressed as fixture parameters rather than referring directly to decorated fixture functions.
 
-Shared fixtures should remain minimal. Prefer adding local setup to a focused test rather than enriching a widely used fixture when that could change assumptions in existing tests.
+Shared fixtures should remain minimal. Prefer local setup in focused tests when enriching a shared fixture could alter assumptions elsewhere.
 
 At commit time:
 
@@ -81,7 +91,9 @@ At commit time:
 * propose only one or more commit messages;
 * use Spanish infinitive phrases.
 
-Documentation is a state/handoff mechanism, not a changelog. Update it after meaningful functional blocks or before a significant pause.
+Documentation is a state/handoff mechanism, not a changelog.
+
+Update it after meaningful functional blocks or before a significant pause.
 
 ## Product context
 
@@ -94,7 +106,9 @@ Its two primary goals are:
 
 Billing, contracts and other modules are auxiliary to these goals.
 
-The application begins real parallel use with the existing manual accounting process in October 2026. The purpose of the parallel period is to discover operational problems from real data before adding further complexity.
+The application entered real parallel use with the existing manual accounting process in October 2026.
+
+The purpose of the parallel period is to discover operational problems from real data before adding further complexity.
 
 Prefer real client value over feature count.
 
@@ -106,7 +120,9 @@ Prefer direct code, explicit services, simple Flask routes, understandable model
 
 Avoid abstractions, screens and workflows for hypothetical cases.
 
-A forward-looking database field is acceptable when the future need is stable, obvious and cheap to prepare. Operational functionality should wait for a real requirement.
+A forward-looking database field is acceptable when the future need is stable, obvious and cheap to prepare.
+
+Operational functionality should wait for a real requirement.
 
 ### User control
 
@@ -120,13 +136,27 @@ User reviews
 User confirms
 ```
 
-The same principle applies to billing and corrections: Contab may determine whether an operation is valid, but the user decides whether to perform it.
+The same principle applies to billing, reimbursement and corrections.
+
+Contab may determine whether an operation is valid, but the user decides whether to perform it.
 
 Exceptional cases must remain manually resolvable.
 
 ### Enter data once
 
-A real economic fact should be entered once and then reused for accounting, reconciliation, reporting and billing where appropriate.
+A real economic fact should be entered once and then reused for:
+
+```text
+accounting
+reconciliation
+reporting
+billing
+reimbursement
+```
+
+where appropriate.
+
+Do not require re-entering an expense merely because it later participates in another process.
 
 ### Preserve source evidence
 
@@ -137,7 +167,28 @@ Examples:
 * bank movements retain original bank text;
 * accounting entries retain document references;
 * emitted invoices preserve historical invoice data;
+* distributions preserve the property shares used at the time;
+* contract imputations preserve the accounting components attributed at the time;
 * physical invoices and supporting documents remain in the filesystem.
+
+### Preserve historical decisions
+
+Once a derived accounting decision has been persisted, future configuration changes must not silently recalculate history.
+
+Important examples:
+
+```text
+DistribucionApunte
+    → preserves spatial allocation
+
+ImputacionContrato
+    → preserves temporal/contract allocation
+
+Factura
+    → preserves emitted invoice data
+```
+
+Reports must use those persisted decisions instead of reconstructing them from current property shares or current contracts.
 
 ### Atomic operations
 
@@ -172,6 +223,18 @@ rent-revision reopening
     → RevisionRenta back to PENDIENTE
     + delete generated RentaContrato
     + delete automatically generated next RevisionRenta
+
+expense reimbursement request
+    → ImputacionContrato(s)
+    + SolicitudReembolso
+    + SolicitudReembolsoLinea(s)
+    + MovimientoPrevisto INGRESO
+
+expense reimbursement undo
+    → delete MovimientoPrevisto
+    + SolicitudReembolsoLinea(s)
+    + ImputacionContrato(s)
+    + SolicitudReembolso
 ```
 
 Routes own database transactions.
@@ -197,13 +260,24 @@ Examples:
 ```text
 Eliminar factura
 Corregir revisión
+Deshacer solicitud de reembolso
 ```
 
-When effects can no longer be safely removed, do not weaken validation rules. A future explicit compensating or rectifying workflow must handle the case.
+When effects can no longer be safely removed, do not weaken validation rules.
+
+A future explicit compensating or rectifying workflow must handle the case.
 
 ### Tests are intentional complexity
 
-Protect domain rules, complete form flows, error handling, multi-record operations, migrations and important module boundaries.
+Protect:
+
+* domain rules;
+* complete form flows;
+* error handling;
+* multi-record operations;
+* migrations;
+* historical persistence rules;
+* important module boundaries.
 
 Do not reduce test coverage merely to keep production code small.
 
@@ -239,9 +313,21 @@ SQLAlchemy models
 SQLite
 ```
 
-Use SQLAlchemy `select()`, not legacy `Session.query()`.
+Use SQLAlchemy:
 
-Money is stored as positive integer cents. Nature determines direction:
+```python
+select()
+```
+
+not legacy:
+
+```python
+Session.query()
+```
+
+Money is stored as integer cents.
+
+Nature determines direction:
 
 ```text
 INGRESO
@@ -250,7 +336,9 @@ GASTO
 
 Percentage values requiring two decimal places use hundredths of a percentage point.
 
-For SQLite constraint changes, Alembic `batch_alter_table` is normally required. Back up real databases before schema migrations.
+For SQLite constraint changes, Alembic `batch_alter_table` is normally required.
+
+Back up real databases before schema migrations.
 
 ## Multiple databases and banks
 
@@ -263,32 +351,30 @@ IBERCAJA
 CAIXABANK
 ```
 
-`config.py` validates that every logical database has one supported bank. Application context helpers resolve the selected database and bank.
+`config.py` validates that every logical database has one supported bank.
 
-## Implemented property and accounting scope
+Application-context helpers resolve the selected database and bank.
+
+## Implemented property and contract scope
 
 Implemented:
 
 * properties and rentable units;
-* subdivided type-T parent properties;
+* subdivided type-`T` parent properties;
 * tenants;
 * contracts with multiple ordered holders;
-* rents and rent revisions;
-* contract annexes for extensions and rent changes;
-* contractual grace-period annexes;
-* accounting categories/subcategories from `contab.ini`;
-* accounting-entry CRUD and validation;
-* accounting periods and treatments;
-* document metadata;
-* accounting CSV reports;
-* annual VAT summary;
-* demo database generation.
+* rents;
+* rent revisions;
+* contract annexes;
+* extensions;
+* rent changes;
+* contractual grace periods.
 
 ### Contract annexes
 
 `AnexoContrato` represents a formal contractual modification.
 
-Current types are:
+Current types:
 
 ```text
 PRORROGA
@@ -296,44 +382,30 @@ CAMBIO_RENTA
 CARENCIA
 ```
 
-A grace-period annex stores:
+A `CARENCIA` stores:
 
 ```text
 fecha_desde
 fecha_hasta
 ```
 
-Both fields are nullable at model level because other annex types do not use them, but a `CARENCIA` annex requires both.
-
-Database constraints ensure:
+Database and domain validation ensure:
 
 ```text
 CARENCIA
-    → fecha_desde and fecha_hasta are not NULL
+    → fecha_desde and fecha_hasta required
 
 other annex types
-    → fecha_desde and fecha_hasta are NULL
+    → fecha_desde and fecha_hasta absent
 
 fecha_hasta >= fecha_desde
+
+CARENCIA dates use whole months
+
+CARENCIA periods for the same contract do not overlap
 ```
 
-The domain service:
-
-```text
-crear_anexo_carencia()
-```
-
-also validates:
-
-```text
-annex date >= contract start
-fecha_desde is first day of month
-fecha_hasta is last day of month
-fecha_desde >= contract start
-periods do not overlap another CARENCIA annex
-```
-
-Multiple non-overlapping grace periods are allowed.
+Multiple separated grace periods are allowed.
 
 The helper:
 
@@ -341,9 +413,7 @@ The helper:
 carencia_vigente(contrato, periodo)
 ```
 
-returns the applicable `AnexoContrato` or `None`.
-
-The interval is inclusive at both ends.
+returns the applicable annex or `None`.
 
 A contractual grace period is deliberately not represented as:
 
@@ -353,18 +423,26 @@ RentaContrato = 0
 
 or as an `AjusteRenta`.
 
-Its meaning is that no ordinary invoice should be prepared during that period.
+Its meaning is that no ordinary invoice should be prepared during the covered period.
 
-The contract UI supports:
+## Accounting scope
 
-```text
-Añadir anexo
-    → Período de carencia
-```
+Implemented:
 
-and the annex history displays the grace-period dates and optional description.
+* accounting categories/subcategories from `contab.ini`;
+* accounting-entry CRUD and validation;
+* accounting periods;
+* accounting treatments;
+* document metadata;
+* optional expected movements for manual entries;
+* type-`T` spatial distribution;
+* contract temporal attribution;
+* reimbursement workflow for `REPERCUTIR`;
+* accounting CSV reports;
+* annual VAT summary;
+* report integration of persistent distributions and imputations.
 
-Important accounting treatments:
+Important treatments:
 
 ```text
 CONTABILIZAR
@@ -372,15 +450,48 @@ REPERCUTIR
 FACTURAR
 ```
 
-`CONTABILIZAR` participates in accounting reports.
+Their accounting meaning is:
 
-`REPERCUTIR` means charging a cost to a tenant. It is different from analytical allocation among properties.
+```text
+CONTABILIZAR
+    → full income/expense belongs to the owner
+
+REPERCUTIR
+    → part attributed to a tenant is excluded from owner's expense
+    → tenant reimbursement is not fiscal income
+    → any residual not attributed to contracts remains owner's expense
+
+FACTURAR
+    → original expense remains fully owner's expense
+    → later invoice creates ordinary accounting income separately
+```
+
+Do not confuse:
+
+```text
+distribuir
+```
+
+with:
+
+```text
+repercutir
+```
 
 Terminology:
 
 ```text
-distribuir = analytical allocation among properties for reporting
-repercutir = charge a cost to the tenant
+distribuir
+    = spatial allocation of a type-T expense among child properties
+
+imputar
+    = temporal attribution of an expense/distribution to contracts
+
+repercutir
+    = request reimbursement from the tenant
+
+facturar
+    = later include an expense in an invoice while preserving the original expense
 ```
 
 ## Accounting form validation
@@ -443,7 +554,7 @@ hasta < desde    → invalid
 
 Never invent the expected bank date from `ApunteContable.fecha`.
 
-`MovimientoPrevisto.apunte_id` remains nullable because independent expected movements are still allowed.
+`MovimientoPrevisto.apunte_id` remains nullable because independent expected movements are allowed.
 
 ## Editing entries linked to expected movements
 
@@ -469,9 +580,23 @@ metodo_conciliacion
 notas
 ```
 
-For linked movements in `PENDIENTE` or `CANCELADO`, all accounting fields may be changed.
+For linked movements in:
 
-For linked movements in `CONCILIADO` or `PARCIAL`, protect changes to:
+```text
+PENDIENTE
+CANCELADO
+```
+
+the movement itself imposes no additional edit restriction.
+
+For linked movements in:
+
+```text
+CONCILIADO
+PARCIAL
+```
+
+protect changes to:
 
 ```text
 inmueble
@@ -479,9 +604,374 @@ naturaleza
 total
 ```
 
-The amount protection compares accounting total, not its internal composition.
+The amount protection compares accounting total, not only its internal composition.
 
-Deleting an accounting entry is likewise forbidden if any linked expected movement is `CONCILIADO` or `PARCIAL`.
+Deleting an accounting entry is likewise forbidden if any linked expected movement is:
+
+```text
+CONCILIADO
+PARCIAL
+```
+
+## Type-T expense distribution
+
+An `Inmueble` of type `T` represents a common property container whose expenses belong analytically to its child properties.
+
+A common expense is entered once on the `T`.
+
+Creation generates persistent:
+
+```text
+DistribucionApunte
+```
+
+records for the child properties.
+
+Each distribution stores:
+
+```text
+participacion
+base
+iva_importe
+retencion_importe
+total
+```
+
+The components are distributed independently and the final total is:
+
+```text
+total = base + iva_importe - retencion_importe
+```
+
+The persisted values are historical.
+
+If property participation percentages change later, previous accounting reports must continue using the stored distribution.
+
+A type-`T` container is not accounting output by itself.
+
+Reports show its expenses through the corresponding child properties.
+
+## Contract imputations
+
+`ImputacionContrato` represents the portion of an expense attributed to one contract.
+
+It may originate from exactly one of:
+
+```text
+ApunteContable
+```
+
+or:
+
+```text
+DistribucionApunte
+```
+
+For normal properties:
+
+```text
+ApunteContable
+    ↓
+ImputacionContrato
+```
+
+For type-`T` properties:
+
+```text
+ApunteContable
+    ↓
+DistribucionApunte
+    ↓
+ImputacionContrato
+```
+
+The model persists:
+
+```text
+base
+iva_importe
+retencion_importe
+importe
+```
+
+with:
+
+```text
+importe = base + iva_importe - retencion_importe
+```
+
+Do not reconstruct those components later from only the total.
+
+Accounting components are allocated independently to contracts so rounding remains coherent.
+
+Temporal attribution uses:
+
+```text
+fecha
+periodo_desde
+periodo_hasta
+criterio_periodo
+contract dates
+```
+
+Possible period criteria are:
+
+```text
+EXCLUIR_HASTA
+EXCLUIR_DESDE
+INCLUIR_AMBOS
+EXCLUIR_AMBOS
+```
+
+Days not covered by any applicable contract remain attributable to the owner.
+
+Historical report calculations use persisted imputations.
+
+## Protecting persisted imputations
+
+A persisted `ImputacionContrato` represents a historical allocation decision and must not silently become inconsistent with its source entry.
+
+If an entry has persisted contract imputations, directly or through one of its distributions, modifications are rejected when they change:
+
+```text
+inmueble
+fecha
+base
+iva_importe
+retencion_importe
+periodo_desde
+periodo_hasta
+criterio_periodo
+tratamiento
+```
+
+This protection applies both to:
+
+```text
+ApunteContable.imputaciones_contrato
+```
+
+and:
+
+```text
+DistribucionApunte.imputaciones_contrato
+```
+
+Descriptive changes that do not alter the historical allocation remain allowed.
+
+For example:
+
+```text
+notas
+```
+
+may still be corrected.
+
+An accounting entry with persisted imputations cannot be deleted.
+
+The downstream operation that created those imputations must first be undone when still reversible.
+
+This follows the general rule:
+
+```text
+historical derived effect exists
+    → protect source fields
+
+fully reversible downstream operation
+    → undo downstream operation first
+    → correct source
+    → perform operation again
+```
+
+## Expense reimbursement workflow
+
+`REPERCUTIR` is implemented as a reimbursement workflow independent from ordinary invoice emission.
+
+Pending expenses are calculated for a contract from accounting data and current unprocessed allocation candidates.
+
+The user flow is:
+
+```text
+pending repercutible expenses
+    ↓
+select expenses
+    ↓
+review temporary calculation
+    ↓
+communicate externally
+    ↓
+Marcar como enviado
+```
+
+Confirmation persists atomically:
+
+```text
+ImputacionContrato(s)
+SolicitudReembolso
+SolicitudReembolsoLinea(s)
+MovimientoPrevisto INGRESO
+```
+
+`SolicitudReembolsoLinea` preserves which accounting origin was included in the request.
+
+That origin is either:
+
+```text
+ApunteContable
+```
+
+or:
+
+```text
+DistribucionApunte
+```
+
+The expected movement represents the tenant reimbursement.
+
+The original supplier payment remains a separate accounting/banking fact.
+
+### Reimbursement request states
+
+The request itself derives its useful operational state from its associated expected movement.
+
+Current relevant states:
+
+```text
+PENDIENTE
+PARCIAL
+CONCILIADO
+CANCELADO
+```
+
+The reimbursement listing shows active requests.
+
+Deletion/undo rules:
+
+```text
+PENDIENTE
+    → may be undone
+
+CANCELADO
+    → may be undone
+
+PARCIAL
+    → cannot be undone
+
+CONCILIADO
+    → cannot be undone
+```
+
+Undo removes atomically:
+
+```text
+MovimientoPrevisto
+SolicitudReembolsoLinea(s)
+ImputacionContrato(s)
+SolicitudReembolso
+```
+
+Afterward, the original expense becomes pending for reimbursement again.
+
+Do not add a generic independent editor for reimbursement lines or imputations.
+
+The current lifecycle deliberately keeps those records tied to the reimbursement operation that created them.
+
+## Accounting reports
+
+Current implemented reports include:
+
+```text
+annual CSV per property
+ZIP containing one CSV per applicable property
+IVA annual summary
+```
+
+Reports consider:
+
+```text
+CONTABILIZAR
+FACTURAR
+REPERCUTIR
+```
+
+Accounting semantics:
+
+```text
+CONTABILIZAR
+    → full owner's amount
+
+FACTURAR
+    → full original expense remains owner's expense
+
+REPERCUTIR
+    → owner amount = source base - persisted contract-attributed base
+```
+
+For type-`T` entries:
+
+```text
+ApunteContable
+    ↓
+DistribucionApunte for requested child property
+    ↓
+optional ImputacionContrato residual calculation
+```
+
+Reports do not show the type-`T` container as separate accounting.
+
+They show the child properties.
+
+When `REPERCUTIR` is only partially attributed to contracts, the residual remains expense of the owner.
+
+When fully attributed, owner expense may be zero.
+
+Reports use persisted:
+
+```text
+DistribucionApunte
+ImputacionContrato
+```
+
+rather than recomputing historical allocation from current configuration.
+
+The IVA-oriented CSV continues to show:
+
+```text
+income base
+expense base
+IVA on income
+retention on income
+```
+
+It deliberately does not move supported expense IVA into the existing control sheet because the report reproduces the user's established workflow.
+
+## Selecting properties for reports
+
+Applicable properties for annual export are selected using the following rules:
+
+```text
+active non-T property
+    → included
+
+inactive non-T property with applicable entries in year
+    → included
+
+type-T property
+    → never included as its own accounting output
+
+type-T entry
+    → child properties from its persisted DistribucionApunte records are applicable
+```
+
+Applicable treatments are:
+
+```text
+CONTABILIZAR
+FACTURAR
+REPERCUTIR
+```
+
+This also ensures that historical activity from an inactive child property can still appear for the relevant year.
 
 ## Bank import
 
@@ -559,7 +1049,6 @@ and
 no tie for best score
 ```
 
-
 Mismatched amounts are shown separately and cannot be accepted through normal automatic reconciliation.
 
 The review screen is:
@@ -570,9 +1059,13 @@ The review screen is:
 
 Reconciliation proposals are accepted individually.
 
-Each exact-amount proposal has an **Aceptar** button. Pressing it immediately confirms only the selected bank/expected movement pair.
+Each exact-amount proposal has an **Aceptar** button.
 
-There is no bulk confirmation and no temporary proposal rejection mechanism. Unaccepted proposals simply remain pending.
+Pressing it immediately confirms only the selected bank/expected movement pair.
+
+There is no bulk confirmation and no temporary proposal rejection mechanism.
+
+Unaccepted proposals simply remain pending.
 
 The individual acceptance endpoint is:
 
@@ -595,15 +1088,19 @@ Before accepting, the server:
 
 The operation runs in a database transaction.
 
-A successful acceptance creates a persistent `Conciliacion`, marks both movements reconciled and sets the expected movement method to `INDIVIDUAL`.
+A successful acceptance creates a persistent `Conciliacion`, marks both movements reconciled and sets the expected movement method to:
+
+```text
+INDIVIDUAL
+```
 
 The user is redirected to the review screen, where proposals are recalculated.
 
 ### Discarding bank movements during review
 
-The **Pendientes** section of the review screen offers a **Descartar** button for each bank movement.
+The **Pendientes** section offers a **Descartar** button for each bank movement.
 
-It reuses the existing endpoint:
+It reuses:
 
 ```text
 POST /conciliacion/movimientos/<movimiento_id>/descartar
@@ -615,21 +1112,21 @@ The review form includes:
 origen = revision
 ```
 
-This makes the endpoint redirect back to the review screen after a successful discard.
+so the endpoint returns to the review screen.
 
-Discarding is immediate, requires no additional confirmation, and changes the bank movement state to `DESCARTADO`.
+Discarding is immediate and changes the bank movement to:
 
-Discarded movements no longer appear in reconciliation review because that screen queries only `PENDIENTE` bank movements.
+```text
+DESCARTADO
+```
 
-They remain accessible and reversible from the **Movimientos bancarios** listing.
+Discarded movements no longer appear in review because that screen queries only pending movements.
 
-The existing bank movement state filter is sufficient for the user's current needs. No additional discarded/non-discarded filter or special row coloring is required.
-
-The acceptance and discard workflows are covered by route integration tests, including validation failures and persistence.
+They remain accessible and reversible from the bank-movement listing.
 
 ## Manual reconciliation
 
-An expected movement can also be reconciled manually when the real situation is not represented by a normal bank 1:1 correspondence.
+An expected movement can be reconciled manually when the real situation is not represented by normal bank 1:1 correspondence.
 
 Manual reconciliation requires nonblank notes explaining the resolution.
 
@@ -646,11 +1143,9 @@ Normal `INDIVIDUAL` reconciliation cannot be undone through the manual-reversal 
 
 Do not implement general 1:n, n:1 or partial reconciliation until real use shows that the current individual/manual combination is insufficient.
 
-Discard proposals remain postponed because they currently offer little value.
-
 ## Billing: current operational scope
 
-Billing contains the complete ordinary workflow required for the October 2026 parallel run together with the first reversible correction workflows needed during real operation.
+Billing contains the ordinary workflow required for current real use together with the reversible correction workflows already needed operationally.
 
 The monthly screen is:
 
@@ -665,28 +1160,28 @@ periodo
 fecha_emision
 ```
 
-Initial values propose the next calendar month and its first day.
-
-The screen has two sections:
+The screen has:
 
 ```text
 Locales
 Otros
 ```
 
-Preparation is transient. Do not create `Factura` objects merely to display the monthly preparation.
+Preparation is transient.
 
-A `Factura` is persisted only when the user confirms the final accounting operation.
+Do not create `Factura` objects merely to display monthly preparation.
 
-A separate revision overview is available at:
+A `Factura` is persisted only when the user confirms final accounting.
+
+A separate revision overview exists at:
 
 ```text
 /facturacion/revisiones
 ```
 
-## Billing: contract selection
+## Billing: contract selection and grace periods
 
-A contract is included when it is active at any point in the month:
+A contract is included when active at any point in the month:
 
 ```text
 fecha_inicio <= last day of month
@@ -700,32 +1195,30 @@ For rent lookup:
 fecha_renta = max(periodo, contrato.fecha_inicio)
 ```
 
-This selects the applicable rent but does not imply proration.
-
-For a contract with `genera_factura=True`, normal invoice preparation is skipped when the requested period is before:
+For `genera_factura=True`, ordinary invoice preparation is skipped before:
 
 ```text
 fecha_inicio_facturacion
 ```
 
-Such contracts remain visible under **Locales** as being in grace period.
+The contract remains visible as being in grace period.
 
-After the initial billing-date check, invoice preparation also checks:
+After that check, invoice preparation evaluates:
 
 ```text
 carencia_vigente(contrato, periodo)
 ```
 
-If a contractual grace period applies, the contract likewise remains visible under **Locales** but no invoice is prepared.
+If a contractual `CARENCIA` applies, the contract also remains visible but no invoice is prepared.
 
-The order is therefore:
+The order is:
 
 ```text
 contract active in month?
     ↓
-initial billing grace period?
+initial billing grace?
     ↓
-contractual CARENCIA annex active?
+contractual CARENCIA?
     ↓
 rent revision
     ↓
@@ -734,38 +1227,21 @@ rent
 ordinary invoice preparation
 ```
 
-Do not move rent calculation before the grace-period checks. A contract in grace period must not require a currently available rent merely to appear in the monthly control list.
+Do not move rent calculation before grace-period checks.
 
-The non-invoice path under **Otros** has deliberately not been changed. Initial and contractual grace-period behavior for `genera_factura=False` must not be generalized without a real requirement.
+The non-invoice `Otros` path deliberately has not generalized contractual grace-period handling.
+
+Only extend it if a real non-invoice contract requires it.
 
 ## Billing: grace-period presentation
 
-Both initial billing grace and `CARENCIA` annexes use:
+Initial billing grace and `CARENCIA` annexes use:
 
 ```text
 LocalEnCarenciaPreparado
 ```
 
-It contains:
-
-```text
-contrato
-inmueble
-destinatario_nombre
-proximo_periodo_facturacion
-```
-
-The monthly Locales table interleaves ordinary prepared invoices and grace-period rows ordered by property reference.
-
-A grace-period row keeps the normal first columns:
-
-```text
-Inmueble
-Nº factura = blank
-Destinatario
-```
-
-The remaining economic/action columns are merged and display:
+The monthly Locales table keeps the contract visible and shows:
 
 ```text
 En carencia. Próximo mes a facturar mm/aaaa
@@ -780,496 +1256,86 @@ proximo_periodo_facturacion
     = contrato.fecha_inicio_facturacion
 ```
 
-For a `CARENCIA` annex:
+For contractual `CARENCIA`:
 
 ```text
 proximo_periodo_facturacion
     = first day of month after anexo.fecha_hasta
 ```
 
-Example:
-
-```text
-CARENCIA
-01/11/2026 → 31/01/2027
-
-October 2026
-    → normal invoice
-
-November 2026
-December 2026
-January 2027
-    → En carencia. Próximo mes a facturar 02/2027
-
-February 2027
-    → normal invoice
-```
-
-No invoice number, rent, revision state, prepared lines or invoice actions are produced for a grace-period month.
-
-## Billing: recipient and invoice snapshots
-
-All contract holders are recipients, ordered by `ContratoInquilino.orden`.
-
-Scalar accounting fields join them with `" / "`:
-
-```text
-tercero_nombre = "Ana Pérez / Juan Pérez"
-tercero_nif    = "11111111A / 22222222B"
-```
-
-During preparation, recipient and billing-address data come from the current contract and holders.
-
-When an invoice is persisted, historical invoice data is snapshotted so later contract changes do not alter the meaning of an already issued invoice.
-
-Relevant historical data include:
-
-```text
-referencia_inmueble
-descripcion_inmueble
-direccion_facturacion
-codigo_postal_facturacion
-poblacion_facturacion
-provincia_facturacion
-FacturaDestinatario(s)
-```
-
-`Factura.apunte_contable_id` links the invoice to the accounting entry generated by its emission.
-
-Do not replace these snapshots with live contract data when displaying an already emitted invoice.
-
-## Billing: invoice preparation
-
-`FacturaPreparada` is transient and represents the calculated invoice for the requested period.
-
-It contains, among other data:
-
-```text
-contract
-property
-recipient
-billing address
-definitive prepared lines
-automatic notes
-base
-VAT
-withholding
-total
-predicted invoice number
-rent revision and state
-existing Factura, if already emitted
-```
-
-A key design rule is:
-
-```text
-FacturaPreparada.lineas
-    = definitive lines that consumers should display
-```
-
-Routes and templates must not independently reconstruct invoice concepts already prepared by the service.
-
-In particular, the ordinary rent concept already includes the invoiced period, for example:
-
-```text
-Alquiler local. Octubre de 2026
-```
-
-This avoids differences between the monthly list, Modify and Preview paths.
-
-If no invoice exists for contract/period:
-
-* lines and amounts are calculated from current contract data;
-* automatic notes are prepared;
-* revision effects are incorporated when applicable;
-* `siguiente_numero_factura()` predicts the number for display;
-* no `Factura` is persisted.
-
-If an invoice already exists:
-
-* `FacturaPreparada.factura` references it;
-* persisted invoice lines and economic amounts are used;
-* current contract data must not recalculate the economic content;
-* the row shows `Emitida`.
-
-The predicted number is only operational guidance. The definitive number is assigned when the invoice is persisted.
-
-Invoice numbering is per property and year, across all contracts belonging to the property:
-
-```text
-NN/YYYY<codigo_facturacion>
-```
-
-The sequence resets each year.
-
-There is deliberately no database unique constraint on `(contrato_id, periodo)` because future extraordinary invoices may legitimately share a period.
-
-Ordinary `emitir_factura()` nevertheless rejects a second invoice for the same contract/period.
-
-## Billing: automatic notes
-
-Automatic invoice notes are prepared centrally and included in `FacturaPreparada.notas`.
-
-Current automatic cases include:
-
-```text
-24 % withholding
-rent revision AVISO
-rent revision ESPERANDO_INDICE
-rent revision APLICADA
-```
-
-These notes must survive all paths:
-
-```text
-monthly list → Preview
-
-monthly list → Modify → Preview
-```
-
-Modify therefore starts from `factura.notas`.
-
-User-entered notes can be added during transient editing.
-
-The final notes are persisted with the invoice when accounting is confirmed.
-
-Do not reconstruct automatic notes independently in individual templates or routes.
-
-## Billing: transient modification
-
-An unissued prepared invoice can be opened through `Modificar`.
-
-The form receives the lines already contained in `FacturaPreparada`.
-
-It allows transient editing of:
-
-```text
-concepts
-amounts
-VAT percentage
-withholding percentage
-notes
-```
-
-No draft `Factura` is persisted.
-
-Empty form lines are discarded.
-
-The form deliberately exposes only a small fixed number of line/note inputs because real invoices are compact and the physical document is intended to occupy approximately half an A4 page.
-
-A revision in state `PENDIENTE` that must be resolved before billing blocks modification and final accounting.
-
-The result is represented by `FacturaEditada`, which is then used by Preview and final accounting.
-
-## Billing: preview and invoice document
-
-Invoices can be previewed directly from the monthly list or after passing through Modify.
-
-The preview renders the configured HTML invoice template.
-
-The rendered invoice uses prepared data for:
-
-```text
-issuer
-recipient
-property
-period
-lines
-notes
-base
-VAT
-withholding
-total
-invoice number
-issue date
-```
-
-The same prepared invoice must produce equivalent economic/document data regardless of the path used to reach Preview.
-
-The current HTML invoice is printable and is sufficient for the real workflow.
-
-The preview also contains a hidden accounting form carrying the exact edited lines, percentages, notes and previsualized totals.
-
-The server does not trust those totals blindly.
-
-Before persistence:
-
-```text
-parse submitted edited invoice
-recalculate base / VAT / withholding / total
-compare with previewed totals
-```
-
-If they differ, accounting is rejected and the user must preview again.
-
-This protects the transition between Preview and Contabilizar.
-
 ## Billing: rent revisions
 
-Rent revisions are integrated with invoice preparation and also have a dedicated overview panel.
-
-`situacion_revision()` provides the state relevant to a requested billing period.
-
-Current visible monthly states are:
+Current revision workflow covers:
 
 ```text
 AVISO
 ESPERANDO_INDICE
 PENDIENTE
 APLICADA
-```
-
-### AVISO
-
-A pending revision scheduled for the following month produces:
-
-```text
-AVISO
-```
-
-The monthly list displays:
-
-```text
-Aviso
-```
-
-and the prepared invoice includes an explanatory automatic note.
-
-### ESPERANDO_INDICE
-
-A pending revision scheduled for the current month whose index is not yet available produces:
-
-```text
-ESPERANDO_INDICE
-```
-
-The monthly list displays:
-
-```text
-Esperando índice
-```
-
-The previous rent remains applicable for that invoice.
-
-An automatic note explains that the index is unavailable and that the difference will be charged once it becomes known.
-
-The general revisions panel does not resolve the percentage from this state. Percentage resolution remains tied to the monthly billing context.
-
-### PENDIENTE
-
-When a previous revision requires resolution before billing can continue:
-
-```text
-PENDIENTE
-```
-
-Modify/accounting is blocked.
-
-The monthly preparation offers:
-
-```text
-Resolver revisión
-```
-
-The user must resolve the revision before continuing.
-
-### APLICADA
-
-After the revision has been resolved and its effects belong in the current billing period:
-
-```text
-APLICADA
-```
-
-The monthly list displays:
-
-```text
-Aplicada
-```
-
-This is a period-specific billing state. It must not continue appearing indefinitely in later months.
-
-The revised `RentaContrato` supplies the new ordinary monthly rent.
-
-When the scheduled revision month was previously invoiced using the old rent while waiting for the index, the applicable following invoice also contains an arrears line for that month.
-
-Prepared lines therefore become, conceptually:
-
-```text
-revised current monthly rent
-+ arrears for scheduled revision month
-```
-
-The same preparation also produces two automatic notes:
-
-```text
-index / percentage applied and resulting rent increase
-arrears explanation referring to the previous invoice
-```
-
-The applied revision, arrears line and notes have been tested through:
-
-```text
-monthly Preview
-Modify
-Preview after Modify
-final Contabilizar
-```
-
-The final persisted invoice retains both lines and the recalculated totals.
-
-Index descriptions include the currently required methods, including IRAV.
-
-Month-name formatting is centralized in the formatting utilities rather than maintaining repeated month tables in billing code.
-
-## Billing: revision resolution domain logic
-
-The core resolution operation currently belongs to:
-
-```text
-contab.contratos.services.resolver_revision_renta()
-```
-
-Signature:
-
-```python
-resolver_revision_renta(
-    revision,
-    fecha_resolucion,
-    aplicar,
-    porcentaje_aplicado,
-)
-```
-
-For application:
-
-```text
-revision must be PENDIENTE
-percentage is required
-current rent at revision.fecha_prevista is found
-new rent is calculated
-new RentaContrato begins at revision.fecha_prevista
-revision → APLICADA
-percentage and resolution date are recorded
-next yearly RevisionRenta is created as PENDIENTE
-```
-
-For non-application:
-
-```text
-revision must be PENDIENTE
-percentage must be None
-no RentaContrato is created
-revision → NO_APLICADA
-resolution date is recorded
-next yearly RevisionRenta is created as PENDIENTE
-```
-
-The next revision uses the same method and the same month/day in the following year.
-
-Routes persist the returned objects inside their transaction.
-
-## Billing: revisions overview
-
-The revisions dashboard is:
-
-```text
-/facturacion/revisiones
-```
-
-It shows active contracts divided into:
-
-```text
-Locales
-Otros
-```
-
-Rows are ordered by property reference.
-
-For each contract `preparar_revisiones_renta()` exposes:
-
-```text
-contrato
-ultima_revision
-proxima_revision
-situacion_proxima
-ultima_revision_reabrible
-```
-
-`ultima_revision` is the most recent resolved revision:
-
-```text
-APLICADA
-or
 NO_APLICADA
 ```
 
-`proxima_revision` is the earliest pending revision.
-
-The dashboard situation for the next pending revision is display-oriented and can be:
+Typical sequence:
 
 ```text
-ESPERANDO_INDICE
-AVISO
-RESOLVER
-PENDIENTE
+month before revision
+    → AVISO
+
+scheduled month while index unavailable
+    → ESPERANDO_INDICE
+    → old rent
+
+following month with unresolved revision
+    → PENDIENTE
+    → Resolver revisión
 ```
 
-Important distinction:
+Applying a revision creates:
 
 ```text
-monthly billing
-    → actual percentage resolution
-
-revisions dashboard
-    → overview
-    → No aplicar este año
-    → Corregir revisión when safe
+new RentaContrato
+RevisionRenta = APLICADA
+next annual RevisionRenta = PENDIENTE
 ```
 
-Do not reintroduce `Resolver revisión` as a dashboard action. Resolution belongs to the billing month where its economic effect is being prepared.
+The first applicable later invoice may contain:
 
-The dashboard uses a single Jinja macro for Locales/Otros tables.
+```text
+revised rent
++ arrears for scheduled revision month
+```
 
-Its action column uses the same compact `<details>` / `⋮` menu pattern as invoice actions.
-
-The menu closes when another menu opens or when the user clicks outside.
-
-The active row remains visually highlighted while its action menu is open.
-
-## Billing: No aplicar este año
-
-A pending revision can be deliberately skipped for the current year from the revisions dashboard.
-
-Action:
+Choosing:
 
 ```text
 No aplicar este año
 ```
 
-The route calls `resolver_revision_renta()` with:
+sets:
 
 ```text
-aplicar = False
-porcentaje_aplicado = None
+current revision = NO_APLICADA
+next annual revision = PENDIENTE
 ```
 
-Result:
+No new rent is created.
+
+The dedicated revisions dashboard shows:
 
 ```text
-current revision
-    → NO_APLICADA
-    → fecha_resolucion = today
-    → no new RentaContrato
-
-next yearly revision
-    → PENDIENTE
-    → same method
+Locales / Otros
+last resolved revision
+next pending revision
+display situation
+actions
 ```
 
-Any still-pending next revision shown in the panel may be marked as not applied; the action is not restricted to a particular display cycle.
+Available actions include:
 
-Already resolved revisions are rejected.
+```text
+No aplicar este año
+Corregir revisión
+```
 
 ## Billing: correcting an applied rent revision
 
@@ -1285,185 +1351,46 @@ Internal concept:
 reabrir revisión
 ```
 
-This is not an in-place edit of `porcentaje_aplicado`.
+This is not an in-place edit of the applied percentage.
 
-The purpose is to undo a mistaken revision resolution while all later effects are still reversible, then reuse the normal `Resolver revisión` workflow.
+The purpose is to undo a mistaken revision while all downstream effects remain reversible and then reuse the normal resolution workflow.
 
-Typical real scenario:
+Typical sequence:
 
 ```text
-revision due in April
-April invoice
-    → old rent
-    → ESPERANDO_INDICE
-
-May
-    → resolve April revision
-    → May invoice uses revised rent
-    + April arrears
-
-wrong percentage discovered
+wrong applied percentage
     ↓
-Eliminar May invoice
+delete affected invoice/accounting first
     ↓
 Corregir revisión
     ↓
-April revision returns to PENDIENTE
+RevisionRenta → PENDIENTE
+delete generated RentaContrato
+delete automatically generated next RevisionRenta
     ↓
-prepare May again
+prepare affected month again
     ↓
-Resolver revisión with correct percentage
+resolve with correct value
     ↓
-reissue May invoice correctly
+emit again
 ```
 
-### Preparation/validation
+`preparar_reapertura_revision()` is the central validator.
 
-`facturacion.services.preparar_reapertura_revision()` is the central validator.
-
-It returns:
-
-```python
-@dataclass(frozen=True)
-class ReaperturaRevision:
-    revision: RevisionRenta
-    renta: RentaContrato
-    siguiente_revision: RevisionRenta
-```
-
-The function does not mutate database state.
-
-A revision is re-openable only when:
+A revision is reopenable only when:
 
 ```text
-revision.estado == APLICADA
+estado == APLICADA
+generated RentaContrato exists
+next annual RevisionRenta exists
+next annual revision is still PENDIENTE
+no affected/later invoice exists
+no affected/later rental accounting entry exists
 ```
 
-and all required generated objects still exist in the expected state.
+The route owns the transaction and performs the deletion of generated objects.
 
-Specifically:
-
-1. the generated `RentaContrato` exists at:
-
-```text
-renta.fecha_desde == revision.fecha_prevista
-```
-
-2. the automatically created next annual revision exists at:
-
-```text
-revision.fecha_prevista with year + 1
-```
-
-3. that next revision is still:
-
-```text
-PENDIENTE
-```
-
-4. no invoice exists for the same contract in the application month or later;
-
-5. no rental accounting entry exists for the same contract in the application month or later.
-
-The application month is the month immediately after `revision.fecha_prevista`.
-
-Example:
-
-```text
-revision.fecha_prevista = 2026-04-01
-periodo_aplicacion      = 2026-05-01
-```
-
-Therefore:
-
-```text
-April invoice
-    → allowed to remain
-
-May invoice or later
-    → blocks reopening
-```
-
-### Identifying later accounting effects
-
-`ApunteContable` has no `contrato_id`.
-
-Therefore accounting effects are identified through:
-
-```text
-Contrato.movimientos_previstos
-    → MovimientoPrevisto.apunte
-```
-
-A movement blocks reopening when its linked entry satisfies:
-
-```text
-apunte exists
-apunte.naturaleza == INGRESO
-apunte.categoria == ING_ALQUILERES
-apunte.periodo_desde is not None
-apunte.periodo_desde >= periodo_aplicacion
-```
-
-Do not inspect `MovimientoPrevisto.estado` for this decision.
-
-If the accounting effect exists, reopening is blocked regardless of whether the movement is:
-
-```text
-PENDIENTE
-CANCELADO
-PARCIAL
-CONCILIADO
-```
-
-`Corregir revisión` does not undo accounting records.
-
-The appropriate invoice/accounting undo workflow must be used first.
-
-### Mutation
-
-After validation, `reabrir_revision_renta()` restores the revision itself:
-
-```text
-estado = PENDIENTE
-porcentaje_aplicado = None
-fecha_resolucion = None
-```
-
-The route owns the transaction and deletes:
-
-```text
-generated RentaContrato
-automatically generated next RevisionRenta
-```
-
-The operation is atomic.
-
-The POST route is:
-
-```text
-/facturacion/revisiones/<revision_id>/reabrir
-```
-
-After reopening, normal monthly preparation is reused. No special "edit percentage" path exists.
-
-### Dashboard availability
-
-`RevisionContratoPreparada.ultima_revision_reabrible` exposes the decision to the UI.
-
-The dashboard does not duplicate the rules.
-
-Conceptually:
-
-```text
-if ultima_revision is APLICADA:
-    try preparar_reapertura_revision()
-        → reabrible = True
-    FacturacionError
-        → reabrible = False
-```
-
-The menu displays **Corregir revisión** only when this value is true.
+Do not create a special edit-percentage path.
 
 ## Billing: final accounting
 
@@ -1473,11 +1400,9 @@ The definitive action from Preview is:
 Contabilizar
 ```
 
-The accounting POST parses the exact `FacturaEditada` represented by the preview.
+The POST parses the exact transient edited invoice represented by Preview and verifies the recalculated values.
 
-It verifies that its recalculated amounts match the previsualized amounts before persistence.
-
-`emitir_factura()` then prepares:
+`emitir_factura()` prepares:
 
 ```text
 Factura
@@ -1487,38 +1412,29 @@ ApunteContable
 MovimientoPrevisto
 ```
 
-The POST route owns the transaction and persists all of them atomically.
+The route persists all records atomically.
 
-When `FacturaEditada` is supplied, `crear_factura()` persists its lines rather than reconstructing a single rent line from the contract.
-
-This is important for invoices containing revision arrears or manually edited extra lines.
-
-Generated accounting data:
+Generated accounting data uses:
 
 ```text
 naturaleza = INGRESO
 categoria = ING_ALQUILERES
-periodo_desde = first day of invoice month
-periodo_hasta = last day of invoice month
-referencia_documento = numero_factura
+period = invoice month
 base / IVA / retención / total = invoice values
+referencia_documento = numero_factura
 ```
 
-The expected movement:
+The expected collection interval covers the invoice month deliberately.
+
+After persistence, the monthly row becomes:
 
 ```text
-importe_esperado = factura.total
-fecha_prevista_desde = first day of month
-fecha_prevista_hasta = last day of month
+Emitida
 ```
-
-The deliberately broad expected interval avoids making reconciliation harder when a tenant pays late.
-
-After persistence the route redirects to the same monthly preparation and the row becomes `Emitida`.
 
 ## Billing: deleting an emitted invoice
 
-`Eliminar` is implemented for genuinely reversible invoice mistakes.
+`Eliminar` is intended for genuinely reversible invoice mistakes.
 
 Semantics:
 
@@ -1528,57 +1444,16 @@ Eliminar
     → invoice number becomes reusable
 ```
 
-This is intentionally different from future:
+This differs deliberately from future:
 
 ```text
 Anular
-    → invoice remains historical
-    → number remains consumed
-```
-
-and:
-
-```text
 Rectificar
-    → original remains
-    → rectifying invoice is created
 ```
 
-### Validation
+An invoice may be deleted only when domain validation confirms that downstream effects remain reversible.
 
-`preparar_eliminacion_factura()` validates the operation and returns the objects that the route must remove.
-
-An invoice can be deleted only when:
-
-```text
-estado == EMITIDA
-```
-
-and it is the last invoice number for that property/year.
-
-The accounting entry is normally required.
-
-A limited exception exists for historical bootstrap invoices that predate the current accounting linkage.
-
-At most one expected movement may be associated with the invoice accounting entry.
-
-If present, the movement may only be:
-
-```text
-PENDIENTE
-CANCELADO
-```
-
-Deletion is rejected for:
-
-```text
-PARCIAL
-CONCILIADO
-```
-
-### Atomic deletion
-
-The route deletes, as applicable:
+The route removes atomically, as applicable:
 
 ```text
 MovimientoPrevisto
@@ -1588,17 +1463,53 @@ Factura
 ApunteContable
 ```
 
-and flushes as needed before deleting the accounting entry.
+Expected movements in:
 
-The whole operation is performed inside one transaction.
+```text
+PARCIAL
+CONCILIADO
+```
 
-After deletion, the number can be predicted and reused by normal invoice preparation.
+block deletion.
 
-This operation is an important prerequisite for `Corregir revisión` when an affected invoice has already been emitted.
+Do not weaken this operation to solve historical rectification.
 
-## Billing: FacturaLinea.type technical debt
+## Billing: non-invoice rents
 
-`FacturaLinea` currently has a constrained `tipo` field:
+Contracts with:
+
+```text
+genera_factura=False
+```
+
+appear under:
+
+```text
+Otros
+```
+
+The user confirms each row individually with:
+
+```text
+Contabilizar
+```
+
+The result is:
+
+```text
+ApunteContable
+MovimientoPrevisto
+```
+
+with no emitted invoice.
+
+Already-accounted monthly rents are recognized through the contract's expected movements and linked accounting entries.
+
+Do not use amount or reconciliation state as period identity.
+
+## Billing: FacturaLinea.tipo technical debt
+
+`FacturaLinea.tipo` currently supports:
 
 ```text
 RENTA
@@ -1607,164 +1518,109 @@ REPERCUSION_GASTO
 OTRO
 ```
 
-This classification currently provides little useful behavior.
+Its practical value is limited.
 
-It is especially questionable now that prepared invoice lines can be edited transiently before persistence: `crear_factura()` may classify edited lines according to position rather than preserving the semantic origin of every prepared line.
+Do not refactor it merely for cleanliness.
 
-Do not refactor this immediately.
+Removing it would require a migration and should wait for a real operational reason.
 
-Removing or simplifying `FacturaLinea.tipo` requires a database migration, and there is no current operational reason to prioritize that change.
+## Billing: expense billing
 
-Likely direction:
+`REPERCUTIR` is now implemented as an independent reimbursement workflow.
 
-```text
-verify whether any real behavior depends on FacturaLinea.tipo
-    ↓
-if not
-    → remove field and CheckConstraint
-    → create Alembic migration
-    → simplify creation code/tests
-```
+Do not route `REPERCUTIR` through ordinary invoice preparation.
 
-Only undertake this when real use justifies the cleanup.
-
-## Billing: non-invoice rents
-
-Contracts with `genera_factura=False` appear under `Otros`.
-
-The row contains:
+`FACTURAR` remains the treatment intended for an expense that:
 
 ```text
-Inmueble
-Destinatario
-Importe
-Estado/Acción
+remains fully owner's expense
++
+may later be added to a tenant invoice
 ```
 
-Only holder names are displayed as recipient information; NIF/address would add noise to this control list.
+Integration of real `FACTURAR` expenses with invoice preparation is still pending and should be implemented only when a concrete real case requires it.
 
-Each row is confirmed individually.
-
-Action:
-
-```text
-Contabilizar
-```
-
-After registration:
-
-```text
-Contabilizado
-```
-
-`contabilizar_ingreso_sin_factura()` prepares:
+When that happens, reuse:
 
 ```text
 ApunteContable
-MovimientoPrevisto
+DistribucionApunte
+ImputacionContrato
 ```
 
-with:
+as appropriate.
 
-```text
-naturaleza = INGRESO
-categoria = ING_ALQUILERES
-base = total = applicable rent
-IVA = 0
-retención = 0
-period = whole month
-expected collection interval = whole month
-referencia_documento = ""
-```
-
-Holder names and NIFs are preserved in the accounting entry even though only names are shown in the monthly UI.
-
-The route persists both records atomically.
-
-Contractual `CARENCIA` annexes are deliberately not applied to this path yet.
-
-If a real non-invoice contract later requires a grace period, both monthly preparation and `contabilizar_ingreso_sin_factura()` must be reviewed so the domain rule cannot be bypassed by calling the accounting service directly.
-
-### Recognizing an already-accounted non-invoice rent
-
-`ApunteContable` has no `contrato_id`; `MovimientoPrevisto` does.
-
-Therefore monthly preparation recognizes an already-accounted rent through `Contrato.movimientos_previstos` and its linked accounting entry.
-
-Identity is:
-
-```text
-same contract
-linked apunte exists
-apunte.naturaleza == INGRESO
-apunte.categoria == ING_ALQUILERES
-apunte.periodo_desde == first day of requested month
-apunte.periodo_hasta == last day of requested month
-```
-
-Do not use these fields as identity:
-
-```text
-amount
-concept
-movement state
-expected collection dates
-```
-
-Amount may later be corrected legitimately. Reconciliation state answers a different question. Expected dates describe payment timing rather than accounting period.
-
-The service also rejects a second accounting operation for the same contract/period.
-
-The same movement-to-entry traversal is reused when deciding whether a rent revision can be reopened.
+Do not enter the economic fact again.
 
 ## Billing: intentionally postponed scope
 
-The ordinary billing workflow and the currently required reversible correction workflows are complete.
-
-Do not implement the following merely because the model could support them:
+Do not implement merely because the model could support it:
 
 * persistent editable draft invoices;
-* a separate ordinary single-invoice preparation subsystem;
-* extraordinary invoice workflow;
+* separate ordinary single-invoice preparation subsystem;
+* generalized extraordinary invoice workflow;
 * invoice annulment workflow;
 * replacement after annulment;
 * rectifying invoices;
-* generalized rent-revision workflows for hypothetical contracts;
-* generic expense repercussion before a real use case requires it;
-* contractual grace periods for `Otros` before a real non-invoice contract requires them.
+* generalized rent-revision behavior for hypothetical contracts;
+* `FACTURAR` expense integration before a real case requires it;
+* contractual grace periods for `Otros` before a real contract requires them.
 
-Transient editing already handles simple exceptional invoice lines without creating persistent drafts.
+Transient editing already handles simple exceptional invoice lines.
 
-`Eliminar factura` and `Corregir revisión` solve errors that can still be completely undone.
+`Eliminar factura`, `Corregir revisión` and reimbursement undo solve cases that are still fully reversible.
 
-Do not stretch them to solve cases requiring historical rectification.
+Do not stretch them to cases requiring preserved historical effects.
 
-## Billing: pending work
+## Known later work
 
 The following items are known but are not current blockers.
 
-### Expense repercussion
+### Accounting integrity controls
 
-Integrate real repercutible expenses with invoice preparation when the first concrete cases appear.
+Continue adding controls only where real use exposes ambiguity or risk.
 
-Keep the distinction:
+Likely areas include:
 
 ```text
-distribuir = analytical allocation
-repercutir = charge to tenant
+missing expected recurring entries
+period gaps
+period overlaps
+probable duplicates without strong document identity
+year-end completeness checks
 ```
 
-Reuse accounting data rather than entering the same economic fact again.
+Avoid building a generic audit subsystem prematurely.
 
-### Annulment and rectification
+### Fiscal reports
 
-`Eliminar` is implemented only for fully reversible mistakes.
+Current IVA-oriented reports are implemented.
 
-Future operations need different semantics.
+Future annual reports should be driven by actual IRPF/IRNR preparation requirements.
+
+Preserve detailed accounting data so new groupings can be produced without changing historical entries.
+
+### FACTURAR integration
+
+When a real case appears, integrate eligible accounting expenses with invoice preparation.
+
+Preserve the distinction:
+
+```text
+FACTURAR
+    → original expense remains owner's expense
+    → invoice later creates normal income
+```
+
+Do not reuse `REPERCUTIR` semantics.
+
+### Invoice annulment and rectification
+
+Future operations need explicit semantics.
 
 #### Anular
 
-Expected semantics:
+Expected direction:
 
 ```text
 original invoice remains historical
@@ -1772,11 +1628,11 @@ invoice number remains consumed
 state becomes ANULADA
 ```
 
-Its exact accounting and reconciliation effects still need to be designed.
+Exact accounting and reconciliation effects remain to be designed.
 
 #### Rectificar
 
-Expected semantics:
+Expected direction:
 
 ```text
 original invoice remains
@@ -1784,320 +1640,182 @@ rectifying invoice is created
 relationship between both is preserved
 ```
 
-This is also the likely path for correcting a rent revision after later accounting/invoice effects can no longer be safely removed.
-
-Design these flows explicitly when required.
-
-Do not relax `Eliminar factura` or `Corregir revisión` as shortcuts.
+This is also the likely mechanism for corrections after later accounting effects can no longer be safely removed.
 
 ### More complex rent revisions
 
-The current revision workflow covers the known real cases:
+Current revision behavior covers the known real contracts.
 
-```text
-AVISO
-ESPERANDO_INDICE
-PENDIENTE
-APLICADA
-NO_APLICADA
-Corregir revisión while reversible
-```
-
-Only generalize it if a contract requires different timing, index handling or arrears behavior.
-
-### Revision indices
-
-Current index descriptions include the methods required now, including IRAV.
-
-Add further index/territorial behavior only when real contracts require it.
-
-### Extraordinary lines
-
-Transient Modify already permits additional lines.
-
-Do not create a separate persistent draft/extra-line subsystem without a real operational requirement.
+Only generalize it if another contract requires different timing, index handling or arrears behavior.
 
 ### Invoice document improvements
 
-The current HTML template and printing workflow are sufficient.
+The current HTML/printing workflow is sufficient.
 
-Further layout, format or document-generation work should be driven by real use.
+Further document-generation work should be driven by real use.
 
 ## Current stopping point
 
-The ordinary billing workflow, the first required correction workflows and contractual invoice grace periods are complete for the currently known real cases.
+The latest completed functional block is the accounting distribution, reimbursement and reporting integration.
 
-Implemented and tested end-to-end:
+Implemented and tested:
 
 ```text
-monthly preparation
+ApunteContable
     ↓
-facturable contract
-    → initial billing grace?
-       → visible Locales row
-       → no invoice
-       → next billable month shown
-    → CARENCIA annex active?
-       → visible Locales row
-       → no invoice
-       → next billable month shown
-    → otherwise
-       → prepared definitive invoice lines
-       → automatic notes
-       → revision state/effects when applicable
-       → Preview directly
-          or
-         Modify → Preview
-       → printable invoice
-       → Contabilizar
-       → validate previewed totals
-       → Factura
-       + FacturaLinea(s)
-       + FacturaDestinatario(s)
-       + ApunteContable
-       + MovimientoPrevisto
-       → return to same month
-       → Emitida
-```
+normal property
+    → accounting components remain on entry
 
-Contractual grace-period support currently covers:
-
-```text
-AnexoContrato.tipo = CARENCIA
-fecha_desde = first day of first grace month
-fecha_hasta = last day of last grace month
-non-overlapping periods
-multiple separated grace periods allowed
-
-contract annex UI
-    → create CARENCIA annex
-    → validate domain rules
-    → persist
-    → show in annex history
-
-monthly invoice preparation
-    → detect active CARENCIA
-    → skip rent/invoice preparation
-    → keep contract visible
-    → show first month after carencia as next billable period
-```
-
-Example:
-
-```text
-CARENCIA 01/11/2026 → 31/01/2027
-
-10/2026 → invoice
-11/2026 → no invoice
-12/2026 → no invoice
-01/2027 → no invoice
-02/2027 → invoice
-```
-
-This behavior currently applies only to `genera_factura=True`.
-
-`Otros` remains deliberately unchanged.
-
-Revision workflow currently covers:
-
-```text
-month before revision
-    → AVISO
-    → automatic notice
-
-scheduled revision month while index unavailable
-    → ESPERANDO_INDICE
-    → old rent
-    → automatic explanation
-
-following month with unresolved revision
-    → PENDIENTE
-    → Resolver revisión
-
-apply revision
-    → new RentaContrato
-    → RevisionRenta = APLICADA
-    → next annual RevisionRenta = PENDIENTE
-
-applicable following invoice
-    → APLICADA
-    → revised monthly rent
-    + arrears for scheduled revision month
-    + automatic revision notes
-
-choose not to apply
-    → NO_APLICADA
-    → no new rent
-    → next annual RevisionRenta = PENDIENTE
-```
-
-The dedicated revisions dashboard provides:
-
-```text
-Locales / Otros
-last resolved revision
-next pending revision
-display situation
-action menu
-```
-
-Available actions include:
-
-```text
-No aplicar este año
-Corregir revisión
-```
-
-The `APLICADA` state and arrears are period-specific and do not continue into later ordinary invoices.
-
-The non-invoice path remains:
-
-```text
-monthly preparation
+type-T property
     ↓
-non-invoice contract
-    → review rent
-    → Contabilizar
-    → ApunteContable + MovimientoPrevisto
-    → return to same month
-    → Contabilizado
+DistribucionApunte per child property
+    → persisted participation
+    → persisted base
+    → persisted IVA
+    → persisted retention
+    → persisted total
 ```
 
-Reversible invoice correction is implemented:
+Temporal attribution is:
 
 ```text
-wrong emitted invoice
+ApunteContable / DistribucionApunte
     ↓
-Eliminar factura
+period + applicable contracts
     ↓
-remove invoice + accounting + expected movement atomically
-    ↓
-reuse invoice number
-    ↓
-prepare and emit correctly again
+ImputacionContrato
+    → persisted base
+    → persisted IVA
+    → persisted retention
+    → persisted total
 ```
 
-Reversible revision correction is implemented:
+`REPERCUTIR` workflow is complete for the known cases:
 
 ```text
-wrong applied percentage
+pending expense
     ↓
-remove affected invoice/accounting first if present
+select for contract
     ↓
-Corregir revisión
+review calculated allocation
     ↓
-RevisionRenta → PENDIENTE
-delete generated RentaContrato
-delete next annual RevisionRenta
+communicate externally
     ↓
-prepare affected month again
+Marcar como enviado
     ↓
-Resolver revisión with correct percentage
-    ↓
-emit/account again
+persist atomically:
+        ImputacionContrato(s)
+        SolicitudReembolso
+        SolicitudReembolsoLinea(s)
+        MovimientoPrevisto INGRESO
 ```
 
-The reopening validator defensively rejects corrections when:
+Undo behavior is:
 
 ```text
-revision is not APLICADA
-generated rent is missing
-next annual revision is missing
-next annual revision is already resolved
-affected/later invoice exists
-affected/later rental accounting entry exists
+PENDIENTE / CANCELADO
+    → undo allowed
+
+PARCIAL / CONCILIADO
+    → undo rejected
 ```
 
-The full pytest suite is green.
+Undo restores the original expense to pending reimbursement state.
 
-Manual browser testing has covered the relevant billing paths, including:
+Accounting reports now apply:
 
 ```text
-ordinary preview
-Modify
-Preview after Modify
-initial billing grace
-CARENCIA annex creation
-CARENCIA annex history
-CARENCIA monthly preparation
-resuming billing after CARENCIA
-AVISO
-ESPERANDO_INDICE
-PENDIENTE resolution
-APLICADA
-NO_APLICADA
-revised rent
-arrears line
-automatic notes
-final accounting with multiple lines
-invoice deletion
-reusable invoice numbering
-revisions dashboard
-action menu behavior
-Corregir revisión
-re-resolving with a corrected index
-reissuing the affected invoice
+CONTABILIZAR
+    → full owner's amount
+
+FACTURAR
+    → full original expense remains owner's expense
+
+REPERCUTIR
+    → only non-imputed residual remains owner's expense
 ```
 
-The latest completed functional block is:
+For type-`T` properties:
 
 ```text
-Incorporar carencias contractuales en la facturación
+source ApunteContable
+    ↓
+persisted DistribucionApunte
+    ↓
+persisted ImputacionContrato when applicable
+    ↓
+child-property accounting output
 ```
 
-It includes:
+The type-`T` container itself is not shown as separate accounting.
+
+Historical decisions are protected.
+
+If persisted contract imputations exist, source accounting fields that determine the allocation cannot be modified.
+
+Protected fields are:
 
 ```text
-database migration
-AnexoContrato CARENCIA type
-fecha_desde / fecha_hasta
-creation service and validation
-web form and route
-annex selection/history UI
-carencia_vigente()
-monthly invoice-preparation integration
-visible grace-period row
-resume ordinary billing after the grace period
+inmueble
+fecha
+base
+iva_importe
+retencion_importe
+periodo_desde
+periodo_hasta
+criterio_periodo
+tratamiento
 ```
 
-The implementation deliberately treats carencia as absence of an ordinary invoice rather than as a zero rent or temporary rent adjustment.
+The same rule applies when the persisted imputation belongs to a distribution of a type-`T` entry.
+
+Descriptive fields such as notes remain editable.
+
+An accounting entry with persisted contract imputations cannot be deleted until the reversible downstream reimbursement operation has been undone.
+
+The full pytest suite was green at completion of this block.
 
 ## Next change
 
-Do not start another speculative billing refactor merely because the current block is complete.
+Do not extend the reimbursement/distribution subsystem merely because the current block is complete.
+
+The implemented `REPERCUTIR` workflow, type-`T` allocation and IVA-report integration are sufficient for the currently known cases.
 
 The immediate priority remains real operational use.
 
-Use the current system and prioritize problems that actually appear during:
+Choose the next work from concrete needs discovered while using:
 
 ```text
-invoice preparation
-invoice review and printing
 accounting
 bank import
 reconciliation
-rent-revision handling
-contract-annex handling
+invoice preparation
+invoice review
+rent revisions
+contract annexes
+reimbursements
+fiscal reports
 ```
 
-Known later areas include:
+Likely next areas are:
 
-1. expense repercussion and analytical allocation, especially grouped property expenses;
-2. accounting completeness/integrity controls;
-3. fiscal/accounting reports needed for year-end and January;
-4. invoice annulment and rectification when first required;
-5. rent-revision generalization only if another real contract needs it;
-6. invoice document/layout improvements if real use shows a need;
-7. extending grace-period handling to `Otros` only if a real non-invoice contract requires it.
+1. accounting completeness and integrity controls;
+2. year-end / IRPF / IRNR reporting required by real fiscal preparation;
+3. `FACTURAR` integration with invoice preparation when the first concrete case appears;
+4. invoice annulment or rectification when first required;
+5. operational problems discovered during bank reconciliation or parallel accounting use.
 
-For billing corrections, preserve the current principle:
+Preserve the general correction rule:
 
 ```text
-fully reversible
-    → undo and perform again
+still fully reversible
+    → undo downstream effects
+    → correct source
+    → perform operation again
 
-historical effects must remain
-    → explicit annulment / rectification workflow
+persistent historical effect must remain
+    → do not silently recalculate or overwrite it
+    → use an explicit rectification workflow when needed
 ```
 
 Prefer fixing real operational friction over adding anticipated functionality.

@@ -76,7 +76,7 @@ Por tanto, `FACTURAR` no elimina ni aplaza contablemente el gasto original.
 
 En `REPERCUTIR`, la exclusión de los informes debe aplicarse únicamente a la parte efectivamente atribuida a contratos. Una parte sin contrato aplicable sigue correspondiendo al propietario.
 
-La implementación de los informes deberá utilizar las distribuciones e imputaciones persistidas cuando esos procesos estén completados, evitando recalcular decisiones históricas.
+Los informes utilizan las distribuciones e imputaciones persistidas para conservar las decisiones históricas de reparto y atribución. No recalculan esos repartos a partir de la configuración o los contratos actuales.
 
 ## Clasificación contable
 -------------------------
@@ -127,10 +127,13 @@ Si se seleccionan todos, Contab genera un archivo ZIP con un CSV independiente p
 
 Se incluyen:
 
-- los inmuebles activos;
-- los inmuebles inactivos que tengan apuntes contabilizables durante el año solicitado.
+- los inmuebles activos que no sean contenedores de tipo `T`;
+- los inmuebles inactivos que tengan apuntes aplicables durante el año solicitado;
+- los locales de inmuebles `T` que tengan distribuciones persistidas correspondientes a apuntes aplicables.
 
-Los inmuebles subdivididos sin apuntes contabilizables no aparecen en el selector ni en las exportaciones.
+Se consideran aplicables los tratamientos `CONTABILIZAR`, `FACTURAR` y `REPERCUTIR`.
+
+Los inmuebles de tipo `T` no aparecen como contabilidad propia. Sus gastos se muestran en los locales hijo según las `DistribucionApunte` persistidas.
 
 ## IVA. Resumen anual
 ---------------------
@@ -217,7 +220,12 @@ Actualmente están disponibles:
 - la generación conjunta de los CSV de todos los inmuebles en un ZIP;
 - el informe **IVA. Resumen anual**;
 - la selección del año;
-- el porcentaje configurable para la estimación de IRPF o IRNR.
+- el porcentaje configurable para la estimación de IRPF o IRNR;
+- la aplicación de los tratamientos `CONTABILIZAR`, `FACTURAR` y `REPERCUTIR`;
+- la distribución de los gastos de inmuebles `T` entre sus locales mediante `DistribucionApunte`;
+- la exclusión, en gastos `REPERCUTIR`, de la parte persistida en `ImputacionContrato` como atribuida a contratos.
+
+Los informes utilizan las distribuciones e imputaciones persistidas y no reconstruyen históricamente los repartos a partir de los contratos o participaciones actuales.
 
 ## Evolución prevista
 ---------------------
@@ -226,7 +234,7 @@ Los siguientes informes se decidirán a partir de necesidades fiscales reales. L
 
 1. Informes básicos para la declaración trimestral del IVA.
 2. Informes anuales orientados al IRPF o IRNR.
-3. Integración de `DistribucionApunte` e `ImputacionContrato` en los distintos informes fiscales.
-4. Nuevas agrupaciones cuando cambien los formularios de Hacienda.
+3. Nuevas agrupaciones cuando cambien los formularios de Hacienda.
+4. Integración de distribuciones e imputaciones en cualquier nuevo informe fiscal que las necesite.
 
 El criterio rector es conservar datos suficientemente detallados y generar sólo los informes que aporten utilidad comprobada, manteniendo el código y la interfaz lo más sencillos posible.

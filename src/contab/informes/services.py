@@ -299,8 +299,10 @@ def generar_csv_iva(
 ) -> str:
     """Genera el CSV anual de un inmueble orientado a la declaración del IVA.
 
-    - Selecciona los apuntes del inmueble y año indicados.
-    - Incluye únicamente los de tratamiento CONTABILIZAR.
+    - Selecciona los apuntes aplicables al inmueble y al año indicados.
+    - Considera los tratamientos CONTABILIZAR, FACTURAR y REPERCUTIR.
+    - Usa las distribuciones persistidas para los gastos procedentes de inmuebles T.
+    - En REPERCUTIR excluye sólo la parte imputada a contratos.
     - Los separa en cuatro trimestres.
     - Los ordena por fecha e identificador.
     - Genera los cuatro bloques, incluso cuando estén vacíos.

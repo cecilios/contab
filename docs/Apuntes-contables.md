@@ -30,8 +30,9 @@ Esta operativa obliga a registrar información varias veces y a rehacer agrupaci
 - Los gastos y otros ingresos se introducen manualmente al recibir su documento soporte.
 - Al crear manualmente un apunte se genera por defecto un movimiento previsto para conciliación; el usuario puede desactivar expresamente esta generación cuando no corresponda.
 - La generación de ese movimiento previsto es independiente del tratamiento contable elegido. Un gasto `CONTABILIZAR`, `REPERCUTIR` o `FACTURAR` puede producir igualmente un pago al proveedor que debe conciliarse.
-- Los apuntes pueden corregirse mientras sus movimientos previstos no estén conciliados. Si existe una conciliación total o parcial, no pueden modificarse el inmueble, la naturaleza ni el importe, aunque sí los datos descriptivos.
-- Los apuntes pueden eliminarse mientras no tengan movimientos previstos conciliados total o parcialmente.
+- Los apuntes pueden corregirse mientras los efectos posteriores ya persistidos lo permitan. Una conciliación total o parcial protege el inmueble, la naturaleza y el importe. Una `ImputacionContrato` persistida protege además los datos que determinan su reparto: inmueble, fecha, base, IVA, retención, período, criterio de período y tratamiento.
+- Los datos descriptivos que no alteran esos efectos históricos, como las notas, pueden seguir corrigiéndose.
+- Un apunte no puede eliminarse si tiene movimientos previstos conciliados total o parcialmente ni si existen `ImputacionContrato` persistidas, directamente o a través de sus distribuciones.
 - Los informes sustituirán la transcripción trimestral y facilitarán las agrupaciones fiscales anuales.
 - La conciliación bancaria permitirá concentrar la revisión en movimientos no conciliados, duplicados o ausencias esperadas.
 
@@ -89,13 +90,28 @@ No se modifican durante esa sincronización:
 - el método de conciliación;
 - las notas utilizadas para documentar una conciliación manual.
 
-Los movimientos pendientes y cancelados permiten modificar todos los datos del apunte.
+Los movimientos pendientes y cancelados no imponen restricciones propias sobre la modificación del apunte. No obstante, pueden existir otros efectos históricos, como `ImputacionContrato` persistidas, que protejan los datos utilizados para calcularlos.
 
 Si existe algún movimiento conciliado total o parcialmente, no pueden modificarse el inmueble, la naturaleza ni el importe. La validación del formulario detecta esta situación antes de guardar y no habilita el guardado.
 
 Los datos descriptivos sí pueden corregirse después de conciliar. El movimiento previsto se actualiza conservando intacta la conciliación existente.
 
 Un apunte tampoco puede eliminarse mientras tenga un movimiento previsto conciliado total o parcialmente. Los movimientos pendientes o cancelados se eliminan junto con el apunte.
+
+Cuando existen `ImputacionContrato` persistidas, Contab conserva la decisión histórica de reparto. No pueden modificarse:
+
+- el inmueble;
+- la fecha;
+- la base;
+- el IVA;
+- la retención;
+- el período;
+- el criterio de período;
+- el tratamiento.
+
+Esta protección se aplica tanto a imputaciones asociadas directamente al apunte como a imputaciones asociadas a una `DistribucionApunte` de un inmueble `T`.
+
+Para corregir esos datos debe deshacerse primero el proceso posterior que creó las imputaciones, cuando todavía sea reversible.
 
 ## Ayudas para reducir la entrada manual
 ----------------------------------------
@@ -168,7 +184,7 @@ Se mantiene esta distinción terminológica:
 ## Trabajo pendiente relacionado
 ---------------------------------
 
-- Gestión de gastos pendientes de trasladar o facturar.
+- Incorporación de gastos `FACTURAR` a la preparación de facturas cuando un caso real lo requiera.
 - Avisos de duplicados probables, huecos y solapamientos de períodos.
 - Plantillas de conceptos habituales configurables en `contab.ini`.
 - Ajustes finales de presentación del formulario y del listado.
