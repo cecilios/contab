@@ -60,6 +60,7 @@ from contab.facturacion.services import (
     preparar_revisiones_renta,
     reabrir_revision_renta,
     situacion_revision,
+    validar_edicion_factura,
 )
 from contab.contratos.services import (
     RevisionRentaError,
@@ -131,18 +132,37 @@ def _factura_editada_desde_formulario(
         "linea_importe"
     )
 
-    if len(conceptos) != len(importes_texto):
-        raise ValueError("Las líneas de la factura no son válidas.")
+    referencias_facturables = formulario.getlist(
+        "linea_referencia_facturable"
+    )
+
+    if not (
+        len(conceptos)
+        == len(importes_texto)
+        == len(referencias_facturables)
+    ):
+        raise ValueError(
+            "Las líneas de la factura no son válidas."
+        )
 
     lineas: list[LineaFacturaEditada] = []
 
-    for concepto, importe_texto in zip(
+    for (
+        concepto,
+        importe_texto,
+        referencia_facturable,
+    ) in zip(
         conceptos,
         importes_texto,
+        referencias_facturables,
         strict=True,
     ):
         concepto = concepto.strip()
         importe_texto = importe_texto.strip()
+        referencia_facturable = (
+            referencia_facturable.strip()
+            or None
+        )
 
         if not concepto and not importe_texto:
             continue
@@ -158,6 +178,7 @@ def _factura_editada_desde_formulario(
             LineaFacturaEditada(
                 concepto=concepto,
                 importe=importe,
+                referencia_facturable=referencia_facturable,
             )
         )
 
@@ -253,6 +274,7 @@ def listar():
             )
 
             preparacion = preparar_periodo_facturacion(
+                session,
                 contratos=contratos,
                 periodo=periodo,
                 fecha_emision=fecha_emision,
@@ -636,6 +658,7 @@ def modificar_factura(contrato_id: int):
                 return "Contrato no encontrado.", 404
 
             preparacion = preparar_periodo_facturacion(
+                session,
                 contratos=[contrato],
                 periodo=periodo,
                 fecha_emision=fecha_emision,
@@ -666,6 +689,9 @@ def modificar_factura(contrato_id: int):
                     "importe": importe_a_texto_entrada(
                         linea.importe
                     ),
+                    "referencia_facturable": (
+                        linea.referencia_facturable or ""
+                    ),
                 }
                 for linea in factura.lineas
             ]
@@ -675,6 +701,7 @@ def modificar_factura(contrato_id: int):
                     {
                         "concepto": "",
                         "importe": "",
+                        "referencia_facturable": "",
                     }
                 )
 
@@ -737,6 +764,7 @@ def previsualizar_factura(contrato_id: int):
                 return "Contrato no encontrado.", 404
 
             preparacion = preparar_periodo_facturacion(
+                session,
                 contratos=[contrato],
                 periodo=periodo,
                 fecha_emision=fecha_emision,
@@ -765,7 +793,12 @@ def previsualizar_factura(contrato_id: int):
                 factura_editada = _factura_editada_desde_formulario(
                     request.form
                 )
-            except ValueError as exc:
+
+                validar_edicion_factura(
+                    factura=factura,
+                    factura_editada=factura_editada,
+                )
+            except (ValueError, FacturacionError) as exc:
                 return str(exc), 400
 
             datos_documento = preparar_datos_documento_factura(
@@ -901,6 +934,27 @@ def contabilizar_factura(contrato_id: int):
 
                 if contrato is None:
                     return "Contrato no encontrado.", 404
+
+                preparacion = preparar_periodo_facturacion(
+                    session,
+                    contratos=[contrato],
+                    periodo=periodo,
+                    fecha_emision=fecha_emision,
+                )
+
+                if not preparacion.locales:
+                    return (
+                        "No existe una factura preparada "
+                        "para este contrato y período.",
+                        400,
+                    )
+
+                factura_preparada = preparacion.locales[0]
+
+                validar_edicion_factura(
+                    factura=factura_preparada,
+                    factura_editada=factura_editada,
+                )
 
                 revision, revision_estado = situacion_revision(
                     contrato,

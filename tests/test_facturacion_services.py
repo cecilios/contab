@@ -3,6 +3,7 @@
 import pytest
 
 from datetime import date
+from sqlalchemy import select
 
 from contab.config import CategoriaContable
 from contab.models import (
@@ -14,11 +15,18 @@ from contab.models import (
     Factura,
     FacturaDestinatario,
     FacturaLinea,
+    ImputacionContrato,
     Inmueble,
     Inquilino,
     MovimientoPrevisto,
     RentaContrato,
     RevisionRenta,
+)
+from contab.contratos.services import (
+    resolver_revision_renta,
+)
+from contab.contabilidad.services import (
+    crear_apunte_contable,
 )
 from contab.facturacion.services import (
     CalculoFacturaError,
@@ -28,6 +36,7 @@ from contab.facturacion.services import (
     LineaFacturaEditada,
     LineaFacturaPreparada,
     RepercusionGasto,
+    buscar_gastos_facturables_pendientes,
     calcular_importes_factura,
     componer_destinatario,
     contabilizar_ingreso_sin_factura,
@@ -43,11 +52,8 @@ from contab.facturacion.services import (
     preparar_revisiones_renta,
     reabrir_revision_renta,
     siguiente_numero_factura,
+    validar_edicion_factura,
 )
-from contab.contratos.services import (
-    resolver_revision_renta,
-)
-
 
 
 def _anadir_titular(
@@ -134,6 +140,45 @@ def _emitir_factura_para_eliminacion(
     session.commit()
 
     return factura, apunte, movimiento
+
+
+def _inmueble_subdividido_para_facturacion():
+    inmueble = Inmueble(
+        referencia="EDIFICIO-COMUN",
+        tipo="T",
+        codigo_facturacion="EC",
+        descripcion="Elementos comunes",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=10000,
+    )
+
+    local_a = Inmueble(
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=6000,
+        inmueble_padre=inmueble,
+    )
+
+    local_b = Inmueble(
+        referencia="LOCAL-B",
+        tipo="L",
+        codigo_facturacion="LB",
+        descripcion="Local B",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        participacion=4000,
+        inmueble_padre=inmueble,
+    )
+
+    return inmueble, local_a, local_b
 
 
 
@@ -1184,6 +1229,7 @@ def test_preparar_periodo_facturacion_separa_locales_y_otros(
     facturas_antes = session.query(Factura).count()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato, contrato_sin_factura],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1260,12 +1306,14 @@ def test_preparar_periodo_facturacion_filtra_contratos_por_vigencia(
     session.commit()
 
     octubre = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
     )
 
     septiembre = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 9, 1),
         fecha_emision=date(2026, 9, 1),
@@ -1280,6 +1328,7 @@ def test_preparar_periodo_facturacion_filtra_contratos_por_vigencia(
     session.commit()
 
     octubre = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1314,6 +1363,7 @@ def test_preparar_periodo_facturacion_indica_revision_pendiente(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 11, 1),
         fecha_emision=date(2026, 11, 1),
@@ -1432,6 +1482,7 @@ def test_preparar_periodo_facturacion_reconoce_factura_emitida(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1477,12 +1528,14 @@ def test_preparar_periodo_facturacion_no_consume_numero_factura(
     facturas_antes = session.query(Factura).count()
 
     primera = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
     )
 
     segunda = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1644,6 +1697,7 @@ def test_preparar_periodo_facturacion_avisa_revision_del_mes_siguiente(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1680,6 +1734,7 @@ def test_preparar_periodo_facturacion_no_avisa_revision_resuelta(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1715,6 +1770,7 @@ def test_preparar_periodo_facturacion_indica_espera_del_indice(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1745,6 +1801,7 @@ def test_preparar_periodo_facturacion_otro_no_contabilizado(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1806,6 +1863,7 @@ def test_preparar_periodo_facturacion_reconoce_otro_contabilizado(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -1863,6 +1921,7 @@ def test_preparar_periodo_facturacion_no_confunde_otro_de_otro_mes(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -2386,6 +2445,7 @@ def test_preparar_periodo_facturacion_indica_revision_aplicada(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 11, 1),
         fecha_emision=date(2026, 11, 1),
@@ -2431,6 +2491,7 @@ def test_preparar_periodo_facturacion_indica_revision_aplicada(
 
     # Comprobar que al mes siguiente el estado de la revisión ya no muestra 'Aplicada'
     preparacion_diciembre = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 12, 1),
         fecha_emision=date(2026, 12, 1),
@@ -2530,6 +2591,7 @@ def test_preparar_periodo_facturacion_ordena_por_referencia(
     session.flush()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[
             local_c,
             otro_b,
@@ -2871,6 +2933,7 @@ def test_preparar_periodo_con_factura_emitida_usa_snapshot_historico(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 2, 1),
         fecha_emision=date(2026, 2, 1),
@@ -4415,6 +4478,7 @@ def test_preparar_periodo_facturacion_incluye_local_en_carencia(
     session.commit()
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
@@ -4435,6 +4499,7 @@ def test_preparar_periodo_facturacion_incluye_local_en_carencia(
 
 
 def test_preparar_periodo_muestra_contrato_en_carencia_por_anexo(
+    session,
     contrato,
 ) -> None:
     """No prepara factura durante una carencia establecida por anexo."""
@@ -4451,6 +4516,7 @@ def test_preparar_periodo_muestra_contrato_en_carencia_por_anexo(
     )
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2026, 12, 1),
         fecha_emision=date(2026, 12, 1),
@@ -4471,6 +4537,7 @@ def test_preparar_periodo_muestra_contrato_en_carencia_por_anexo(
 
 
 def test_preparar_periodo_factura_tras_finalizar_carencia(
+    session,
     contrato,
 ) -> None:
     """Vuelve a preparar factura el mes siguiente a la carencia."""
@@ -4494,6 +4561,7 @@ def test_preparar_periodo_factura_tras_finalizar_carencia(
     )
 
     preparacion = preparar_periodo_facturacion(
+        session,
         contratos=[contrato],
         periodo=date(2027, 2, 1),
         fecha_emision=date(2027, 2, 1),
@@ -4501,5 +4569,689 @@ def test_preparar_periodo_factura_tras_finalizar_carencia(
 
     assert len(preparacion.locales) == 1
     assert preparacion.locales_en_carencia == ()
+
+
+def test_buscar_gastos_facturables_pendientes_encuentra_gasto_del_contrato(
+    session,
+    contrato,
+) -> None:
+    """Encuentra la parte de un gasto FACTURAR atribuible al contrato."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    gastos = buscar_gastos_facturables_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert len(gastos) == 1
+
+    gasto = gastos[0]
+
+    assert gasto.apunte is apunte
+    assert gasto.imputacion.contrato is contrato
+    assert gasto.imputacion.apunte is apunte
+    assert gasto.imputacion.distribucion_apunte is None
+    assert gasto.imputacion.base == 12000
+    assert gasto.imputacion.iva_importe == 0
+    assert gasto.imputacion.retencion_importe == 0
+    assert gasto.imputacion.importe == 12000
+
+
+def test_buscar_gastos_facturables_pendientes_usa_distribucion_de_inmueble_t(
+    session,
+) -> None:
+    """Encuentra la parte distribuida de un gasto FACTURAR para el contrato."""
+
+    inmueble, local_a, _ = (
+        _inmueble_subdividido_para_facturacion()
+    )
+
+    contrato = Contrato(
+        inmueble=local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2035, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="Dirección",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+    )
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=10000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    gastos = buscar_gastos_facturables_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert len(gastos) == 1
+
+    gasto = gastos[0]
+
+    assert gasto.apunte is apunte
+    assert gasto.imputacion.contrato is contrato
+    assert gasto.imputacion.apunte is None
+
+    distribucion = gasto.imputacion.distribucion_apunte
+
+    assert distribucion is not None
+    assert distribucion.inmueble is local_a
+    assert distribucion.base == 6000
+
+    assert gasto.imputacion.base == 6000
+    assert gasto.imputacion.iva_importe == 0
+    assert gasto.imputacion.retencion_importe == 0
+    assert gasto.imputacion.importe == 6000
+
+
+def test_preparar_periodo_facturacion_incluye_gasto_facturable_pendiente(
+    session,
+    contrato,
+) -> None:
+    """Añade a la factura la parte pendiente de un gasto FACTURAR."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(preparacion.locales) == 1
+
+    factura = preparacion.locales[0]
+
+    assert len(factura.lineas) == 2
+
+    assert factura.lineas[0].concepto == (
+        "Alquiler. Octubre de 2026"
+    )
+    assert factura.lineas[0].importe == 100000
+
+    assert factura.lineas[1].concepto == "Recibo de comunidad"
+    assert factura.lineas[1].importe == 12000
+
+    assert factura.base == 112000
+
+
+def test_preparar_periodo_no_repite_gasto_facturable_ya_gestionado(
+    session,
+    contrato,
+) -> None:
+    """No vuelve a proponer un gasto FACTURAR cuya imputación ya existe."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        contrato,
+        apunte,
+    ])
+    session.flush()
+
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        base=12000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=12000,
+    )
+
+    session.add(imputacion)
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(preparacion.locales) == 1
+
+    factura = preparacion.locales[0]
+
+    assert len(factura.lineas) == 1
+    assert factura.lineas[0].concepto == (
+        "Alquiler. Octubre de 2026"
+    )
+    assert factura.lineas[0].importe == 100000
+
+
+def test_preparar_periodo_conserva_imputacion_del_gasto_facturable(
+    session,
+    contrato,
+) -> None:
+    """La línea automática conserva qué imputación FACTURAR la origina."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    factura = preparacion.locales[0]
+
+    linea_renta = factura.lineas[0]
+    linea_gasto = factura.lineas[1]
+
+    assert linea_renta.imputacion_facturable is None
+
+    imputacion = linea_gasto.imputacion_facturable
+
+    assert imputacion is not None
+    assert imputacion.contrato is contrato
+    assert imputacion.apunte is apunte
+    assert imputacion.distribucion_apunte is None
+    assert imputacion.importe == 12000
+
+
+def test_validar_edicion_factura_rechaza_cambio_importe_gasto_facturable(
+    session,
+    contrato,
+) -> None:
+    """No permite cambiar el importe de una línea automática FACTURAR."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    factura = preparacion.locales[0]
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto=factura.lineas[0].concepto,
+                importe=100000,
+            ),
+            LineaFacturaEditada(
+                concepto="Gastos de comunidad",
+                importe=13000,
+                referencia_facturable=factura.lineas[1].referencia_facturable
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=contrato.iva_porcentaje,
+        retencion_porcentaje=contrato.retencion_porcentaje,
+        base=113000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=113000,
+    )
+
+    with pytest.raises(
+        FacturacionError,
+        match="importe",
+    ):
+        validar_edicion_factura(
+            factura=factura,
+            factura_editada=factura_editada,
+        )
+
+
+def test_validar_edicion_factura_admite_cambiar_concepto_gasto_facturable(
+    session,
+    contrato,
+) -> None:
+    """Permite cambiar el concepto de una línea automática FACTURAR."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    factura = preparacion.locales[0]
+
+    assert factura.lineas[1].referencia_facturable == f"apunte:{apunte.id}"
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto=factura.lineas[0].concepto,
+                importe=100000,
+            ),
+            LineaFacturaEditada(
+                concepto="Gastos de comunidad septiembre",
+                importe=12000,
+                referencia_facturable=(
+                    factura.lineas[1].referencia_facturable
+                ),
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=contrato.iva_porcentaje,
+        retencion_porcentaje=contrato.retencion_porcentaje,
+        base=112000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=112000,
+    )
+
+    validar_edicion_factura(
+        factura=factura,
+        factura_editada=factura_editada,
+    )
+
+
+def test_validar_edicion_factura_admite_eliminar_gasto_facturable(
+    session,
+    contrato,
+) -> None:
+    """Permite quitar de la factura una línea automática FACTURAR."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    factura = preparacion.locales[0]
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto=factura.lineas[0].concepto,
+                importe=100000,
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=contrato.iva_porcentaje,
+        retencion_porcentaje=contrato.retencion_porcentaje,
+        base=100000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=100000,
+    )
+
+    validar_edicion_factura(
+        factura=factura,
+        factura_editada=factura_editada,
+    )
+
+
+def test_emitir_factura_vincula_gasto_facturable_a_linea(
+    session,
+    contrato,
+) -> None:
+    """Persiste la imputación FACTURAR vinculada a su línea de factura."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Recibo de comunidad",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        contrato,
+        apunte,
+    ])
+    session.commit()
+
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto=preparada.lineas[0].concepto,
+                importe=preparada.lineas[0].importe,
+            ),
+            LineaFacturaEditada(
+                concepto="Comunidad septiembre",
+                importe=12000,
+                referencia_facturable=(
+                    preparada.lineas[1].referencia_facturable
+                ),
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=0,
+        retencion_porcentaje=0,
+        base=112000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=112000,
+    )
+
+    factura, _, _ = emitir_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        categorias=categorias,
+        factura_editada=factura_editada,
+    )
+
+    session.add(factura)
+    session.commit()
+
+    imputaciones = session.scalars(
+        select(ImputacionContrato)
+    ).all()
+
+    assert len(imputaciones) == 1
+
+    imputacion = imputaciones[0]
+
+    assert imputacion.apunte is apunte
+    assert imputacion.contrato is contrato
+    assert imputacion.importe == 12000
+
+    assert imputacion.factura_linea is factura.lineas[1]
+    assert factura.lineas[1].concepto == "Comunidad septiembre"
 
 

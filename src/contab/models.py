@@ -733,6 +733,12 @@ class FacturaLinea(Base):
     factura: Mapped["Factura"] = relationship(
         back_populates="lineas",
     )
+    imputacion_facturable: Mapped[
+        "ImputacionContrato | None"
+    ] = relationship(
+        back_populates="factura_linea",
+        uselist=False,
+    )
 
 
 class ApunteContable(Base):
@@ -1122,6 +1128,15 @@ class ImputacionContrato(Base):
         nullable=True,
     )
 
+    factura_linea_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "factura_linea.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+        unique=True,
+    )
+
     contrato_id: Mapped[int] = mapped_column(
         ForeignKey(
             "contrato.id",
@@ -1160,6 +1175,12 @@ class ImputacionContrato(Base):
         "DistribucionApunte | None"
     ] = relationship(
         back_populates="imputaciones_contrato",
+    )
+
+    factura_linea: Mapped[
+        "FacturaLinea | None"
+    ] = relationship(
+        back_populates="imputacion_facturable",
     )
 
     contrato: Mapped["Contrato"] = relationship(

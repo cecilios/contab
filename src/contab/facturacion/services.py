@@ -2,17 +2,23 @@
 
 from datetime import date
 from dataclasses import dataclass
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from contab.calculos import redondear_division
 from contab.config import CategoriaContable
-from contab.contabilidad.services import crear_apunte_contable
 from contab.conciliacion.services import crear_movimiento_desde_apunte
+from contab.contabilidad.services import (
+    crear_apunte_contable,
+    preparar_imputaciones_contrato,
+)
 from contab.models import (
     ApunteContable,
     Contrato,
     Factura,
     FacturaDestinatario,
     FacturaLinea,
+    ImputacionContrato,
     MovimientoPrevisto,
     RentaContrato,
     RevisionRenta,
@@ -44,11 +50,14 @@ class TitularDocumentoFactura:
 class LineaFacturaPreparada:
     concepto: str
     importe: int
+    imputacion_facturable: ImputacionContrato | None = None
+    referencia_facturable: str | None = None
 
 @dataclass
 class LineaFacturaEditada:
     concepto: str
     importe: int
+    referencia_facturable: str | None = None
 
 @dataclass
 class FacturaEditada:
@@ -76,6 +85,13 @@ class RepercusionGasto:
 
     concepto: str
     importe: int
+
+@dataclass(frozen=True)
+class GastoFacturablePendiente:
+    """Describe una parte pendiente de incorporar a una factura."""
+
+    apunte: ApunteContable
+    imputacion: ImputacionContrato
 
 @dataclass(frozen=True)
 class FacturaPreparada:
@@ -291,6 +307,25 @@ def _diferencia_revision_aplicada(
     renta_anterior = rentas[indice_revision - 1].importe
 
     return renta_nueva - renta_anterior
+
+
+def _referencia_imputacion_facturable(
+    imputacion: ImputacionContrato,
+) -> str:
+    """Devuelve una referencia estable al origen de una imputación."""
+
+    if imputacion.apunte is not None:
+        return f"apunte:{imputacion.apunte.id}"
+
+    distribucion = imputacion.distribucion_apunte
+
+    if distribucion is None:
+        raise FacturacionError(
+            "La imputación facturable no tiene un origen válido."
+        )
+
+    return f"distribucion:{distribucion.id}"
+
 
 
 
@@ -726,6 +761,7 @@ def contabilizar_ingreso_sin_factura(
 
 
 def preparar_periodo_facturacion(
+    session: Session,
     *,
     contratos: list[Contrato],
     periodo: date,
@@ -834,6 +870,27 @@ def preparar_periodo_facturacion(
                         importe=importe_renta,
                     )
                 ]
+
+                gastos_facturables = (
+                    buscar_gastos_facturables_pendientes(
+                        session,
+                        contrato=contrato,
+                    )
+                )
+
+                for gasto in gastos_facturables:
+                    lineas.append(
+                        LineaFacturaPreparada(
+                            concepto=gasto.apunte.concepto,
+                            importe=gasto.imputacion.importe,
+                            imputacion_facturable=gasto.imputacion,
+                            referencia_facturable=(
+                                _referencia_imputacion_facturable(
+                                    gasto.imputacion
+                                )
+                            ),
+                        )
+                    )
 
                 if (revision is not None
                     and revision_estado == "APLICADA"
@@ -1544,5 +1601,122 @@ def preparar_reapertura_revision(
         renta=renta_revision,
         siguiente_revision=siguiente_revision,
     )
+
+
+def buscar_gastos_facturables_pendientes(
+    session: Session,
+    *,
+    contrato: Contrato,
+) -> list[GastoFacturablePendiente]:
+    """Obtiene gastos FACTURAR todavía pendientes para un contrato."""
+
+    imputaciones_existentes = session.scalars(
+        select(ImputacionContrato)
+        .where(
+            ImputacionContrato.contrato_id
+            == contrato.id
+        )
+    ).all()
+
+    apuntes_gestionados = {
+        imputacion.apunte_id
+        for imputacion in imputaciones_existentes
+        if imputacion.apunte_id is not None
+    }
+
+    distribuciones_gestionadas = {
+        imputacion.distribucion_apunte_id
+        for imputacion in imputaciones_existentes
+        if imputacion.distribucion_apunte_id
+        is not None
+    }
+
+    apuntes = session.scalars(
+        select(ApunteContable)
+        .where(
+            ApunteContable.naturaleza == "GASTO",
+            ApunteContable.tratamiento == "FACTURAR",
+        )
+        .order_by(
+            ApunteContable.fecha,
+            ApunteContable.id,
+        )
+    ).all()
+
+    pendientes: list[
+        GastoFacturablePendiente
+    ] = []
+
+    for apunte in apuntes:
+        imputaciones, _ = (
+            preparar_imputaciones_contrato(
+                apunte=apunte,
+            )
+        )
+
+        for imputacion in imputaciones:
+            if imputacion.contrato is not contrato:
+                continue
+
+            if imputacion.apunte is not None:
+                if (
+                    imputacion.apunte.id
+                    in apuntes_gestionados
+                ):
+                    continue
+            else:
+                distribucion = (
+                    imputacion.distribucion_apunte
+                )
+
+                if (
+                    distribucion.id
+                    in distribuciones_gestionadas
+                ):
+                    continue
+
+            pendientes.append(
+                GastoFacturablePendiente(
+                    apunte=apunte,
+                    imputacion=imputacion,
+                )
+            )
+
+    return pendientes
+
+
+def validar_edicion_factura(
+    *,
+    factura: FacturaPreparada,
+    factura_editada: FacturaEditada,
+) -> None:
+    """Valida los importes de las líneas automáticas que siguen presentes."""
+
+    originales_facturables = {
+        linea.referencia_facturable: linea
+        for linea in factura.lineas
+        if linea.referencia_facturable is not None
+    }
+
+    for linea_editada in factura_editada.lineas:
+        referencia = linea_editada.referencia_facturable
+
+        if referencia is None:
+            continue
+
+        linea_original = originales_facturables.get(
+            referencia
+        )
+
+        if linea_original is None:
+            raise FacturacionError(
+                "La línea automática de factura no es válida."
+            )
+
+        if linea_editada.importe != linea_original.importe:
+            raise FacturacionError(
+                "No puede modificarse el importe de un gasto "
+                "añadido automáticamente a la factura."
+            )
 
 

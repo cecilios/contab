@@ -207,6 +207,11 @@
                                                 name="linea_importe"
                                                 value="{{ importe_a_texto_entrada(linea.importe) }}"
                                             >
+                                            <input
+                                                type="hidden"
+                                                name="linea_referencia_facturable"
+                                                value="{{ linea.referencia_facturable or '' }}"
+                                            >
                                         {% endfor %}
 
                                         {% for nota in local.notas %}

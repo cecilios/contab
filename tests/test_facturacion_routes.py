@@ -4,6 +4,7 @@ from datetime import date
 from types import SimpleNamespace
 
 from sqlalchemy import select
+from werkzeug.datastructures import MultiDict
 
 from contab.app import create_app
 from contab.database import Base
@@ -21,9 +22,9 @@ from contab.models import (
     RevisionRenta,
 )
 from contab.facturacion.routes import (
+    _factura_editada_desde_formulario,
     _valores_iniciales_facturacion,
 )
-
 from contab.facturacion.services import (
     siguiente_numero_factura,
 )
@@ -426,6 +427,7 @@ def test_listar_facturacion_inicializa_fecha_emision_desde_periodo(
     fecha_recibida = None
 
     def preparar_periodo_facturacion_falso(
+        _session,
         *,
         contratos,
         periodo,
@@ -606,6 +608,9 @@ ING_ALQUILERES = INGRESO | Alquileres
             ],
             "linea_importe": [
                 "1000,00",
+            ],
+            "linea_referencia_facturable": [
+                "",
             ],
             "iva_porcentaje": "0",
             "retencion_porcentaje": "0",
@@ -966,6 +971,9 @@ ING_ALQUILERES = INGRESO | Alquileres
             ],
             "linea_importe": [
                 "1000,00",
+            ],
+            "linea_referencia_facturable": [
+                "",
             ],
             "iva_porcentaje": "0",
             "retencion_porcentaje": "0",
@@ -1893,6 +1901,13 @@ def test_modificar_factura_acepta_datos_editados(
                 "",
                 "",
             ],
+            "linea_referencia_facturable": [
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
             "iva_porcentaje": "21",
             "retencion_porcentaje": "19",
             "nota_texto": [
@@ -2262,6 +2277,10 @@ def test_contabilizar_factura_persiste_factura_editada(
                 "1000,00",
                 "35,00",
             ],
+            "linea_referencia_facturable": [
+                "",
+                "",
+            ],
             "iva_porcentaje": "21",
             "retencion_porcentaje": "19",
             "nota_texto": [
@@ -2450,6 +2469,10 @@ def test_contabilizar_factura_persiste_atrasos_revision_aplicada(
                 "1036,00",
                 "36,00",
             ],
+            "linea_referencia_facturable": [
+                "",
+                "",
+            ],
             "iva_porcentaje": "21",
             "retencion_porcentaje": "19",
             "nota_texto": [
@@ -2636,6 +2659,10 @@ def test_contabilizar_factura_rechaza_importes_distintos(
                 "1000,00",
                 "35,00",
             ],
+            "linea_referencia_facturable": [
+                "",
+                "",
+            ],
             "iva_porcentaje": "21",
             "retencion_porcentaje": "19",
             "nota_texto": [
@@ -2799,6 +2826,9 @@ def test_previsualizar_factura_desde_lista_no_persiste(
             ],
             "linea_importe": [
                 "1000,00",
+            ],
+            "linea_referencia_facturable": [
+                "",
             ],
             "iva_porcentaje": "21",
             "retencion_porcentaje": "19",
@@ -4758,5 +4788,323 @@ def test_listar_facturacion_ordena_locales_incluyendo_carencias() -> None:
     posicion_3 = texto.index("LOCAL-3")
 
     assert posicion_1 < posicion_2 < posicion_3
+
+
+def test_factura_editada_conserva_referencia_facturable() -> None:
+    """Conserva la identidad oculta de una línea automática FACTURAR."""
+
+    formulario = MultiDict([
+        ("linea_concepto", "Alquiler"),
+        ("linea_importe", "1000,00"),
+        ("linea_referencia_facturable", ""),
+        ("linea_concepto", "Gastos de comunidad"),
+        ("linea_importe", "120,00"),
+        (
+            "linea_referencia_facturable",
+            "apunte:17",
+        ),
+        ("iva_porcentaje", "0"),
+        ("retencion_porcentaje", "0"),
+    ])
+
+    factura_editada = _factura_editada_desde_formulario(
+        formulario
+    )
+
+    assert len(factura_editada.lineas) == 2
+
+    assert (
+        factura_editada.lineas[0].referencia_facturable
+        is None
+    )
+
+    assert (
+        factura_editada.lineas[1].referencia_facturable
+        == "apunte:17"
+    )
+
+
+def test_previsualizar_factura_rechaza_cambio_importe_gasto_facturable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Rechaza cambiar el importe de una línea automática FACTURAR."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    plantilla = tmp_path / "factura.html"
+    plantilla.write_text(
+        "Factura de prueba",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "contab.facturacion.routes.get_invoice_template_path",
+        lambda: plantilla,
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            tratamiento="FACTURAR",
+            concepto="Recibo de comunidad",
+            base=12000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=12000,
+        )
+
+        session.add_all([
+            contrato,
+            apunte,
+        ])
+        session.commit()
+
+        contrato_id = contrato.id
+        apunte_id = apunte.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026",
+        data={
+            "linea_concepto": [
+                "Alquiler. Octubre de 2026",
+                "Gastos de comunidad",
+            ],
+            "linea_importe": [
+                "1000,00",
+                "130,00",
+            ],
+            "linea_referencia_facturable": [
+                "",
+                f"apunte:{apunte_id}",
+            ],
+            "iva_porcentaje": "0",
+            "retencion_porcentaje": "0",
+            "nota_texto": [],
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        "No puede modificarse el importe de un gasto "
+        "añadido automáticamente a la factura."
+        in response.get_data(as_text=True)
+    )
+
+
+def test_contabilizar_factura_rechaza_cambio_importe_gasto_facturable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Rechaza cambiar al contabilizar el importe de un gasto FACTURAR."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            tratamiento="FACTURAR",
+            concepto="Recibo de comunidad",
+            base=12000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=12000,
+        )
+
+        session.add_all([
+            contrato,
+            apunte,
+        ])
+        session.commit()
+
+        contrato_id = contrato.id
+        apunte_id = apunte.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.post(
+        f"/facturacion/facturas/{contrato_id}/contabilizar",
+        data={
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
+            "linea_concepto": [
+                "Alquiler. Octubre de 2026",
+                "Gastos de comunidad",
+            ],
+            "linea_importe": [
+                "1000,00",
+                "130,00",
+            ],
+            "linea_referencia_facturable": [
+                "",
+                f"apunte:{apunte_id}",
+            ],
+            "iva_porcentaje": "0",
+            "retencion_porcentaje": "0",
+            "nota_texto": [],
+            "base_previsualizada": "113000",
+            "iva_previsualizado": "0",
+            "retencion_previsualizada": "0",
+            "total_previsualizado": "113000",
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        "No puede modificarse el importe de un gasto "
+        "añadido automáticamente a la factura."
+        in response.get_data(as_text=True)
+    )
+
+    with session_factory() as session:
+        assert session.scalar(select(Factura)) is None
 
 
