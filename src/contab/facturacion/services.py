@@ -1071,6 +1071,7 @@ def preparar_periodo_facturacion(
     )
 
 
+
 def emitir_factura(
     *,
     contrato: Contrato,
@@ -1078,6 +1079,7 @@ def emitir_factura(
     fecha_emision: date,
     categorias: dict[str, CategoriaContable],
     factura_editada: FacturaEditada | None = None,
+    lineas_preparadas: tuple[LineaFacturaPreparada, ...] = (),
 ) -> tuple[Factura, ApunteContable, MovimientoPrevisto]:
     """Prepara la emisión completa de una factura sin persistirla."""
 
@@ -1088,6 +1090,48 @@ def emitir_factura(
         raise FacturacionError(
             "Ya existe una factura para este contrato y período."
         )
+
+    # Identificar las imputaciones facturables disponibles.
+    originales_facturables = {
+        linea.referencia_facturable: linea
+        for linea in lineas_preparadas
+        if linea.referencia_facturable is not None
+    }
+
+    if factura_editada is not None:
+        referencias_utilizadas = set()
+
+        for linea in factura_editada.lineas:
+            referencia = linea.referencia_facturable
+
+            if referencia is None:
+                continue
+
+            if referencia in referencias_utilizadas:
+                raise FacturacionError(
+                    "Un gasto no puede aparecer dos veces "
+                    "en la misma factura."
+                )
+
+            referencias_utilizadas.add(referencia)
+
+            original = originales_facturables.get(referencia)
+
+            if original is None:
+                raise FacturacionError(
+                    "La línea automática de factura no es válida."
+                )
+
+            if linea.importe != original.importe:
+                raise FacturacionError(
+                    "No puede modificarse el importe de un gasto "
+                    "añadido automáticamente a la factura."
+                )
+
+            if original.imputacion_facturable is None:
+                raise FacturacionError(
+                    "La línea facturable no tiene una imputación."
+                )
 
     revision, revision_estado = situacion_revision(
         contrato,
@@ -1102,6 +1146,37 @@ def emitir_factura(
         aviso_revision=revision_estado,
         factura_editada=factura_editada,
     )
+
+    # Vincular cada línea facturable a una nueva imputación
+    # que se guardará junto con la factura.
+    if factura_editada is not None:
+        for linea_editada, linea_factura in zip(
+            factura_editada.lineas,
+            factura.lineas,
+        ):
+            referencia = linea_editada.referencia_facturable
+
+            if referencia is None:
+                continue
+
+            original = originales_facturables[referencia]
+            imputacion_original = original.imputacion_facturable
+
+            imputacion = ImputacionContrato(
+                apunte_id=imputacion_original.apunte_id,
+                distribucion_apunte_id=(
+                    imputacion_original.distribucion_apunte_id
+                ),
+                contrato_id=contrato.id,
+                base=imputacion_original.base,
+                iva_importe=imputacion_original.iva_importe,
+                retencion_importe=(
+                    imputacion_original.retencion_importe
+                ),
+                importe=imputacion_original.importe,
+            )
+
+            linea_factura.imputacion_facturable = imputacion
 
     apunte, movimiento = preparar_registro_contable_factura(
         factura=factura,
@@ -1163,6 +1238,7 @@ def preparar_datos_documento_factura(
             LineaFacturaPreparada(
                 concepto=linea.concepto,
                 importe=linea.importe,
+                referencia_facturable=linea.referencia_facturable,
             )
             for linea in factura_editada.lineas
         ],

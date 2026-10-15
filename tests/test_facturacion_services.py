@@ -5228,12 +5228,14 @@ def test_emitir_factura_vincula_gasto_facturable_a_linea(
         total=112000,
     )
 
+    # El usuario confirma la factura que acaba de preparar.
     factura, _, _ = emitir_factura(
         contrato=contrato,
         periodo=date(2026, 10, 1),
         fecha_emision=date(2026, 10, 1),
         categorias=categorias,
         factura_editada=factura_editada,
+        lineas_preparadas=preparada.lineas,
     )
 
     session.add(factura)
@@ -5253,5 +5255,497 @@ def test_emitir_factura_vincula_gasto_facturable_a_linea(
 
     assert imputacion.factura_linea is factura.lineas[1]
     assert factura.lineas[1].concepto == "Comunidad septiembre"
+
+    # El usuario prepara la factura del mes siguiente.
+    # El gasto ya facturado no debe volver a aparecer.
+    gastos_pendientes = buscar_gastos_facturables_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert gastos_pendientes == []
+
+
+def test_emitir_factura_rechaza_gasto_facturable_duplicado(
+    session,
+    contrato,
+    categorias,
+) -> None:
+    """Impide facturar dos veces una imputación en la misma factura."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = dict(categorias)
+    categorias["GAS_COMUNIDAD"] = CategoriaContable(
+        codigo="GAS_COMUNIDAD",
+        naturaleza="GASTO",
+        nombre="Comunidad",
+        activa=True,
+        subcategorias=(),
+    )
+
+    # El usuario registra un gasto FACTURAR.
+    gasto = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad septiembre",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([contrato, gasto])
+    session.commit()
+
+    # El usuario prepara la factura de octubre.
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    referencia = preparada.lineas[1].referencia_facturable
+
+    assert referencia == f"apunte:{gasto.id}"
+
+    # Se envía un formulario manipulado con dos líneas
+    # que hacen referencia al mismo gasto.
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto=preparada.lineas[0].concepto,
+                importe=100000,
+            ),
+            LineaFacturaEditada(
+                concepto="Comunidad septiembre",
+                importe=12000,
+                referencia_facturable=referencia,
+            ),
+            LineaFacturaEditada(
+                concepto="Comunidad repetida",
+                importe=12000,
+                referencia_facturable=referencia,
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=0,
+        retencion_porcentaje=0,
+        base=124000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=124000,
+    )
+
+    # La emisión debe rechazar el duplicado.
+    with pytest.raises(
+        FacturacionError,
+        match="dos veces",
+    ):
+        emitir_factura(
+            contrato=contrato,
+            periodo=date(2026, 10, 1),
+            fecha_emision=date(2026, 10, 1),
+            categorias=categorias,
+            factura_editada=factura_editada,
+            lineas_preparadas=preparada.lineas,
+        )
+
+    # No se ha persistido ninguna factura ni imputación.
+    assert session.scalars(
+        select(Factura)
+    ).all() == []
+
+    assert session.scalars(
+        select(ImputacionContrato)
+    ).all() == []
+
+    # El gasto continúa pendiente para una factura válida.
+    pendientes = buscar_gastos_facturables_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert len(pendientes) == 1
+    assert pendientes[0].apunte is gasto
+
+
+
+def test_emitir_factura_persiste_gasto_distribuido_de_inmueble_t(
+    session,
+) -> None:
+    """Factura sólo la parte del gasto T atribuida a un contrato."""
+
+    inmueble, local_a, local_b = (
+        _inmueble_subdividido_para_facturacion()
+    )
+
+    contratos = []
+
+    for local, nif in [
+        (local_a, "11111111A"),
+        (local_b, "22222222B"),
+    ]:
+        contrato = Contrato(
+            inmueble=local,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2035, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=0,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        _anadir_titular(contrato, nif=nif)
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=date(2026, 1, 1),
+                importe=100000,
+            )
+        )
+
+        contratos.append(contrato)
+
+    contrato_a, contrato_b = contratos
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    # El usuario registra un gasto común del inmueble T.
+    gasto = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad septiembre",
+        base=10000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato_a,
+        contrato_b,
+        gasto,
+    ])
+    session.commit()
+
+    # El usuario prepara la factura del local A.
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato_a],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert len(preparada.lineas) == 2
+    assert preparada.lineas[1].importe == 6000
+
+    referencia = preparada.lineas[1].referencia_facturable
+
+    assert referencia is not None
+    assert referencia.startswith("distribucion:")
+
+    # El usuario conserva el gasto y confirma la factura.
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto=preparada.lineas[0].concepto,
+                importe=100000,
+            ),
+            LineaFacturaEditada(
+                concepto="Comunidad local A",
+                importe=6000,
+                referencia_facturable=referencia,
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=0,
+        retencion_porcentaje=0,
+        base=106000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=106000,
+    )
+
+    factura, apunte, movimiento = emitir_factura(
+        contrato=contrato_a,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        categorias=categorias,
+        factura_editada=factura_editada,
+        lineas_preparadas=preparada.lineas,
+    )
+
+    session.add_all([factura, apunte, movimiento])
+    session.commit()
+
+    # La imputación queda asociada a la distribución y a la línea.
+    imputaciones = session.scalars(
+        select(ImputacionContrato)
+    ).all()
+
+    assert len(imputaciones) == 1
+
+    imputacion = imputaciones[0]
+
+    assert imputacion.apunte_id is None
+    assert imputacion.distribucion_apunte_id is not None
+    assert imputacion.distribucion_apunte.inmueble is local_a
+    assert imputacion.contrato is contrato_a
+    assert imputacion.base == 6000
+    assert imputacion.importe == 6000
+    assert imputacion.factura_linea is factura.lineas[1]
+    assert factura.lineas[1].concepto == "Comunidad local A"
+
+    # El local A ya no tiene pendiente ese gasto.
+    pendientes_a = buscar_gastos_facturables_pendientes(
+        session,
+        contrato=contrato_a,
+    )
+
+    assert pendientes_a == []
+
+    # El local B conserva su parte pendiente de 40 euros.
+    pendientes_b = buscar_gastos_facturables_pendientes(
+        session,
+        contrato=contrato_b,
+    )
+
+    assert len(pendientes_b) == 1
+    assert pendientes_b[0].apunte is gasto
+    assert pendientes_b[0].imputacion.importe == 4000
+
+    # El gasto original permanece íntegro en contabilidad.
+    assert gasto.base == 10000
+    assert gasto.total == 10000
+
+
+
+def test_emitir_factura_sin_gasto_retirado_lo_mantiene_pendiente(
+    session,
+    contrato,
+    categorias,
+) -> None:
+    """No persiste imputaciones de gastos retirados por el usuario."""
+
+    _anadir_titular(contrato)
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    categorias = dict(categorias)
+
+    categorias["GAS_COMUNIDAD"] = CategoriaContable(
+        codigo="GAS_COMUNIDAD",
+        naturaleza="GASTO",
+        nombre="Comunidad",
+        activa=True,
+        subcategorias=(),
+    )
+
+    # El usuario registra un gasto FACTURAR.
+    gasto = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 9, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad septiembre",
+        base=12000,
+        tratamiento="FACTURAR",
+    )
+
+    session.add_all([contrato, gasto])
+    session.commit()
+
+    # El usuario prepara la factura y aparece el gasto automático.
+    preparacion = preparar_periodo_facturacion(
+        session,
+        contratos=[contrato],
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    preparada = preparacion.locales[0]
+
+    assert len(preparada.lineas) == 2
+    assert preparada.lineas[1].importe == 12000
+
+    # El usuario elimina la línea del gasto antes de emitir.
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto=preparada.lineas[0].concepto,
+                importe=100000,
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=0,
+        retencion_porcentaje=0,
+        base=100000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=100000,
+    )
+
+    validar_edicion_factura(
+        factura=preparada,
+        factura_editada=factura_editada,
+    )
+
+    # El usuario confirma la factura sin el gasto.
+    factura, apunte, movimiento = emitir_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        categorias=categorias,
+        factura_editada=factura_editada,
+        lineas_preparadas=preparada.lineas,
+    )
+
+    session.add_all([factura, apunte, movimiento])
+    session.commit()
+
+    # La factura sólo contiene la renta.
+    assert len(factura.lineas) == 1
+    assert factura.lineas[0].importe == 100000
+    assert factura.base == 100000
+    assert factura.total == 100000
+
+    # No se ha persistido ninguna imputación del gasto.
+    imputaciones = session.scalars(
+        select(ImputacionContrato)
+    ).all()
+
+    assert imputaciones == []
+
+    # El gasto original sigue disponible para una factura posterior.
+    pendientes = buscar_gastos_facturables_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert len(pendientes) == 1
+    assert pendientes[0].apunte is gasto
+    assert pendientes[0].imputacion.importe == 12000
+
+    # El gasto original no ha cambiado.
+    assert gasto.tratamiento == "FACTURAR"
+    assert gasto.base == 12000
+    assert gasto.total == 12000
+
+
+
+def test_preparar_datos_documento_conserva_referencia_facturable(
+    session,
+    contrato,
+) -> None:
+    """La previsualización conserva la referencia del gasto FACTURAR."""
+
+    _anadir_titular(contrato)
+
+    factura_preparada = FacturaPreparada(
+        contrato=contrato,
+        inmueble=contrato.inmueble,
+        referencia_inmueble=contrato.inmueble.referencia,
+        descripcion_inmueble=contrato.inmueble.descripcion,
+        destinatario_nombre="Ana Pérez",
+        destinatario_nif="11111111A",
+        direccion_facturacion=contrato.direccion_facturacion,
+        codigo_postal_facturacion=contrato.codigo_postal_facturacion,
+        poblacion_facturacion=contrato.poblacion_facturacion,
+        provincia_facturacion=contrato.provincia_facturacion,
+        lineas=(
+            LineaFacturaPreparada(
+                concepto="Alquiler octubre",
+                importe=100000,
+            ),
+            LineaFacturaPreparada(
+                concepto="Comunidad septiembre",
+                importe=12000,
+                referencia_facturable="apunte:17",
+            ),
+        ),
+        notas=(),
+        base=112000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=112000,
+        factura=None,
+        numero_factura="01/2026A1",
+        revision=None,
+        revision_estado=None,
+    )
+
+    factura_editada = FacturaEditada(
+        lineas=[
+            LineaFacturaEditada(
+                concepto="Alquiler octubre",
+                importe=100000,
+            ),
+            LineaFacturaEditada(
+                concepto="Comunidad septiembre",
+                importe=12000,
+                referencia_facturable="apunte:17",
+            ),
+        ],
+        notas=[],
+        iva_porcentaje=0,
+        retencion_porcentaje=0,
+        base=112000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=112000,
+    )
+
+    documento = preparar_datos_documento_factura(
+        factura=factura_preparada,
+        factura_editada=factura_editada,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+    )
+
+    assert len(documento.lineas) == 2
+    assert documento.lineas[0].referencia_facturable is None
+    assert documento.lineas[1].referencia_facturable == "apunte:17"
 
 

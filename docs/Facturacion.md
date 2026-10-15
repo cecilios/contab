@@ -280,6 +280,7 @@ Contab crea conjuntamente:
 - sus destinatarios históricos;
 - el apunte contable;
 - el movimiento previsto para conciliación.
+- las imputaciones `FACTURAR` vinculadas a las líneas de gasto incluidas, cuando existan;
 
 La operación es atómica.
 
@@ -328,6 +329,7 @@ La eliminación borra conjuntamente, cuando existen:
 
 - movimiento previsto;
 - líneas de factura;
+- imputaciones `FACTURAR` asociadas a las líneas de factura;
 - destinatarios históricos;
 - factura;
 - apunte contable.
@@ -542,27 +544,103 @@ Este mecanismo está pensado para errores detectados antes de que los efectos po
 
 Cuando ya existen efectos que no pueden eliminarse mediante los flujos ordinarios, la revisión no debe reabrirse. En esos casos será necesario un futuro mecanismo explícito de rectificación.
 
-## Gastos repercutidos
+## Gastos repercutidos y facturables
 
 ---
 
-Una factura puede contener, además de la renta, gastos previamente registrados en contabilidad que deban cobrarse al inquilino.
+Contab distingue dos tratamientos que permiten cobrar a un inquilino gastos previamente registrados en contabilidad:
 
-Debe distinguirse claramente entre:
+- **`REPERCUTIR`**: solicitar al inquilino el reembolso de un gasto sin generar un ingreso fiscal ordinario. Se gestiona mediante el módulo independiente de solicitudes de reembolso.
+- **`FACTURAR`**: incorporar a una factura de alquiler la parte de un gasto atribuible a su contrato. El gasto original permanece íntegramente como gasto del propietario y la factura genera un ingreso contable ordinario.
 
-- **distribuir**: repartir espacialmente un gasto común de un inmueble `T` entre sus locales;
-- **repercutir**: exigir al inquilino el reembolso de un gasto sin convertirlo en ingreso fiscal;
-- **facturar**: incorporar a una factura un gasto que sigue siendo contablemente del propietario.
+Ambos tratamientos reutilizan los apuntes existentes. No se registra el mismo gasto por segunda vez.
 
-La distribución de los gastos de inmuebles `T` ya se conserva mediante `DistribucionApunte`.
+### Preparación de gastos FACTURAR
 
-La atribución temporal de un gasto a contratos se representa mediante `ImputacionContrato`. Esa atribución se calcula a partir del período del gasto y de los contratos que cubren cada parte de dicho período.
+`buscar_gastos_facturables_pendientes()` identifica las partes de los apuntes `FACTURAR` todavía no incluidas en una factura para el contrato correspondiente.
 
-Para los apuntes con tratamiento `FACTURAR`, el gasto original continúa formando parte de la contabilidad del propietario. Posteriormente, la parte atribuida a un contrato podrá convertirse en una línea adicional de factura.
+La atribución utiliza las reglas contables existentes:
 
-La factura producirá entonces su ingreso contable ordinario y su propio movimiento previsto de cobro. Ese movimiento es independiente del movimiento previsto de gasto utilizado para conciliar el pago original al proveedor.
+- En un inmueble ordinario, la imputación procede directamente de `ApunteContable`.
+- En un inmueble de tipo `T`, el gasto se distribuye primero entre los locales mediante `DistribucionApunte`, y la imputación al contrato procede de la distribución correspondiente.
+- La atribución temporal respeta los períodos contables y la vigencia de los contratos.
 
-La incorporación automática de estos gastos a la preparación de facturas todavía está pendiente de desarrollo. Debe reutilizar la información ya existente en contabilidad y evitar que el usuario tenga que introducir manualmente una segunda vez el mismo gasto.
+La preparación mensual incorpora cada gasto pendiente como una línea adicional de `FacturaPreparada`, además de la renta y de las posibles diferencias por revisión.
+
+Cada línea automática conserva una referencia técnica a su origen:
+
+```text
+apunte:<id>
+distribucion:<id>
+```
+
+La referencia permite identificar inequívocamente qué parte del gasto se está facturando.
+
+### Edición y previsualización
+
+Antes de contabilizar, el usuario puede cambiar el concepto de una línea `FACTURAR` o retirarla de la factura.
+
+No puede modificar su importe: éste procede de la imputación calculada a partir de los datos contables originales.
+
+Un gasto retirado permanece pendiente y podrá incorporarse a otra factura.
+
+No se permite utilizar dos veces la misma referencia facturable en una factura ni sustituirla por una referencia que no corresponda a los gastos preparados.
+
+La referencia se conserva durante todo el recorrido:
+
+```text
+Preparación
+    ↓
+Modificar, si procede
+    ↓
+Previsualizar
+    ↓
+Contabilizar
+```
+
+`preparar_datos_documento_factura()` transmite `referencia_facturable` a las líneas del documento. La plantilla HTML de previsualización debe incluir un campo oculto `linea_referencia_facturable` por cada línea enviada al formulario de contabilización, con valor vacío cuando no exista referencia.
+
+Este campo es técnico y no se imprime en la factura.
+
+### Contabilización y persistencia
+
+Al contabilizar una factura, cada gasto `FACTURAR` incluido genera una `ImputacionContrato` persistida, vinculada a su `FacturaLinea` mediante `factura_linea_id`.
+
+La imputación conserva:
+
+```text
+contrato_id
+apunte_id o distribucion_apunte_id
+base
+iva_importe
+retencion_importe
+importe
+factura_linea_id
+```
+
+Una imputación sólo puede pertenecer a una línea de factura. La relación es opcional para las imputaciones de otros procesos, como `REPERCUTIR`.
+
+El registro de la factura, sus líneas, las imputaciones facturables, el ingreso contable y el movimiento previsto de cobro se realiza en una única transacción.
+
+Una vez contabilizado el gasto, deja de aparecer entre los pendientes de ese contrato. Si procede de un inmueble `T`, la facturación de la parte de un local no consume las partes correspondientes a otros locales.
+
+El apunte original del gasto y su eventual movimiento previsto de pago al proveedor permanecen intactos. La factura produce su propio ingreso contable y movimiento previsto de cobro, independientes de aquéllos.
+
+### Eliminación y recuperación del gasto pendiente
+
+Si una factura todavía puede eliminarse, se eliminan también las `ImputacionContrato` vinculadas a sus líneas `FACTURAR`.
+
+Las imputaciones se eliminan antes que las líneas de factura y dentro de la misma transacción.
+
+No se eliminan:
+
+- el apunte contable original del gasto;
+- sus distribuciones entre inmuebles;
+- los movimientos previstos asociados al pago original al proveedor.
+
+Por tanto, después de eliminar la factura, el gasto vuelve a aparecer como pendiente para el contrato correspondiente.
+
+Si la eliminación de la factura está prohibida porque su cobro se encuentra conciliado total o parcialmente, se conservan la factura, las líneas, las imputaciones y todos sus efectos contables.
 
 ## Contratos sin factura
 

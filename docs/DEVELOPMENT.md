@@ -205,11 +205,13 @@ invoice emission
     → Factura
     + FacturaLinea(s)
     + FacturaDestinatario(s)
+    + optional FACTURAR ImputacionContrato(s)
     + ApunteContable
     + MovimientoPrevisto
 
 invoice deletion
     → delete MovimientoPrevisto
+    + FACTURAR ImputacionContrato(s)
     + FacturaLinea(s)
     + FacturaDestinatario(s)
     + Factura
@@ -1526,32 +1528,130 @@ Removing it would require a migration and should wait for a real operational rea
 
 ## Billing: expense billing
 
-`REPERCUTIR` is now implemented as an independent reimbursement workflow.
-
-Do not route `REPERCUTIR` through ordinary invoice preparation.
-
-`FACTURAR` remains the treatment intended for an expense that:
+`REPERCUTIR` and `FACTURAR` are implemented as distinct workflows.
 
 ```text
-remains fully owner's expense
-+
-may later be added to a tenant invoice
+REPERCUTIR
+    → independent reimbursement request
+    → attributed amount is not ordinary fiscal income
+
+FACTURAR
+    → original expense remains fully owner's expense
+    → attributed amount is included in an ordinary invoice
+    → invoice produces separate accounting income
 ```
 
-Integration of real `FACTURAR` expenses with invoice preparation is still pending and should be implemented only when a concrete real case requires it.
+Do not route `REPERCUTIR` through ordinary invoice emission.
 
-When that happens, reuse:
+### FACTURAR preparation
+
+`buscar_gastos_facturables_pendientes(session, contrato=...)` obtains eligible expenses not yet invoiced for the contract.
+
+Reuse the existing spatial and temporal attribution logic:
+
+```text
+ordinary property
+    ApunteContable
+        → ImputacionContrato
+
+type-T property
+    ApunteContable
+        → DistribucionApunte
+        → ImputacionContrato
+```
+
+Invoice preparation adds pending expenses to `FacturaPreparada.lineas`.
+
+Automatic expense lines carry:
+
+```text
+referencia_facturable = "apunte:<id>"
+```
+
+or:
+
+```text
+referencia_facturable = "distribucion:<id>"
+```
+
+This reference identifies the source allocation across preparation, editing, preview and final accounting.
+
+### Editing and validation
+
+The user may:
+
+- change the expense line concept;
+- remove the expense line before emission.
+
+The user may not:
+
+- change its automatically calculated amount;
+- duplicate an expense reference;
+- introduce an invalid expense reference.
+
+An omitted expense creates no persisted `ImputacionContrato` and remains pending.
+
+`preparar_datos_documento_factura()` must copy `referencia_facturable` from `LineaFacturaEditada` into the document lines.
+
+The external HTML invoice template must submit one hidden `linea_referencia_facturable` field per line, including an empty value for ordinary lines. Otherwise the final accounting form cannot reconstruct the invoice correctly.
+
+### Persistence
+
+`emitir_factura()` accepts the prepared lines and associates every retained FACTURAR expense with the corresponding `FacturaLinea`.
+
+Persist:
+
+```text
+ImputacionContrato.factura_linea_id
+```
+
+The field is nullable and unique, with a foreign key to `FacturaLinea`.
+
+The imputations preserve their accounting components and reference exactly one source:
 
 ```text
 ApunteContable
-DistribucionApunte
-ImputacionContrato
 ```
 
-as appropriate.
+or:
 
-Do not enter the economic fact again.
+```text
+DistribucionApunte
+```
 
+The route persists the entire invoice operation atomically.
+
+After emission, the invoiced allocation is no longer pending for its contract. For type-T expenses, invoicing one child's allocation must not consume another child's allocation.
+
+### Reversible deletion
+
+When an emitted invoice can be deleted, its FACTURAR imputations must be explicitly deleted before the invoice lines.
+
+Keep the deletion in the route's existing transaction.
+
+The original source expense, its spatial distributions and the supplier's expected payment must not be deleted.
+
+Afterward, those allocations become pending for invoicing again.
+
+An invoice with a `PARCIAL` or `CONCILIADO` expected collection cannot be deleted, and its imputations must remain untouched.
+
+### Migration and verification
+
+The schema includes the nullable unique foreign key:
+
+```text
+ImputacionContrato.factura_linea_id
+    → FacturaLinea.id
+    → ON DELETE RESTRICT
+```
+
+The incremental Alembic migration uses `batch_alter_table` for SQLite and explicitly named foreign-key and unique constraints.
+
+The migration has been applied and verified on the demo database and the production databases.
+
+Automated tests cover direct expenses, type-T distributions, pending-expense selection, preview reference preservation, changed concepts, immutable amounts, omitted expenses, duplicate references, persistence, reversible deletion and rejection of deletion when collection is reconciled.
+
+The complete pytest suite and the operational visual flow have passed.
 ## Billing: intentionally postponed scope
 
 Do not implement merely because the model could support it:
@@ -1563,7 +1663,6 @@ Do not implement merely because the model could support it:
 * replacement after annulment;
 * rectifying invoices;
 * generalized rent-revision behavior for hypothetical contracts;
-* `FACTURAR` expense integration before a real case requires it;
 * contractual grace periods for `Otros` before a real contract requires them.
 
 Transient editing already handles simple exceptional invoice lines.
@@ -1599,20 +1698,6 @@ Current IVA-oriented reports are implemented.
 Future annual reports should be driven by actual IRPF/IRNR preparation requirements.
 
 Preserve detailed accounting data so new groupings can be produced without changing historical entries.
-
-### FACTURAR integration
-
-When a real case appears, integrate eligible accounting expenses with invoice preparation.
-
-Preserve the distinction:
-
-```text
-FACTURAR
-    → original expense remains owner's expense
-    → invoice later creates normal income
-```
-
-Do not reuse `REPERCUTIR` semantics.
 
 ### Invoice annulment and rectification
 

@@ -1103,6 +1103,10 @@ class ImputacionContrato(Base):
             "contrato_id",
             name="uq_imputacion_contrato_distribucion",
         ),
+        UniqueConstraint(
+            "factura_linea_id",
+            name="uq_imputacion_contrato_factura_linea",
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -1131,10 +1135,10 @@ class ImputacionContrato(Base):
     factura_linea_id: Mapped[int | None] = mapped_column(
         ForeignKey(
             "factura_linea.id",
+            name="fk_imputacion_contrato_factura_linea",
             ondelete="RESTRICT",
         ),
         nullable=True,
-        unique=True,
     )
 
     contrato_id: Mapped[int] = mapped_column(

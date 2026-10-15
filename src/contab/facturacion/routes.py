@@ -444,6 +444,20 @@ def eliminar_factura(factura_id: int):
                         eliminacion.movimiento
                     )
 
+
+                # Eliminar primero las imputaciones de gastos
+                # FACTURAR vinculadas a las líneas de la factura.
+                for linea in list(
+                    eliminacion.factura.lineas
+                ):
+                    if linea.imputacion_facturable is not None:
+                        session.delete(
+                            linea.imputacion_facturable
+                        )
+
+                session.flush()
+
+                # Eliminar las líneas de la factura.
                 for linea in list(
                     eliminacion.factura.lineas
                 ):
@@ -974,6 +988,7 @@ def contabilizar_factura(contrato_id: int):
                     fecha_emision=fecha_emision,
                     categorias=categorias,
                     factura_editada=factura_editada,
+                    lineas_preparadas=factura_preparada.lineas,
                 )
 
                 session.add(factura)

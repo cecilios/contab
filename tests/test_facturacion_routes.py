@@ -1,5 +1,6 @@
 """Pruebas de las rutas web del módulo de facturación."""
 
+import pytest
 from datetime import date
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from contab.models import (
     Factura,
     FacturaDestinatario,
     FacturaLinea,
+    ImputacionContrato,
     Inmueble,
     Inquilino,
     MovimientoPrevisto,
@@ -26,6 +28,7 @@ from contab.facturacion.routes import (
     _valores_iniciales_facturacion,
 )
 from contab.facturacion.services import (
+    buscar_gastos_facturables_pendientes,
     siguiente_numero_factura,
 )
 
@@ -5106,5 +5109,291 @@ GAS_COMUNIDAD = GASTO | Comunidad
 
     with session_factory() as session:
         assert session.scalar(select(Factura)) is None
+
+
+
+def test_eliminar_factura_libera_gasto_facturable() -> None:
+    """Eliminar una factura devuelve sus gastos FACTURAR a pendientes."""
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        # El usuario dispone de una factura emitida con cobro pendiente.
+        factura = _crear_factura_emitida_para_test(
+            session
+        )
+
+        apunte_factura, movimiento = (
+            _anadir_registro_contable_factura_para_test(
+                session,
+                factura,
+            )
+        )
+
+        contrato = factura.contrato
+
+        # El usuario había registrado previamente un gasto FACTURAR.
+        gasto = ApunteContable(
+            inmueble=contrato.inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            tratamiento="FACTURAR",
+            concepto="Comunidad septiembre",
+            base=12000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=12000,
+        )
+
+        # La segunda línea de la factura corresponde a ese gasto.
+        linea_gasto = factura.lineas[1]
+        linea_gasto.concepto = "Comunidad septiembre"
+        linea_gasto.importe = 12000
+
+        imputacion = ImputacionContrato(
+            apunte=gasto,
+            contrato=contrato,
+            factura_linea=linea_gasto,
+            base=12000,
+            iva_importe=0,
+            retencion_importe=0,
+            importe=12000,
+        )
+
+        session.add_all([
+            gasto,
+            imputacion,
+        ])
+        session.commit()
+
+        factura_id = factura.id
+        gasto_id = gasto.id
+        imputacion_id = imputacion.id
+        linea_id = linea_gasto.id
+        apunte_factura_id = apunte_factura.id
+        movimiento_id = movimiento.id
+        contrato_id = contrato.id
+
+        # El gasto ya facturado no debe figurar como pendiente.
+        pendientes = buscar_gastos_facturables_pendientes(
+            session,
+            contrato=contrato,
+        )
+
+        assert pendientes == []
+
+    client = app.test_client()
+
+    # El usuario selecciona la contabilidad de pruebas.
+    response = client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    assert response.status_code == 302
+
+    # El usuario elimina la factura cuyo cobro sigue pendiente.
+    response = client.post(
+        f"/facturacion/facturas/{factura_id}/eliminar"
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(
+        "/facturacion/facturas"
+    )
+
+    with session_factory() as session:
+        # La factura y sus efectos contables desaparecen.
+        assert session.get(
+            Factura,
+            factura_id,
+        ) is None
+
+        assert session.get(
+            FacturaLinea,
+            linea_id,
+        ) is None
+
+        assert session.get(
+            ApunteContable,
+            apunte_factura_id,
+        ) is None
+
+        assert session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        ) is None
+
+        # La imputación vinculada a la línea también desaparece.
+        assert session.get(
+            ImputacionContrato,
+            imputacion_id,
+        ) is None
+
+        # El gasto original permanece intacto en contabilidad.
+        gasto_conservado = session.get(
+            ApunteContable,
+            gasto_id,
+        )
+
+        assert gasto_conservado is not None
+        assert gasto_conservado.tratamiento == "FACTURAR"
+        assert gasto_conservado.base == 12000
+        assert gasto_conservado.total == 12000
+
+        # El usuario vuelve a preparar una factura para el contrato.
+        # El gasto eliminado de la factura debe estar pendiente otra vez.
+        contrato = session.get(
+            Contrato,
+            contrato_id,
+        )
+
+        pendientes = buscar_gastos_facturables_pendientes(
+            session,
+            contrato=contrato,
+        )
+
+        assert len(pendientes) == 1
+        assert pendientes[0].apunte.id == gasto_id
+        assert pendientes[0].imputacion.importe == 12000
+
+
+
+@pytest.mark.parametrize(
+    "estado",
+    ["CONCILIADO", "PARCIAL"],
+)
+def test_eliminar_factura_con_gasto_facturable_rechaza_cobro_conciliado(
+    estado,
+) -> None:
+    """Conserva las imputaciones si la factura no puede eliminarse."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        # El usuario tiene una factura emitida con un gasto FACTURAR.
+        factura = _crear_factura_emitida_para_test(session)
+
+        apunte_factura, movimiento = (
+            _anadir_registro_contable_factura_para_test(
+                session,
+                factura,
+            )
+        )
+
+        contrato = factura.contrato
+
+        gasto = ApunteContable(
+            inmueble=contrato.inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            tratamiento="FACTURAR",
+            concepto="Comunidad septiembre",
+            base=12000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=12000,
+        )
+
+        linea_gasto = factura.lineas[1]
+        linea_gasto.concepto = "Comunidad septiembre"
+        linea_gasto.importe = 12000
+
+        imputacion = ImputacionContrato(
+            apunte=gasto,
+            contrato=contrato,
+            factura_linea=linea_gasto,
+            base=12000,
+            iva_importe=0,
+            retencion_importe=0,
+            importe=12000,
+        )
+
+        # El cobro ya se ha conciliado total o parcialmente.
+        movimiento.estado = estado
+
+        session.add_all([gasto, imputacion])
+        session.commit()
+
+        factura_id = factura.id
+        linea_id = linea_gasto.id
+        gasto_id = gasto.id
+        imputacion_id = imputacion.id
+        apunte_factura_id = apunte_factura.id
+        movimiento_id = movimiento.id
+        contrato_id = contrato.id
+
+    client = app.test_client()
+
+    # El usuario selecciona la contabilidad.
+    response = client.post(
+        "/",
+        data={"database": "test"},
+    )
+    assert response.status_code == 302
+
+    # El usuario intenta eliminar la factura.
+    response = client.post(
+        f"/facturacion/facturas/{factura_id}/eliminar"
+    )
+
+    # La aplicación rechaza la operación.
+    assert response.status_code == 400
+    assert "conciliado" in response.get_data(
+        as_text=True
+    ).lower()
+
+    with session_factory() as session:
+        # La factura y todos sus efectos permanecen intactos.
+        assert session.get(Factura, factura_id) is not None
+        assert session.get(FacturaLinea, linea_id) is not None
+
+        assert session.get(
+            ApunteContable,
+            apunte_factura_id,
+        ) is not None
+
+        movimiento_conservado = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert movimiento_conservado is not None
+        assert movimiento_conservado.estado == estado
+
+        # La imputación sigue asociada a la misma línea.
+        imputacion_conservada = session.get(
+            ImputacionContrato,
+            imputacion_id,
+        )
+
+        assert imputacion_conservada is not None
+        assert imputacion_conservada.factura_linea_id == linea_id
+        assert imputacion_conservada.importe == 12000
+
+        # El gasto original también permanece.
+        assert session.get(
+            ApunteContable,
+            gasto_id,
+        ) is not None
+
+        # No vuelve a ofrecerse un gasto que sigue facturado.
+        contrato = session.get(Contrato, contrato_id)
+
+        pendientes = buscar_gastos_facturables_pendientes(
+            session,
+            contrato=contrato,
+        )
+
+        assert pendientes == []
 
 
