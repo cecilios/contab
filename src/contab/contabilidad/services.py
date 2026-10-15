@@ -139,9 +139,7 @@ def _datos_apunte_contable(
     else:
         if criterio_periodo not in {
             "EXCLUIR_HASTA",
-            "EXCLUIR_DESDE",
             "INCLUIR_AMBOS",
-            "EXCLUIR_AMBOS",
         }:
             raise ContabilidadError(
                 "El criterio del período no es válido."

@@ -323,6 +323,108 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     assert "Tasa de Residuos Urbanos" in response.text
 
 
+
+def test_formulario_apunte_solo_ofrece_dos_criterios_periodo(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """El formulario permite incluir o excluir sólo la fecha final."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("CONTAB_CONFIG", str(ruta))
+
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre el formulario de un apunte nuevo.
+    response = client.get("/contabilidad/nuevo")
+
+    assert response.status_code == 200
+
+    # Se extraen exactamente los valores del selector de criterios.
+    selector = re.search(
+        r'<select\b[^>]*id="criterio_periodo"[^>]*>'
+        r'(.*?)</select>',
+        response.text,
+        re.DOTALL,
+    )
+
+    assert selector is not None
+
+    opciones = re.findall(
+        r'<option\b[^>]*value="([^"]*)"',
+        selector.group(1),
+    )
+
+    assert set(opciones) == {
+        "",
+        "INCLUIR_AMBOS",
+        "EXCLUIR_HASTA",
+    }
+
+    assert len(opciones) == 3
+
+    # Las etiquetas explican qué ocurre con la fecha final.
+    assert "Incluir fecha final" in selector.group(1)
+    assert "Excluir fecha final" in selector.group(1)
+
+
+
+def test_formulario_apunte_muestra_indicadores_dias_periodo(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Ofrece los días de ambos criterios para comparar con el recibo."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("CONTAB_CONFIG", str(ruta))
+
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre el formulario antes de introducir las fechas.
+    response = client.get("/contabilidad/nuevo")
+
+    assert response.status_code == 200
+
+    html = response.text
+
+    # El formulario ofrece un resultado independiente por criterio.
+    assert 'id="dias_incluir_hasta"' in html
+    assert 'id="dias_excluir_hasta"' in html
+
+    # Los campos de fechas están disponibles para actualizarlo.
+    assert 'id="periodo_desde"' in html
+    assert 'id="periodo_hasta"' in html
+
+    # El criterio seleccionable sigue identificado inequívocamente.
+    assert 'id="criterio_periodo"' in html
+
+
 def test_crear_apunte_desde_formulario(
     tmp_path,
     monkeypatch,

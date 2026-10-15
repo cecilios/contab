@@ -874,9 +874,7 @@ def test_buscar_documentos_duplicados(
     "criterio_periodo",
     [
         "EXCLUIR_HASTA",
-        "EXCLUIR_DESDE",
         "INCLUIR_AMBOS",
-        "EXCLUIR_AMBOS",
     ],
 )
 def test_apunte_contable_admite_criterios_periodo(
@@ -911,6 +909,103 @@ def test_apunte_contable_admite_criterios_periodo(
     session.commit()
 
     assert apunte.criterio_periodo == criterio_periodo
+
+
+
+@pytest.mark.parametrize(
+    "criterio_periodo",
+    [
+        "EXCLUIR_DESDE",
+        "EXCLUIR_AMBOS",
+    ],
+)
+def test_crear_apunte_rechaza_criterios_periodo_obsoletos(
+    inmueble,
+    criterio_periodo,
+) -> None:
+    """No permite registrar nuevos apuntes con criterios obsoletos."""
+
+    categorias = _categorias_gastos_comunes()
+
+    with pytest.raises(
+        ContabilidadError,
+        match="criterio del período no es válido",
+    ):
+        crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Cuota de comunidad",
+            base=10000,
+            periodo_desde=date(2026, 9, 3),
+            periodo_hasta=date(2026, 10, 6),
+            criterio_periodo=criterio_periodo,
+            tratamiento="REPERCUTIR",
+        )
+
+
+
+@pytest.mark.parametrize(
+    "criterio_periodo",
+    [
+        "EXCLUIR_DESDE",
+        "EXCLUIR_AMBOS",
+    ],
+)
+def test_modificar_apunte_rechaza_criterios_periodo_obsoletos(
+    session,
+    inmueble,
+    criterio_periodo,
+) -> None:
+    """Rechaza el criterio inválido sin alterar el apunte original."""
+
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario tiene un apunte con un criterio válido.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad septiembre",
+        base=10000,
+        periodo_desde=date(2026, 9, 3),
+        periodo_hasta=date(2026, 10, 6),
+        criterio_periodo="INCLUIR_AMBOS",
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    # El usuario intenta introducir un criterio obsoleto.
+    with pytest.raises(
+        ContabilidadError,
+        match="criterio del período no es válido",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad modificada",
+            base=12000,
+            periodo_desde=date(2026, 9, 3),
+            periodo_hasta=date(2026, 10, 6),
+            criterio_periodo=criterio_periodo,
+            tratamiento="REPERCUTIR",
+        )
+
+    # El intento rechazado no modifica ningún dato.
+    assert apunte.concepto == "Comunidad septiembre"
+    assert apunte.base == 10000
+    assert apunte.criterio_periodo == "INCLUIR_AMBOS"
 
 
 @pytest.mark.parametrize(
@@ -979,9 +1074,7 @@ def test_apunte_contable_rechaza_criterio_periodo_invalido(
     "criterio_periodo",
     [
         "EXCLUIR_HASTA",
-        "EXCLUIR_DESDE",
         "INCLUIR_AMBOS",
-        "EXCLUIR_AMBOS",
     ],
 )
 def test_crear_apunte_admite_criterios_periodo(

@@ -147,32 +147,17 @@
                 <em>Desde</em> con el formato mm/aaaa.
             </p>
 
+
             <p>
                 <label for="criterio_periodo">
-                    Cómputo del intervalo
+                    Cómputo del período
                 </label>
                 <select
                     id="criterio_periodo"
                     name="criterio_periodo"
                 >
                     <option value="">
-                        Seleccione cómo contar los extremos
-                    </option>
-                    <option
-                        value="EXCLUIR_HASTA"
-                        {% if datos.get("criterio_periodo") == "EXCLUIR_HASTA" %}
-                            selected
-                        {% endif %}
-                    >
-                        Incluir fecha inicial y excluir fecha final
-                    </option>
-                    <option
-                        value="EXCLUIR_DESDE"
-                        {% if datos.get("criterio_periodo") == "EXCLUIR_DESDE" %}
-                            selected
-                        {% endif %}
-                    >
-                        Excluir fecha inicial e incluir fecha final
+                        Seleccione el criterio
                     </option>
                     <option
                         value="INCLUIR_AMBOS"
@@ -180,17 +165,25 @@
                             selected
                         {% endif %}
                     >
-                        Incluir ambas fechas
+                        Incluir fecha final
                     </option>
                     <option
-                        value="EXCLUIR_AMBOS"
-                        {% if datos.get("criterio_periodo") == "EXCLUIR_AMBOS" %}
+                        value="EXCLUIR_HASTA"
+                        {% if datos.get("criterio_periodo") == "EXCLUIR_HASTA" %}
                             selected
                         {% endif %}
                     >
-                        Excluir ambas fechas
+                        Excluir fecha final
                     </option>
                 </select>
+            </p>
+
+            <p>
+                Días del período:
+                <span id="dias_incluir_hasta">—</span>
+                incluyendo la fecha final;
+                <span id="dias_excluir_hasta">—</span>
+                excluyéndola.
             </p>
 
         </fieldset>
@@ -478,6 +471,165 @@
 
                 actualizarMovimientoPrevisto();
             }
+
+
+            const periodoDesde = document.getElementById(
+                "periodo_desde"
+            );
+            const periodoHasta = document.getElementById(
+                "periodo_hasta"
+            );
+            const criterioPeriodo = document.getElementById(
+                "criterio_periodo"
+            );
+            const diasIncluirHasta = document.getElementById(
+                "dias_incluir_hasta"
+            );
+            const diasExcluirHasta = document.getElementById(
+                "dias_excluir_hasta"
+            );
+
+            function fechaValida(dia, mes, anio) {
+                if (
+                    anio < 1
+                    || anio > 9999
+                    || mes < 1
+                    || mes > 12
+                    || dia < 1
+                    || dia > 31
+                ) {
+                    return null;
+                }
+
+                const fecha = new Date(0);
+                fecha.setUTCFullYear(anio, mes - 1, dia);
+                fecha.setUTCHours(0, 0, 0, 0);
+
+                if (
+                    fecha.getUTCFullYear() !== anio
+                    || fecha.getUTCMonth() !== mes - 1
+                    || fecha.getUTCDate() !== dia
+                ) {
+                    return null;
+                }
+
+                return fecha;
+            }
+
+            function leerFecha(texto) {
+                const partes = texto.trim().split("/");
+
+                if (partes.length !== 3) {
+                    return null;
+                }
+
+                if (
+                    !partes.every(parte => /^\d+$/.test(parte))
+                ) {
+                    return null;
+                }
+
+                return fechaValida(
+                    Number(partes[0]),
+                    Number(partes[1]),
+                    Number(partes[2])
+                );
+            }
+
+            function leerPeriodo() {
+                const desdeTexto = periodoDesde.value.trim();
+                const hastaTexto = periodoHasta.value.trim();
+
+                // Un mes completo se introduce como mm/aaaa.
+                if (/^\d{1,2}\/\d{4}$/.test(desdeTexto)) {
+                    if (hastaTexto) {
+                        return null;
+                    }
+
+                    const [mes, anio] = desdeTexto
+                        .split("/")
+                        .map(Number);
+
+                    const desde = fechaValida(1, mes, anio);
+
+                    if (!desde) {
+                        return null;
+                    }
+
+                    const ultimoDia = new Date(0);
+                    ultimoDia.setUTCFullYear(anio, mes, 0);
+                    ultimoDia.setUTCHours(0, 0, 0, 0);
+
+                    return {
+                        desde,
+                        hasta: ultimoDia
+                    };
+                }
+
+                const desde = leerFecha(desdeTexto);
+                const hasta = leerFecha(hastaTexto);
+
+                if (!desde || !hasta || hasta < desde) {
+                    return null;
+                }
+
+                return { desde, hasta };
+            }
+
+            function actualizarDiasPeriodo() {
+                const periodo = leerPeriodo();
+
+                if (!periodo) {
+                    diasIncluirHasta.textContent = "—";
+                    diasExcluirHasta.textContent = "—";
+                    return;
+                }
+
+                const milisegundosDia = 24 * 60 * 60 * 1000;
+
+                const diasExcluir = Math.round(
+                    (
+                        periodo.hasta.getTime()
+                        - periodo.desde.getTime()
+                    ) / milisegundosDia
+                );
+
+                const diasIncluir = diasExcluir + 1;
+
+                diasIncluirHasta.textContent =
+                    `${diasIncluir} días`;
+
+                diasExcluirHasta.textContent =
+                    diasExcluir === 0
+                        ? "0 días (no válido)"
+                        : `${diasExcluir} días`;
+
+                const opcionExcluir = criterioPeriodo.querySelector(
+                    'option[value="EXCLUIR_HASTA"]'
+                );
+
+                opcionExcluir.disabled = diasExcluir === 0;
+
+                if (
+                    opcionExcluir.disabled
+                    && criterioPeriodo.value === "EXCLUIR_HASTA"
+                ) {
+                    criterioPeriodo.value = "";
+                }
+            }
+
+            periodoDesde.addEventListener(
+                "input",
+                actualizarDiasPeriodo
+            );
+
+            periodoHasta.addEventListener(
+                "input",
+                actualizarDiasPeriodo
+            );
+
+            actualizarDiasPeriodo();
+
         });
     </script>
 
