@@ -14,18 +14,24 @@ from contab.models import (
     MovimientoPrevisto,
 )
 from contab.contabilidad.services import crear_apunte_contable
+import contab.conciliacion.services as servicios_conciliacion
 from contab.conciliacion.services import (
     ConciliacionError,
+    PropuestaConciliacion,
+    _seleccionar_propuestas_agrupadas,
     actualizar_estado_movimiento_bancario,
     actualizar_estado_movimiento_previsto,
     asociar_movimientos,
     buscar_candidatos_conciliacion,
+    buscar_propuestas_agrupadas,
+    buscar_propuestas_conciliacion,
     cancelar_movimiento_previsto,
     clasificar_movimiento_bancario,
     clasificar_movimientos_bancarios,
     conciliar_movimiento_previsto_manualmente,
     confirmar_conciliacion,
     confirmar_grupo_conciliacion,
+    confirmar_propuesta_conciliacion,
     crear_movimiento_desde_apunte,
     crear_movimiento_previsto,
     descartar_movimiento_bancario,
@@ -39,6 +45,82 @@ from contab.conciliacion.services import (
     saldo_movimiento_previsto,
     validar_asociacion,
 )
+
+
+
+
+def _escenario_propuestas_en_competencia(
+    inmueble,
+    *,
+    descripcion_individual,
+    descripcion_grupo,
+):
+    """Crea una alternativa 1:1 y otra 1:2 para el mismo alquiler."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    def bancario(importe, descripcion, referencia):
+        return MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=importe,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original=descripcion,
+            referencia_bancaria="",
+            huella_importacion=referencia,
+            estado="PENDIENTE",
+        )
+
+    individual = bancario(
+        100000,
+        descripcion_individual,
+        "competencia-individual",
+    )
+
+    primero = bancario(
+        60000,
+        descripcion_grupo,
+        "competencia-grupo-1",
+    )
+
+    segundo = bancario(
+        40000,
+        descripcion_grupo,
+        "competencia-grupo-2",
+    )
+
+    return previsto, individual, primero, segundo
+
+
+def _previsto_para_confirmar(inmueble, concepto, importe):
+    return crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto=concepto,
+        importe_esperado=importe,
+    )
+
+
+def _bancario_para_confirmar(referencia, importe):
+    return MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=importe,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original=referencia,
+        referencia_bancaria="",
+        huella_importacion=referencia,
+        estado="PENDIENTE",
+    )
+
 
 
 
@@ -3702,5 +3784,1575 @@ def test_deshacer_asociacion_rechaza_no_persistida(
 
     # La operación rechazada no debe haber persistido la asociación.
     assert session.scalars(select(Conciliacion)).all() == []
+
+
+
+def test_proponer_grupo_un_previsto_dos_bancarios(inmueble):
+    """Detecta dos ingresos bancarios que completan un previsto."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler de octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    bancario_1 = MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=60000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez alquiler",
+        referencia_bancaria="",
+        huella_importacion="grupo-1n-1",
+        estado="PENDIENTE",
+    )
+
+    bancario_2 = MovimientoBancario(
+        fecha=date(2026, 10, 7),
+        naturaleza="INGRESO",
+        importe=40000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez alquiler",
+        referencia_bancaria="",
+        huella_importacion="grupo-1n-2",
+        estado="PENDIENTE",
+    )
+
+    propuestas = buscar_propuestas_agrupadas(
+        [bancario_1, bancario_2],
+        [previsto],
+    )
+
+    assert len(propuestas) == 1
+
+    propuesta = propuestas[0]
+
+    assert propuesta.previstos == [previsto]
+    assert propuesta.bancarios == [bancario_1, bancario_2]
+    assert propuesta.puntuacion > 0
+    assert propuesta.motivos
+
+    assert previsto.estado == "PENDIENTE"
+    assert bancario_1.estado == "PENDIENTE"
+    assert bancario_2.estado == "PENDIENTE"
+
+
+def test_proponer_grupo_dos_previstos_un_bancario(inmueble):
+    """Detecta un ingreso que cubre dos movimientos previstos."""
+
+    alquiler = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler de octubre",
+        importe_esperado=90000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    agua = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Reembolso de agua",
+        importe_esperado=4500,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=94500,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez alquiler y agua",
+        referencia_bancaria="",
+        huella_importacion="grupo-m1-1",
+        estado="PENDIENTE",
+    )
+
+    propuestas = buscar_propuestas_agrupadas(
+        [bancario],
+        [alquiler, agua],
+    )
+
+    assert len(propuestas) == 1
+
+    propuesta = propuestas[0]
+
+    assert propuesta.previstos == [alquiler, agua]
+    assert propuesta.bancarios == [bancario]
+    assert propuesta.puntuacion > 0
+    assert propuesta.motivos
+
+    assert alquiler.estado == "PENDIENTE"
+    assert agua.estado == "PENDIENTE"
+    assert bancario.estado == "PENDIENTE"
+
+
+
+def test_proponer_grupo_con_previsto_parcial(
+    session,
+    inmueble,
+) -> None:
+    """Propone dos bancarios para completar un previsto parcial."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler de octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    bancario_anterior = MovimientoBancario(
+        fecha=date(2026, 10, 3),
+        naturaleza="INGRESO",
+        importe=60000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez primer pago",
+        referencia_bancaria="",
+        huella_importacion="parcial-previsto-anterior",
+        estado="PENDIENTE",
+    )
+
+    bancario_1 = MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=25000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez segundo pago",
+        referencia_bancaria="",
+        huella_importacion="parcial-previsto-1",
+        estado="PENDIENTE",
+    )
+
+    bancario_2 = MovimientoBancario(
+        fecha=date(2026, 10, 7),
+        naturaleza="INGRESO",
+        importe=15000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez tercer pago",
+        referencia_bancaria="",
+        huella_importacion="parcial-previsto-2",
+        estado="PENDIENTE",
+    )
+
+    session.add_all([
+        previsto,
+        bancario_anterior,
+        bancario_1,
+        bancario_2,
+    ])
+    session.flush()
+
+    conciliaciones = confirmar_grupo_conciliacion([
+        (bancario_anterior, previsto, 60000),
+    ])
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert previsto.estado == "PARCIAL"
+    assert saldo_movimiento_previsto(previsto) == (
+        60000,
+        40000,
+    )
+
+    propuestas = buscar_propuestas_agrupadas(
+        [bancario_1, bancario_2],
+        [previsto],
+    )
+
+    assert len(propuestas) == 1
+
+    propuesta = propuestas[0]
+
+    assert propuesta.previstos == [previsto]
+    assert propuesta.bancarios == [bancario_1, bancario_2]
+    assert propuesta.puntuacion > 0
+    assert propuesta.motivos
+
+    # Buscar propuestas no altera las asociaciones existentes.
+    assert saldo_movimiento_previsto(previsto) == (
+        60000,
+        40000,
+    )
+    assert previsto.estado == "PARCIAL"
+    assert bancario_1.estado == "PENDIENTE"
+    assert bancario_2.estado == "PENDIENTE"
+
+
+
+def test_proponer_grupo_con_bancario_parcial(
+    session,
+    inmueble,
+) -> None:
+    """Propone dos previstos para completar un bancario parcial."""
+
+    bancario = MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=100000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez varios conceptos",
+        referencia_bancaria="",
+        huella_importacion="parcial-bancario",
+        estado="PENDIENTE",
+    )
+
+    previsto_anterior = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler pendiente",
+        importe_esperado=60000,
+        contraparte="Juan Pérez",
+    )
+
+    previsto_1 = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Reembolso de agua",
+        importe_esperado=25000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    previsto_2 = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Reembolso de comunidad",
+        importe_esperado=15000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    session.add_all([
+        bancario,
+        previsto_anterior,
+        previsto_1,
+        previsto_2,
+    ])
+    session.flush()
+
+    conciliaciones = confirmar_grupo_conciliacion([
+        (bancario, previsto_anterior, 60000),
+    ])
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert bancario.estado == "PARCIAL"
+    assert saldo_movimiento_bancario(bancario) == (
+        60000,
+        40000,
+    )
+
+    propuestas = buscar_propuestas_agrupadas(
+        [bancario],
+        [previsto_1, previsto_2],
+    )
+
+    assert len(propuestas) == 1
+
+    propuesta = propuestas[0]
+
+    assert propuesta.bancarios == [bancario]
+    assert propuesta.previstos == [previsto_1, previsto_2]
+    assert propuesta.puntuacion > 0
+    assert propuesta.motivos
+
+    # La búsqueda no modifica el movimiento ya parcialmente conciliado.
+    assert saldo_movimiento_bancario(bancario) == (
+        60000,
+        40000,
+    )
+    assert bancario.estado == "PARCIAL"
+    assert previsto_1.estado == "PENDIENTE"
+    assert previsto_2.estado == "PENDIENTE"
+
+
+
+def test_proponer_grupo_descarta_ambiguedad_por_empate(
+    inmueble,
+) -> None:
+    """No recomienda grupos incompatibles con igual puntuación."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    def transferencia(importe, referencia):
+        return MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=importe,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original="Juan Pérez alquiler",
+            referencia_bancaria="",
+            huella_importacion=referencia,
+            estado="PENDIENTE",
+        )
+
+    bancario_600 = transferencia(
+        60000,
+        "ambiguo-600",
+    )
+    bancario_400_a = transferencia(
+        40000,
+        "ambiguo-400-a",
+    )
+    bancario_400_b = transferencia(
+        40000,
+        "ambiguo-400-b",
+    )
+
+    propuestas = buscar_propuestas_agrupadas(
+        [bancario_600, bancario_400_a, bancario_400_b],
+        [previsto],
+    )
+
+    assert propuestas == []
+
+    # La detección no altera los movimientos.
+    assert previsto.estado == "PENDIENTE"
+    assert bancario_600.estado == "PENDIENTE"
+    assert bancario_400_a.estado == "PENDIENTE"
+    assert bancario_400_b.estado == "PENDIENTE"
+
+
+
+def test_proponer_grupo_prefiere_mejor_puntuacion(
+    inmueble,
+) -> None:
+    """Elige el mejor grupo cuando comparte movimientos con otro."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    bancario_600 = MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=60000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez primer pago",
+        referencia_bancaria="",
+        huella_importacion="mejor-600",
+        estado="PENDIENTE",
+    )
+
+    bancario_400_bueno = MovimientoBancario(
+        fecha=date(2026, 10, 6),
+        naturaleza="INGRESO",
+        importe=40000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Juan Pérez segundo pago",
+        referencia_bancaria="",
+        huella_importacion="mejor-400-bueno",
+        estado="PENDIENTE",
+    )
+
+    bancario_400_peor = MovimientoBancario(
+        fecha=date(2026, 10, 6),
+        naturaleza="INGRESO",
+        importe=40000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Ingreso sin identificar",
+        referencia_bancaria="",
+        huella_importacion="mejor-400-peor",
+        estado="PENDIENTE",
+    )
+
+    propuestas = buscar_propuestas_agrupadas(
+        [
+            bancario_600,
+            bancario_400_peor,
+            bancario_400_bueno,
+        ],
+        [previsto],
+    )
+
+    assert len(propuestas) == 1
+
+    propuesta = propuestas[0]
+
+    assert propuesta.previstos == [previsto]
+    assert propuesta.bancarios == [
+        bancario_600,
+        bancario_400_bueno,
+    ]
+    assert propuesta.puntuacion > 0
+
+    assert previsto.estado == "PENDIENTE"
+    assert bancario_600.estado == "PENDIENTE"
+    assert bancario_400_bueno.estado == "PENDIENTE"
+    assert bancario_400_peor.estado == "PENDIENTE"
+
+
+
+def test_seleccionar_varias_propuestas_compatibles(inmueble):
+    """Conserva propuestas compatibles aunque exista un conflicto intermedio."""
+
+    def previsto(concepto, importe):
+        return crear_movimiento_previsto(
+            inmueble=inmueble,
+            naturaleza="INGRESO",
+            concepto=concepto,
+            importe_esperado=importe,
+        )
+
+    def bancario(referencia, importe):
+        return MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=importe,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original=referencia,
+            referencia_bancaria="",
+            huella_importacion=referencia,
+            estado="PENDIENTE",
+        )
+
+    p1 = previsto("Alquiler A", 10000)
+    p2 = previsto("Alquiler B", 10000)
+
+    b1 = bancario("transferencia-1", 6000)
+    b2 = bancario("transferencia-2", 4000)
+    b3 = bancario("transferencia-3", 6000)
+    b4 = bancario("transferencia-4", 4000)
+
+    # A y C no comparten ningún movimiento.
+    propuesta_a = PropuestaConciliacion(
+        previstos=[p1],
+        bancarios=[b1, b2],
+        puntuacion=150,
+        motivos=["Suma exacta"],
+    )
+
+    # B entra en conflicto con A y con C.
+    propuesta_b = PropuestaConciliacion(
+        previstos=[p1, p2],
+        bancarios=[b2, b3],
+        puntuacion=180,
+        motivos=["Alternativa"],
+    )
+
+    propuesta_c = PropuestaConciliacion(
+        previstos=[p2],
+        bancarios=[b3, b4],
+        puntuacion=150,
+        motivos=["Suma exacta"],
+    )
+
+    seleccionadas = _seleccionar_propuestas_agrupadas([
+        propuesta_a,
+        propuesta_b,
+        propuesta_c,
+    ])
+
+    assert len(seleccionadas) == 2
+    assert any(
+        propuesta is propuesta_a
+        for propuesta in seleccionadas
+    )
+    assert any(
+        propuesta is propuesta_c
+        for propuesta in seleccionadas
+    )
+    assert all(
+        propuesta is not propuesta_b
+        for propuesta in seleccionadas
+    )
+
+
+
+def test_seleccionar_propuestas_independientes(inmueble):
+    """Mantiene todas las propuestas que no comparten movimientos."""
+
+    previstos = [
+        crear_movimiento_previsto(
+            inmueble=inmueble,
+            naturaleza="INGRESO",
+            concepto=f"Alquiler {indice}",
+            importe_esperado=10000,
+        )
+        for indice in range(2)
+    ]
+
+    bancarios = [
+        MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=10000,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original=f"Pago {indice}",
+            referencia_bancaria="",
+            huella_importacion=f"independiente-{indice}",
+            estado="PENDIENTE",
+        )
+        for indice in range(2)
+    ]
+
+    propuestas = [
+        PropuestaConciliacion(
+            previstos=[previsto],
+            bancarios=[bancario],
+            puntuacion=puntuacion,
+            motivos=["Coincidencia"],
+        )
+        for previsto, bancario, puntuacion in zip(
+            previstos,
+            bancarios,
+            [120, 150],
+        )
+    ]
+
+    seleccionadas = _seleccionar_propuestas_agrupadas(
+        propuestas
+    )
+
+    assert len(seleccionadas) == 2
+    assert seleccionadas == [
+        propuestas[1],
+        propuestas[0],
+    ]
+
+
+
+def test_proponer_grupo_acota_por_contraparte(
+    inmueble,
+    monkeypatch,
+) -> None:
+    """Evita generar grupos con transferencias de otras contrapartes."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    def transferencia(importe, nombre, referencia):
+        return MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=importe,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original=f"{nombre} alquiler",
+            referencia_bancaria="",
+            huella_importacion=referencia,
+            estado="PENDIENTE",
+        )
+
+    primero = transferencia(
+        60000, "Juan Pérez", "juan-600"
+    )
+    segundo = transferencia(
+        40000, "Juan Pérez", "juan-400"
+    )
+
+    otros = [
+        transferencia(
+            40000,
+            f"Inquilino distinto {indice}",
+            f"otro-{indice}",
+        )
+        for indice in range(20)
+    ]
+
+    # Inspeccionamos las propuestas generadas antes de
+    # ejecutar la selección combinatoria.
+    propuestas_generadas = []
+
+    def seleccionar_controlado(propuestas):
+        propuestas_generadas.extend(propuestas)
+        return propuestas
+
+    monkeypatch.setattr(
+        servicios_conciliacion,
+        "_seleccionar_propuestas_agrupadas",
+        seleccionar_controlado,
+    )
+
+    propuestas = buscar_propuestas_agrupadas(
+        [primero, segundo, *otros],
+        [previsto],
+    )
+
+    assert len(propuestas_generadas) == 1
+    assert len(propuestas) == 1
+    assert propuestas[0].bancarios == [
+        primero,
+        segundo,
+    ]
+    assert propuestas[0].previstos == [previsto]
+
+
+
+def test_proponer_grupo_limita_ambiguedad_numerosa(
+    inmueble,
+    monkeypatch,
+) -> None:
+    """No envía una cantidad excesiva de alternativas al selector."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    def transferencia(importe, referencia):
+        return MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=importe,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original="Juan Pérez alquiler",
+            referencia_bancaria="",
+            huella_importacion=referencia,
+            estado="PENDIENTE",
+        )
+
+    primero = transferencia(
+        60000,
+        "ambiguo-masivo-600",
+    )
+
+    alternativas = [
+        transferencia(
+            40000,
+            f"ambiguo-masivo-{indice}",
+        )
+        for indice in range(20)
+    ]
+
+    def seleccionar_controlado(propuestas):
+        assert len(propuestas) <= 8
+        return []
+
+    # Evita ejecutar la búsqueda exponencial durante
+    # el propio test.
+    monkeypatch.setattr(
+        servicios_conciliacion,
+        "_seleccionar_propuestas_agrupadas",
+        seleccionar_controlado,
+    )
+
+    propuestas = buscar_propuestas_agrupadas(
+        [primero, *alternativas],
+        [previsto],
+    )
+
+    assert propuestas == []
+
+
+
+def test_proponer_grupo_sin_contraparte_identificable(
+    inmueble,
+) -> None:
+    """Permite un grupo exacto aunque el banco no informe del pagador."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    bancarios = [
+        MovimientoBancario(
+            fecha=date(2026, 10, 5 + indice),
+            naturaleza="INGRESO",
+            importe=importe,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original="Ingreso recibido",
+            referencia_bancaria="",
+            huella_importacion=f"sin-nombre-{indice}",
+            estado="PENDIENTE",
+        )
+        for indice, importe in enumerate(
+            [60000, 40000]
+        )
+    ]
+
+    propuestas = buscar_propuestas_agrupadas(
+        bancarios,
+        [previsto],
+    )
+
+    assert len(propuestas) == 1
+    assert propuestas[0].previstos == [previsto]
+    assert propuestas[0].bancarios == bancarios
+
+
+
+def test_seleccionar_descarta_componente_con_cinco_alternativas(
+    inmueble,
+) -> None:
+    """No selecciona propuestas de un conflicto excesivamente grande."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=10000,
+    )
+
+    propuestas = []
+
+    for indice in range(5):
+        bancario = MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=10000,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original=f"Alternativa {indice}",
+            referencia_bancaria="",
+            huella_importacion=f"limite-{indice}",
+            estado="PENDIENTE",
+        )
+
+        propuestas.append(
+            PropuestaConciliacion(
+                bancarios=[bancario],
+                previstos=[previsto],
+                puntuacion=200 - indice,
+                motivos=["Coincidencia"],
+            )
+        )
+
+    seleccionadas = _seleccionar_propuestas_agrupadas(
+        propuestas
+    )
+
+    assert seleccionadas == []
+
+
+def test_seleccionar_conserva_independientes_ante_limite(
+    inmueble,
+) -> None:
+    """Descarta el conflicto grande, no las propuestas independientes."""
+
+    previsto_ambiguo = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler ambiguo",
+        importe_esperado=10000,
+    )
+
+    alternativas = []
+
+    for indice in range(5):
+        bancario = MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=10000,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original=f"Alternativa {indice}",
+            referencia_bancaria="",
+            huella_importacion=f"conflicto-{indice}",
+            estado="PENDIENTE",
+        )
+
+        alternativas.append(
+            PropuestaConciliacion(
+                bancarios=[bancario],
+                previstos=[previsto_ambiguo],
+                puntuacion=200 - indice,
+                motivos=["Coincidencia"],
+            )
+        )
+
+    previsto_independiente = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler independiente",
+        importe_esperado=50000,
+    )
+
+    bancario_independiente = MovimientoBancario(
+        fecha=date(2026, 10, 6),
+        naturaleza="INGRESO",
+        importe=50000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Pago identificado",
+        referencia_bancaria="",
+        huella_importacion="independiente-limite",
+        estado="PENDIENTE",
+    )
+
+    independiente = PropuestaConciliacion(
+        bancarios=[bancario_independiente],
+        previstos=[previsto_independiente],
+        puntuacion=150,
+        motivos=["Coincidencia"],
+    )
+
+    seleccionadas = _seleccionar_propuestas_agrupadas(
+        [*alternativas, independiente]
+    )
+
+    assert len(seleccionadas) == 1
+    assert seleccionadas[0] is independiente
+
+
+
+def test_propuestas_integradas_prefieren_individual_mejor_identificada(
+    inmueble,
+) -> None:
+    """Prefiere 1:1 cuando sus indicios son mejores que los del grupo."""
+
+    previsto, individual, primero, segundo = (
+        _escenario_propuestas_en_competencia(
+            inmueble,
+            descripcion_individual="Juan Pérez alquiler octubre",
+            descripcion_grupo="Ingreso sin identificar",
+        )
+    )
+
+    propuestas = buscar_propuestas_conciliacion(
+        [individual, primero, segundo],
+        [previsto],
+    )
+
+    assert len(propuestas) == 1
+    assert propuestas[0].previstos == [previsto]
+    assert propuestas[0].bancarios == [individual]
+
+    assert previsto.estado == "PENDIENTE"
+    assert individual.estado == "PENDIENTE"
+    assert primero.estado == "PENDIENTE"
+    assert segundo.estado == "PENDIENTE"
+
+
+
+def test_propuestas_integradas_prefieren_grupo_mejor_identificado(
+    inmueble,
+) -> None:
+    """Prefiere 1:2 cuando tiene mejores indicios que 1:1."""
+
+    previsto, individual, primero, segundo = (
+        _escenario_propuestas_en_competencia(
+            inmueble,
+            descripcion_individual="Ingreso sin identificar",
+            descripcion_grupo="Juan Pérez alquiler octubre",
+        )
+    )
+
+    propuestas = buscar_propuestas_conciliacion(
+        [individual, primero, segundo],
+        [previsto],
+    )
+
+    assert len(propuestas) == 1
+    assert propuestas[0].previstos == [previsto]
+    assert propuestas[0].bancarios == [
+        primero,
+        segundo,
+    ]
+
+    assert previsto.estado == "PENDIENTE"
+    assert individual.estado == "PENDIENTE"
+    assert primero.estado == "PENDIENTE"
+    assert segundo.estado == "PENDIENTE"
+
+
+
+def test_propuestas_integradas_conservan_independientes(
+    inmueble,
+) -> None:
+    """Resuelve un conflicto sin perder otras propuestas válidas."""
+
+    previsto, individual, primero, segundo = (
+        _escenario_propuestas_en_competencia(
+            inmueble,
+            descripcion_individual="Juan Pérez alquiler octubre",
+            descripcion_grupo="Ingreso sin identificar",
+        )
+    )
+
+    otro_previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Seguro octubre",
+        importe_esperado=25000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Aseguradora Central",
+    )
+
+    otro_bancario = MovimientoBancario(
+        fecha=date(2026, 10, 6),
+        naturaleza="GASTO",
+        importe=25000,
+        tipo_original="RECIBO",
+        descripcion_original="Aseguradora Central",
+        referencia_bancaria="",
+        huella_importacion="integrada-independiente",
+        estado="PENDIENTE",
+    )
+
+    propuestas = buscar_propuestas_conciliacion(
+        [individual, primero, segundo, otro_bancario],
+        [previsto, otro_previsto],
+    )
+
+    assert len(propuestas) == 2
+
+    assert any(
+        propuesta.previstos == [previsto]
+        and propuesta.bancarios == [individual]
+        for propuesta in propuestas
+    )
+
+    assert any(
+        propuesta.previstos == [otro_previsto]
+        and propuesta.bancarios == [otro_bancario]
+        for propuesta in propuestas
+    )
+
+    assert all(
+        primero not in propuesta.bancarios
+        and segundo not in propuesta.bancarios
+        for propuesta in propuestas
+    )
+
+
+
+def test_propuestas_integradas_seleccionan_mejor_combinacion_global(
+    inmueble,
+) -> None:
+    """No descarta grupos antes de compararlos con propuestas 1:1."""
+
+    alquiler = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=100000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="Juan Pérez",
+    )
+
+    reembolso = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto="Reembolso de agua",
+        importe_esperado=40000,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        contraparte="María López",
+    )
+
+    def transferencia(importe, descripcion, referencia):
+        return MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=importe,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original=descripcion,
+            referencia_bancaria="",
+            huella_importacion=referencia,
+            estado="PENDIENTE",
+        )
+
+    bancario_600 = transferencia(
+        60000,
+        "Juan Pérez primer pago",
+        "global-600",
+    )
+
+    bancario_400_a = transferencia(
+        40000,
+        "Juan Pérez María López PAGO ESPECIAL",
+        "global-400-a",
+    )
+
+    bancario_400_b = transferencia(
+        40000,
+        "Juan Pérez segundo pago",
+        "global-400-b",
+    )
+
+    aliases = [
+        (
+            "ALQUILER",
+            inmueble.referencia,
+            "PAGO ESPECIAL",
+        ),
+    ]
+
+    propuestas = buscar_propuestas_conciliacion(
+        [
+            bancario_600,
+            bancario_400_a,
+            bancario_400_b,
+        ],
+        [alquiler, reembolso],
+        aliases_configurados=aliases,
+    )
+
+    assert len(propuestas) == 2
+
+    # El alquiler se cubre con los bancarios 600 y 400 B.
+    assert any(
+        propuesta.previstos == [alquiler]
+        and propuesta.bancarios == [
+            bancario_600,
+            bancario_400_b,
+        ]
+        for propuesta in propuestas
+    )
+
+    # El bancario 400 A queda disponible para el reembolso.
+    assert any(
+        propuesta.previstos == [reembolso]
+        and propuesta.bancarios == [bancario_400_a]
+        for propuesta in propuestas
+    )
+
+    # No hay movimientos compartidos entre propuestas.
+    bancarios_seleccionados = [
+        bancario
+        for propuesta in propuestas
+        for bancario in propuesta.bancarios
+    ]
+
+    previstos_seleccionados = [
+        previsto
+        for propuesta in propuestas
+        for previsto in propuesta.previstos
+    ]
+
+    assert len({
+        id(bancario)
+        for bancario in bancarios_seleccionados
+    }) == len(bancarios_seleccionados)
+
+    assert len({
+        id(previsto)
+        for previsto in previstos_seleccionados
+    }) == len(previstos_seleccionados)
+
+    assert alquiler.estado == "PENDIENTE"
+    assert reembolso.estado == "PENDIENTE"
+    assert all(
+        bancario.estado == "PENDIENTE"
+        for bancario in [
+            bancario_600,
+            bancario_400_a,
+            bancario_400_b,
+        ]
+    )
+
+
+
+def test_confirmar_propuesta_individual(
+    session,
+    inmueble,
+) -> None:
+    """Confirma una propuesta individual sin hacer commit."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+
+    bancario = _bancario_para_confirmar(
+        "confirmar-individual",
+        100000,
+    )
+
+    session.add_all([previsto, bancario])
+    session.flush()
+
+    propuesta = PropuestaConciliacion(
+        bancarios=[bancario],
+        previstos=[previsto],
+        puntuacion=150,
+        motivos=["Importe y contraparte coincidentes"],
+    )
+
+    conciliaciones = confirmar_propuesta_conciliacion(
+        propuesta
+    )
+
+    assert len(conciliaciones) == 1
+
+    conciliacion = conciliaciones[0]
+
+    assert conciliacion.movimiento_bancario is bancario
+    assert conciliacion.movimiento_previsto is previsto
+    assert conciliacion.importe_asociado == 100000
+
+    assert bancario.estado == "CONCILIADO"
+    assert previsto.estado == "CONCILIADO"
+    assert previsto.metodo_conciliacion == "INDIVIDUAL"
+
+    assert conciliacion.id is None
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert conciliacion.id is not None
+
+
+
+def test_confirmar_propuesta_un_previsto_dos_bancarios(
+    session,
+    inmueble,
+) -> None:
+    """Confirma una propuesta 1:2 con sus importes individuales."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+
+    primero = _bancario_para_confirmar(
+        "confirmar-1n-600",
+        60000,
+    )
+
+    segundo = _bancario_para_confirmar(
+        "confirmar-1n-400",
+        40000,
+    )
+
+    session.add_all([previsto, primero, segundo])
+    session.flush()
+
+    propuesta = PropuestaConciliacion(
+        bancarios=[primero, segundo],
+        previstos=[previsto],
+        puntuacion=150,
+        motivos=["Suma exacta"],
+    )
+
+    conciliaciones = confirmar_propuesta_conciliacion(
+        propuesta
+    )
+
+    assert len(conciliaciones) == 2
+
+    assert [
+        (
+            conciliacion.movimiento_bancario,
+            conciliacion.movimiento_previsto,
+            conciliacion.importe_asociado,
+        )
+        for conciliacion in conciliaciones
+    ] == [
+        (primero, previsto, 60000),
+        (segundo, previsto, 40000),
+    ]
+
+    assert previsto.estado == "CONCILIADO"
+    assert primero.estado == "CONCILIADO"
+    assert segundo.estado == "CONCILIADO"
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert saldo_movimiento_previsto(previsto) == (
+        100000,
+        0,
+    )
+
+
+
+def test_confirmar_propuesta_dos_previstos_un_bancario(
+    session,
+    inmueble,
+) -> None:
+    """Confirma una propuesta 2:1 distribuyendo el ingreso."""
+
+    alquiler = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        90000,
+    )
+
+    agua = _previsto_para_confirmar(
+        inmueble,
+        "Reembolso de agua",
+        4500,
+    )
+
+    bancario = _bancario_para_confirmar(
+        "confirmar-m1",
+        94500,
+    )
+
+    session.add_all([alquiler, agua, bancario])
+    session.flush()
+
+    propuesta = PropuestaConciliacion(
+        bancarios=[bancario],
+        previstos=[alquiler, agua],
+        puntuacion=150,
+        motivos=["Suma exacta"],
+    )
+
+    conciliaciones = confirmar_propuesta_conciliacion(
+        propuesta
+    )
+
+    assert len(conciliaciones) == 2
+
+    assert [
+        (
+            conciliacion.movimiento_bancario,
+            conciliacion.movimiento_previsto,
+            conciliacion.importe_asociado,
+        )
+        for conciliacion in conciliaciones
+    ] == [
+        (bancario, alquiler, 90000),
+        (bancario, agua, 4500),
+    ]
+
+    assert bancario.estado == "CONCILIADO"
+    assert alquiler.estado == "CONCILIADO"
+    assert agua.estado == "CONCILIADO"
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert saldo_movimiento_bancario(bancario) == (
+        94500,
+        0,
+    )
+
+
+
+def test_confirmar_propuesta_con_previsto_parcial(
+    session,
+    inmueble,
+) -> None:
+    """Completa un previsto parcial sin duplicar su asociación anterior."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+
+    anterior = _bancario_para_confirmar(
+        "confirmar-parcial-anterior",
+        60000,
+    )
+
+    primero = _bancario_para_confirmar(
+        "confirmar-parcial-250",
+        25000,
+    )
+
+    segundo = _bancario_para_confirmar(
+        "confirmar-parcial-150",
+        15000,
+    )
+
+    session.add_all([
+        previsto,
+        anterior,
+        primero,
+        segundo,
+    ])
+    session.flush()
+
+    asociaciones_anteriores = confirmar_grupo_conciliacion([
+        (anterior, previsto, 60000),
+    ])
+
+    session.add_all(asociaciones_anteriores)
+    session.commit()
+
+    assert previsto.estado == "PARCIAL"
+    assert saldo_movimiento_previsto(previsto) == (
+        60000,
+        40000,
+    )
+
+    propuesta = PropuestaConciliacion(
+        bancarios=[primero, segundo],
+        previstos=[previsto],
+        puntuacion=150,
+        motivos=["Saldos pendientes coincidentes"],
+    )
+
+    conciliaciones = confirmar_propuesta_conciliacion(
+        propuesta
+    )
+
+    assert len(conciliaciones) == 2
+
+    assert [
+        conciliacion.importe_asociado
+        for conciliacion in conciliaciones
+    ] == [
+        25000,
+        15000,
+    ]
+
+    assert previsto.estado == "CONCILIADO"
+    assert anterior.estado == "CONCILIADO"
+    assert primero.estado == "CONCILIADO"
+    assert segundo.estado == "CONCILIADO"
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert saldo_movimiento_previsto(previsto) == (
+        100000,
+        0,
+    )
+
+    assert len(previsto.conciliaciones) == 3
+
+
+
+def test_confirmar_propuesta_rechaza_saldos_obsoletos(
+    session,
+    inmueble,
+) -> None:
+    """Rechaza una propuesta cuyos saldos cambiaron."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+
+    bancario = _bancario_para_confirmar(
+        "obsoleto-propuesto",
+        100000,
+    )
+
+    anterior = _bancario_para_confirmar(
+        "obsoleto-anterior",
+        60000,
+    )
+
+    session.add_all([previsto, bancario, anterior])
+    session.flush()
+
+    propuesta = PropuestaConciliacion(
+        bancarios=[bancario],
+        previstos=[previsto],
+        puntuacion=150,
+        motivos=["Importes coincidentes"],
+    )
+
+    # Otra operación concilia parte del alquiler.
+    conciliaciones = confirmar_grupo_conciliacion([
+        (anterior, previsto, 60000),
+    ])
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert previsto.estado == "PARCIAL"
+
+    with pytest.raises(
+        ConciliacionError,
+        match="saldos pendientes",
+    ):
+        confirmar_propuesta_conciliacion(propuesta)
+
+    assert saldo_movimiento_previsto(previsto) == (
+        60000,
+        40000,
+    )
+    assert saldo_movimiento_bancario(bancario) == (
+        0,
+        100000,
+    )
+    assert previsto.estado == "PARCIAL"
+    assert bancario.estado == "PENDIENTE"
+    assert len(previsto.conciliaciones) == 1
+    assert len(bancario.conciliaciones) == 0
+
+
+
+def test_confirmar_propuesta_rechaza_movimiento_conciliado(
+    session,
+    inmueble,
+) -> None:
+    """No permite confirmar dos veces la misma propuesta."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+
+    bancario = _bancario_para_confirmar(
+        "repetido-individual",
+        100000,
+    )
+
+    session.add_all([previsto, bancario])
+    session.flush()
+
+    propuesta = PropuestaConciliacion(
+        bancarios=[bancario],
+        previstos=[previsto],
+        puntuacion=150,
+        motivos=["Coincidencia exacta"],
+    )
+
+    conciliaciones = confirmar_propuesta_conciliacion(
+        propuesta
+    )
+    session.add_all(conciliaciones)
+    session.commit()
+
+    with pytest.raises(ConciliacionError):
+        confirmar_propuesta_conciliacion(propuesta)
+
+    assert previsto.estado == "CONCILIADO"
+    assert bancario.estado == "CONCILIADO"
+    assert saldo_movimiento_previsto(previsto) == (
+        100000,
+        0,
+    )
+    assert saldo_movimiento_bancario(bancario) == (
+        100000,
+        0,
+    )
+    assert len(previsto.conciliaciones) == 1
+    assert len(bancario.conciliaciones) == 1
+
+
+
+def test_confirmar_propuesta_rechaza_naturalezas_distintas(
+    session,
+    inmueble,
+) -> None:
+    """Rechaza asociar un ingreso bancario con un gasto previsto."""
+
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Recibo de comunidad",
+        importe_esperado=25000,
+    )
+
+    bancario = _bancario_para_confirmar(
+        "naturaleza-incompatible",
+        25000,
+    )
+
+    session.add_all([previsto, bancario])
+    session.flush()
+
+    propuesta = PropuestaConciliacion(
+        bancarios=[bancario],
+        previstos=[previsto],
+        puntuacion=150,
+        motivos=["Importes coincidentes"],
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+        match="misma naturaleza",
+    ):
+        confirmar_propuesta_conciliacion(propuesta)
+
+    assert previsto.estado == "PENDIENTE"
+    assert bancario.estado == "PENDIENTE"
+    assert previsto.conciliaciones == []
+    assert bancario.conciliaciones == []
+
+
+
+def test_confirmar_propuesta_rechaza_grupo_m_n(
+    session,
+    inmueble,
+) -> None:
+    """Rechaza grupos m:n cuya distribución no está definida."""
+
+    previstos = [
+        _previsto_para_confirmar(
+            inmueble,
+            "Alquiler",
+            60000,
+        ),
+        _previsto_para_confirmar(
+            inmueble,
+            "Reembolso de agua",
+            40000,
+        ),
+    ]
+
+    bancarios = [
+        _bancario_para_confirmar(
+            "mn-primero",
+            70000,
+        ),
+        _bancario_para_confirmar(
+            "mn-segundo",
+            30000,
+        ),
+    ]
+
+    session.add_all([*previstos, *bancarios])
+    session.flush()
+
+    propuesta = PropuestaConciliacion(
+        bancarios=bancarios,
+        previstos=previstos,
+        puntuacion=150,
+        motivos=["Suma exacta"],
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+        match="m:n",
+    ):
+        confirmar_propuesta_conciliacion(propuesta)
+
+    assert all(
+        previsto.estado == "PENDIENTE"
+        and previsto.conciliaciones == []
+        for previsto in previstos
+    )
+
+    assert all(
+        bancario.estado == "PENDIENTE"
+        and bancario.conciliaciones == []
+        for bancario in bancarios
+    )
 
 

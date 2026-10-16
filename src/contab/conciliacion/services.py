@@ -4,6 +4,8 @@ import unicodedata
 
 from datetime import date, timedelta
 from sqlalchemy.orm import object_session
+from dataclasses import dataclass, field
+from itertools import combinations
 
 from contab.models import (
     ApunteContable,
@@ -17,6 +19,17 @@ from contab.models import (
 
 class ConciliacionError(Exception):
     """Indica que no puede crearse un movimiento previsto válido."""
+
+
+@dataclass
+class PropuestaConciliacion:
+    """Representa una posible conciliación aún no confirmada."""
+
+    bancarios: list[MovimientoBancario]
+    previstos: list[MovimientoPrevisto]
+    puntuacion: int
+    motivos: list[str] = field(default_factory=list)
+
 
 
 def _normalizar_texto_conciliacion(
@@ -77,6 +90,200 @@ def _aliases_movimiento_previsto(
             and _normalizar_texto_conciliacion(tipo) in concepto
         )
     ]
+
+
+MAX_PROPUESTAS_CONFLICTO = 4
+
+def _seleccionar_propuestas_agrupadas(
+    propuestas: list[PropuestaConciliacion],
+) -> list[PropuestaConciliacion]:
+    """Selecciona la combinación compatible con mayor puntuación."""
+
+    def incompatibles(primera, segunda):
+        return (
+            any(
+                bancario is otro
+                for bancario in primera.bancarios
+                for otro in segunda.bancarios
+            )
+            or any(
+                previsto is otro
+                for previsto in primera.previstos
+                for otro in segunda.previstos
+            )
+        )
+
+    pendientes = list(propuestas)
+    seleccionadas = []
+
+    while pendientes:
+        # Separar componentes de propuestas conectadas por conflictos.
+        componente = [pendientes.pop(0)]
+
+        indice = 0
+        while indice < len(componente):
+            actual = componente[indice]
+
+            relacionadas = [
+                propuesta
+                for propuesta in pendientes
+                if incompatibles(actual, propuesta)
+            ]
+
+            for propuesta in relacionadas:
+                pendientes.remove(propuesta)
+                componente.append(propuesta)
+
+            indice += 1
+
+        # Un conflicto con demasiadas alternativas requiere
+        # revisión manual; no elegimos arbitrariamente.
+        if len(componente) > MAX_PROPUESTAS_CONFLICTO:
+            continue
+
+        # Buscar la mejor combinación de propuestas compatibles.
+        mejor_grupo = []
+        mejor_puntuacion = 0
+        empate = False
+
+        for cantidad in range(1, len(componente) + 1):
+            for combinacion in combinations(
+                componente,
+                cantidad,
+            ):
+                if any(
+                    incompatibles(primera, segunda)
+                    for primera, segunda in combinations(
+                        combinacion,
+                        2,
+                    )
+                ):
+                    continue
+
+                puntuacion = sum(
+                    propuesta.puntuacion
+                    for propuesta in combinacion
+                )
+
+                if puntuacion > mejor_puntuacion:
+                    mejor_grupo = list(combinacion)
+                    mejor_puntuacion = puntuacion
+                    empate = False
+
+                elif puntuacion == mejor_puntuacion:
+                    empate = True
+
+        # Ante dos soluciones óptimas distintas, no recomendar
+        # arbitrariamente una de ellas.
+        if not empate:
+            seleccionadas.extend(mejor_grupo)
+
+    seleccionadas.sort(
+        key=lambda propuesta: propuesta.puntuacion,
+        reverse=True,
+    )
+
+    return seleccionadas
+
+
+def _bancario_identifica_contraparte(
+    bancario: MovimientoBancario,
+    previsto: MovimientoPrevisto,
+    aliases_configurados: list[tuple[str, str, str]],
+) -> bool:
+    """Comprueba si el texto bancario identifica la contraparte prevista."""
+
+    texto = _normalizar_texto_conciliacion(
+        " ".join([
+            bancario.tipo_original or "",
+            bancario.descripcion_original or "",
+            bancario.referencia_bancaria or "",
+        ])
+    )
+
+    contraparte = _normalizar_texto_conciliacion(
+        previsto.contraparte
+    )
+
+    if contraparte and contraparte in texto:
+        return True
+
+    aliases = _aliases_movimiento_previsto(
+        previsto,
+        aliases_configurados,
+    )
+
+    return any(
+        alias_normalizado in texto
+        for alias in aliases
+        if (
+            alias_normalizado
+            := _normalizar_texto_conciliacion(alias)
+        )
+    )
+
+
+
+def _puntuar_calidad_propuesta(
+    propuesta: PropuestaConciliacion,
+    aliases_configurados: list[tuple[str, str, str]],
+) -> int:
+    """Puntúa una propuesta sin favorecer los grupos grandes."""
+
+    puntuaciones = []
+
+    for bancario in propuesta.bancarios:
+        texto_bancario = _normalizar_texto_conciliacion(
+            " ".join([
+                bancario.tipo_original or "",
+                bancario.descripcion_original or "",
+                bancario.referencia_bancaria or "",
+            ])
+        )
+
+        for previsto in propuesta.previstos:
+            puntuacion = 0
+
+            fecha_desde = previsto.fecha_prevista_desde
+            fecha_hasta = previsto.fecha_prevista_hasta
+
+            if fecha_desde is not None:
+                if fecha_hasta is None:
+                    if bancario.fecha == fecha_desde:
+                        puntuacion += 20
+                elif fecha_desde <= bancario.fecha <= fecha_hasta:
+                    puntuacion += 20
+
+            contraparte = _normalizar_texto_conciliacion(
+                previsto.contraparte
+            )
+
+            if contraparte and contraparte in texto_bancario:
+                puntuacion += 50
+
+            aliases = _aliases_movimiento_previsto(
+                previsto,
+                aliases_configurados,
+            )
+
+            if any(
+                alias_normalizado
+                and alias_normalizado != contraparte
+                and alias_normalizado in texto_bancario
+                for alias in aliases
+                if (
+                    alias_normalizado
+                    := _normalizar_texto_conciliacion(alias)
+                )
+            ):
+                puntuacion += 40
+
+            puntuaciones.append(puntuacion)
+
+    # Todos los grupos que recibimos son exactos.
+    # La media evita favorecer a los grupos con más movimientos.
+    return 100 + sum(puntuaciones) // len(puntuaciones)
+
 
 
 
@@ -899,6 +1106,379 @@ def deshacer_asociacion_bancaria(
     )
     actualizar_estado_movimiento_previsto(
         previsto
+    )
+
+
+def buscar_propuestas_agrupadas(
+    bancarios: list[MovimientoBancario],
+    previstos: list[MovimientoPrevisto],
+    aliases_configurados: (
+        list[tuple[str, str, str]] | None
+    ) = None,
+    *,
+    seleccionar: bool = True,
+) -> list[PropuestaConciliacion]:
+    """Busca propuestas exactas 1:2 y 2:1 sin modificar movimientos."""
+
+    aliases_configurados = aliases_configurados or []
+    propuestas = []
+
+    bancarios_disponibles = [
+        bancario
+        for bancario in bancarios
+        if (
+            bancario.estado in {"PENDIENTE", "PARCIAL"}
+            and saldo_movimiento_bancario(bancario)[1] > 0
+        )
+    ]
+
+    previstos_disponibles = [
+        previsto
+        for previsto in previstos
+        if (
+            previsto.estado in {"PENDIENTE", "PARCIAL"}
+            and saldo_movimiento_previsto(previsto)[1] > 0
+        )
+    ]
+
+    MAX_ALTERNATIVAS_GRUPO = 8
+
+    def puntuacion_pareja(bancario, previsto):
+        if bancario.naturaleza != previsto.naturaleza:
+            return None
+
+        if not _fecha_compatible_conciliacion(
+            bancario,
+            previsto,
+        ):
+            return None
+
+        fecha_desde = previsto.fecha_prevista_desde
+        fecha_hasta = previsto.fecha_prevista_hasta
+
+        puntuacion = 0
+
+        if fecha_desde is not None:
+            if fecha_hasta is None:
+                if bancario.fecha == fecha_desde:
+                    puntuacion += 20
+            elif fecha_desde <= bancario.fecha <= fecha_hasta:
+                puntuacion += 20
+
+        contraparte = _normalizar_texto_conciliacion(
+            previsto.contraparte
+        )
+
+        texto_bancario = _normalizar_texto_conciliacion(
+            " ".join([
+                bancario.tipo_original or "",
+                bancario.descripcion_original or "",
+                bancario.referencia_bancaria or "",
+            ])
+        )
+
+        if contraparte and contraparte in texto_bancario:
+            puntuacion += 50
+
+        aliases = _aliases_movimiento_previsto(
+            previsto,
+            aliases_configurados,
+        )
+
+        for alias in aliases:
+            alias_normalizado = _normalizar_texto_conciliacion(
+                alias
+            )
+
+            if (
+                alias_normalizado
+                and alias_normalizado != contraparte
+                and alias_normalizado in texto_bancario
+            ):
+                puntuacion += 40
+                break
+
+        return puntuacion
+
+    # 1:n: un previsto y dos movimientos bancarios.
+    for previsto in previstos_disponibles:
+        importe_previsto = saldo_movimiento_previsto(
+            previsto
+        )[1]
+
+        compatibles = [
+            bancario
+            for bancario in bancarios_disponibles
+            if (
+                bancario.naturaleza == previsto.naturaleza
+                and _fecha_compatible_conciliacion(
+                    bancario,
+                    previsto,
+                )
+            )
+        ]
+
+        identificados = [
+            bancario
+            for bancario in compatibles
+            if _bancario_identifica_contraparte(
+                bancario,
+                previsto,
+                aliases_configurados,
+            )
+        ]
+
+        # Si hay al menos dos movimientos identificados,
+        # priorizamos ese conjunto y evitamos combinarlo
+        # con ingresos de otras contrapartes.
+        candidatos = (
+            identificados
+            if len(identificados) >= 2
+            else compatibles
+        )
+
+        # Límite preventivo: no explorar grupos demasiado grandes.
+        if len(candidatos) > MAX_ALTERNATIVAS_GRUPO:
+            continue
+
+        inicio_propuestas = len(propuestas)
+
+        for grupo_bancario in combinations(
+            candidatos,
+            2,
+        ):
+            if sum(
+                saldo_movimiento_bancario(bancario)[1]
+                for bancario in grupo_bancario
+            ) != importe_previsto:
+                continue
+
+            puntuaciones = [
+                puntuacion_pareja(bancario, previsto)
+                for bancario in grupo_bancario
+            ]
+
+            if any(
+                puntuacion is None
+                for puntuacion in puntuaciones
+            ):
+                continue
+
+            propuestas.append(
+                PropuestaConciliacion(
+                    bancarios=list(grupo_bancario),
+                    previstos=[previsto],
+                    puntuacion=100 + sum(puntuaciones),
+                    motivos=[
+                        "La suma de los importes pendientes coincide.",
+                        "Naturaleza y fechas compatibles.",
+                    ],
+                )
+            )
+
+            if (
+                len(propuestas) - inicio_propuestas
+                > MAX_ALTERNATIVAS_GRUPO
+            ):
+                break
+
+        if (
+            len(propuestas) - inicio_propuestas
+            > MAX_ALTERNATIVAS_GRUPO
+        ):
+            del propuestas[inicio_propuestas:]
+
+    # m:1: dos previstos y un movimiento bancario.
+    for bancario in bancarios_disponibles:
+        importe_bancario = saldo_movimiento_bancario(
+            bancario
+        )[1]
+
+        for grupo_previsto in combinations(
+            previstos_disponibles,
+            2,
+        ):
+            if sum(
+                saldo_movimiento_previsto(previsto)[1]
+                for previsto in grupo_previsto
+            ) != importe_bancario:
+                continue
+
+            puntuaciones = [
+                puntuacion_pareja(bancario, previsto)
+                for previsto in grupo_previsto
+            ]
+
+            if any(
+                puntuacion is None
+                for puntuacion in puntuaciones
+            ):
+                continue
+
+            propuestas.append(
+                PropuestaConciliacion(
+                    bancarios=[bancario],
+                    previstos=list(grupo_previsto),
+                    puntuacion=100 + sum(puntuaciones),
+                    motivos=[
+                        "La suma de los importes pendientes coincide.",
+                        "Naturaleza y fechas compatibles.",
+                    ],
+                )
+            )
+
+    if seleccionar:
+        return _seleccionar_propuestas_agrupadas(propuestas)
+
+    return propuestas
+
+
+def buscar_propuestas_conciliacion(
+    bancarios: list[MovimientoBancario],
+    previstos: list[MovimientoPrevisto],
+    aliases_configurados: (
+        list[tuple[str, str, str]] | None
+    ) = None,
+) -> list[PropuestaConciliacion]:
+    """Reúne propuestas exactas 1:1 y agrupadas y resuelve conflictos."""
+
+    aliases_configurados = aliases_configurados or []
+
+    propuestas = []
+
+    # Primero, las propuestas individuales exactas.
+    for bancario in bancarios:
+        if bancario.estado not in {"PENDIENTE", "PARCIAL"}:
+            continue
+
+        _, pendiente_bancario = saldo_movimiento_bancario(
+            bancario
+        )
+
+        if pendiente_bancario <= 0:
+            continue
+
+        for previsto in previstos:
+            if previsto.estado not in {"PENDIENTE", "PARCIAL"}:
+                continue
+
+            if bancario.naturaleza != previsto.naturaleza:
+                continue
+
+            if not _fecha_compatible_conciliacion(
+                bancario,
+                previsto,
+            ):
+                continue
+
+            _, pendiente_previsto = saldo_movimiento_previsto(
+                previsto
+            )
+
+            if pendiente_bancario != pendiente_previsto:
+                continue
+
+            if pendiente_previsto <= 0:
+                continue
+
+            propuestas.append(
+                PropuestaConciliacion(
+                    bancarios=[bancario],
+                    previstos=[previsto],
+                    puntuacion=0,
+                    motivos=[
+                        "Importes pendientes coincidentes.",
+                    ],
+                )
+            )
+
+    # Incorporar las propuestas 1:2 y 2:1 existentes.
+    propuestas.extend(
+        buscar_propuestas_agrupadas(
+            bancarios,
+            previstos,
+            aliases_configurados=aliases_configurados,
+            seleccionar=False,
+        )
+    )
+
+    # Todas las propuestas compiten con la misma escala.
+    for propuesta in propuestas:
+        propuesta.puntuacion = _puntuar_calidad_propuesta(
+            propuesta,
+            aliases_configurados,
+        )
+
+    # Resolver conjuntamente los conflictos entre tipos.
+    return _seleccionar_propuestas_agrupadas(propuestas)
+
+
+
+def confirmar_propuesta_conciliacion(
+    propuesta: PropuestaConciliacion,
+) -> list[Conciliacion]:
+    """Confirma una propuesta exacta 1:1, 1:n o m:1 sin hacer commit."""
+
+    bancarios = propuesta.bancarios
+    previstos = propuesta.previstos
+
+    if not bancarios or not previstos:
+        raise ConciliacionError(
+            "La propuesta debe contener movimientos "
+            "bancarios y previstos."
+        )
+
+    if len(bancarios) > 1 and len(previstos) > 1:
+        raise ConciliacionError(
+            "La confirmación automática m:n no está implementada."
+        )
+
+    asociaciones = []
+
+    if len(previstos) == 1:
+        # 1:1 o 1:n: cada bancario aporta su saldo pendiente.
+        previsto = previstos[0]
+
+        for bancario in bancarios:
+            _, importe = saldo_movimiento_bancario(
+                bancario
+            )
+
+            asociaciones.append(
+                (bancario, previsto, importe)
+            )
+
+    else:
+        # m:1: cada previsto recibe su saldo pendiente.
+        bancario = bancarios[0]
+
+        for previsto in previstos:
+            _, importe = saldo_movimiento_previsto(
+                previsto
+            )
+
+            asociaciones.append(
+                (bancario, previsto, importe)
+            )
+
+    total_bancario = sum(
+        saldo_movimiento_bancario(bancario)[1]
+        for bancario in bancarios
+    )
+
+    total_previsto = sum(
+        saldo_movimiento_previsto(previsto)[1]
+        for previsto in previstos
+    )
+
+    if total_bancario != total_previsto:
+        raise ConciliacionError(
+            "Los saldos pendientes de la propuesta "
+            "ya no coinciden."
+        )
+
+    return confirmar_grupo_conciliacion(
+        asociaciones
     )
 
 
