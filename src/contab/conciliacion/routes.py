@@ -18,6 +18,7 @@ from contab.formato import (
     texto_a_fecha,
 )
 from contab.models import (
+    Conciliacion,
     MovimientoBancario,
     MovimientoPrevisto,
 )
@@ -33,6 +34,7 @@ from contab.conciliacion.services import (
     conciliar_movimiento_previsto_manualmente,
     confirmar_conciliacion,
     descartar_movimiento_bancario,
+    deshacer_asociacion_bancaria,
     deshacer_conciliacion_manual,
     restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
@@ -824,6 +826,52 @@ def aceptar_propuesta_revision(movimiento_id: int):
     return redirect(
         url_for(
             "conciliacion.revisar_conciliacion"
+        )
+    )
+
+
+
+@bp.post(
+    "/previstos/<int:movimiento_id>"
+    "/asociaciones/<int:conciliacion_id>/deshacer"
+)
+def deshacer_asociacion_bancaria_desde_interfaz(
+    movimiento_id: int,
+    conciliacion_id: int,
+):
+    """Deshace una asociación bancaria de un movimiento previsto."""
+
+    session_factory = get_session_factory()
+
+    with session_factory() as db_session:
+        conciliacion = db_session.get(
+            Conciliacion,
+            conciliacion_id,
+        )
+
+        if (
+            conciliacion is None
+            or conciliacion.movimiento_previsto_id != movimiento_id
+        ):
+            return (
+                "Asociación bancaria no encontrada.",
+                404,
+            )
+
+        try:
+            deshacer_asociacion_bancaria(
+                conciliacion
+            )
+            db_session.commit()
+
+        except ConciliacionError as exc:
+            db_session.rollback()
+            return str(exc), 400
+
+    return redirect(
+        url_for(
+            "conciliacion.listar_movimientos_previstos",
+            estado="TODOS",
         )
     )
 

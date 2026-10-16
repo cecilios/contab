@@ -1,3 +1,4 @@
+import pytest
 from io import BytesIO
 from datetime import date
 from sqlalchemy import select
@@ -11,6 +12,35 @@ from contab.models import (
 )
 from contab.app import create_app
 
+
+
+
+@pytest.fixture(autouse=True)
+def limpiar_motores_prueba(monkeypatch):
+    """Cierra los motores SQLite de las aplicaciones creadas en cada test."""
+
+    aplicaciones = []
+    crear_app_original = create_app
+
+    def crear_app_registrada(*args, **kwargs):
+        app = crear_app_original(*args, **kwargs)
+        aplicaciones.append(app)
+        return app
+
+    # Todos los tests y auxiliares de este módulo usan este nombre.
+    monkeypatch.setattr(
+        __name__ + ".create_app",
+        crear_app_registrada,
+    )
+
+    yield
+
+    for app in aplicaciones:
+        for session_factory in app.extensions[
+            "contab_databases"
+        ].values():
+            engine = session_factory.kw["bind"]
+            engine.dispose()
 
 
 def crear_app_test():
@@ -1890,5 +1920,291 @@ def test_descartar_inexistente_desde_revision() -> None:
     )
 
     assert response.status_code == 404
+
+
+
+def test_deshacer_asociacion_bancaria_desde_interfaz() -> None:
+    """El usuario deshace una conciliación bancaria individual."""
+
+    app = crear_app_test()
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        previsto = MovimientoPrevisto(
+            inmueble=inmueble,
+            naturaleza="INGRESO",
+            concepto="Alquiler octubre",
+            importe_esperado=100000,
+            estado="CONCILIADO",
+            metodo_conciliacion="INDIVIDUAL",
+        )
+
+        bancario = MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=100000,
+            tipo_original="TRANSFERENCIA",
+            huella_importacion="ruta-deshacer-individual",
+            estado="CONCILIADO",
+        )
+
+        conciliacion = Conciliacion(
+            movimiento_bancario=bancario,
+            movimiento_previsto=previsto,
+            importe_asociado=100000,
+        )
+
+        session.add(conciliacion)
+        session.commit()
+
+        previsto_id = previsto.id
+        bancario_id = bancario.id
+        conciliacion_id = conciliacion.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    url = (
+        f"/conciliacion/previstos/{previsto_id}"
+        f"/asociaciones/{conciliacion_id}/deshacer"
+    )
+
+    # El usuario encuentra la acción en el listado de conciliados.
+    listado = client.get(
+        "/conciliacion/previstos?estado=CONCILIADO"
+    )
+
+    assert listado.status_code == 200
+    assert f'action="{url}"' in listado.text
+
+    # El usuario deshace la asociación bancaria.
+    response = client.post(url)
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        assert session.get(Conciliacion, conciliacion_id) is None
+
+        previsto = session.get(MovimientoPrevisto, previsto_id)
+        bancario = session.get(MovimientoBancario, bancario_id)
+
+        assert previsto.estado == "PENDIENTE"
+        assert previsto.metodo_conciliacion is None
+        assert bancario.estado == "PENDIENTE"
+
+
+
+def test_deshacer_asociacion_bancaria_conserva_las_otras() -> None:
+    """Deshace una transferencia sin perder las demás asociaciones."""
+
+    app = crear_app_test()
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        previsto = MovimientoPrevisto(
+            inmueble=inmueble,
+            naturaleza="INGRESO",
+            concepto="Alquiler octubre",
+            importe_esperado=100000,
+            estado="CONCILIADO",
+            metodo_conciliacion="INDIVIDUAL",
+        )
+
+        primero = MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=60000,
+            tipo_original="TRANSFERENCIA",
+            huella_importacion="ruta-deshacer-grupo-1",
+            estado="CONCILIADO",
+        )
+
+        segundo = MovimientoBancario(
+            fecha=date(2026, 10, 7),
+            naturaleza="INGRESO",
+            importe=40000,
+            tipo_original="TRANSFERENCIA",
+            huella_importacion="ruta-deshacer-grupo-2",
+            estado="CONCILIADO",
+        )
+
+        primera_asociacion = Conciliacion(
+            movimiento_bancario=primero,
+            movimiento_previsto=previsto,
+            importe_asociado=60000,
+        )
+
+        segunda_asociacion = Conciliacion(
+            movimiento_bancario=segundo,
+            movimiento_previsto=previsto,
+            importe_asociado=40000,
+        )
+
+        session.add_all([
+            primera_asociacion,
+            segunda_asociacion,
+        ])
+        session.commit()
+
+        previsto_id = previsto.id
+        primero_id = primero.id
+        segundo_id = segundo.id
+        primera_id = primera_asociacion.id
+        segunda_id = segunda_asociacion.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    url_primera = (
+        f"/conciliacion/previstos/{previsto_id}"
+        f"/asociaciones/{primera_id}/deshacer"
+    )
+    url_segunda = (
+        f"/conciliacion/previstos/{previsto_id}"
+        f"/asociaciones/{segunda_id}/deshacer"
+    )
+
+    # Cada transferencia debe tener su propia acción.
+    listado = client.get(
+        "/conciliacion/previstos?estado=CONCILIADO"
+    )
+
+    assert listado.status_code == 200
+    assert f'action="{url_primera}"' in listado.text
+    assert f'action="{url_segunda}"' in listado.text
+
+    # El usuario retira únicamente la segunda transferencia.
+    response = client.post(url_segunda)
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        assert session.get(Conciliacion, primera_id) is not None
+        assert session.get(Conciliacion, segunda_id) is None
+
+        previsto = session.get(MovimientoPrevisto, previsto_id)
+        primero = session.get(MovimientoBancario, primero_id)
+        segundo = session.get(MovimientoBancario, segundo_id)
+
+        assert previsto.estado == "PARCIAL"
+        assert previsto.metodo_conciliacion == "INDIVIDUAL"
+        assert primero.estado == "CONCILIADO"
+        assert segundo.estado == "PENDIENTE"
+
+
+
+def test_deshacer_asociacion_bancaria_inexistente_devuelve_404() -> None:
+    """No permite deshacer una asociación inexistente."""
+
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    response = client.post(
+        "/conciliacion/previstos/999999"
+        "/asociaciones/999999/deshacer"
+    )
+
+    assert response.status_code == 404
+
+
+
+def test_deshacer_asociacion_bancaria_rechaza_previsto_ajeno() -> None:
+    """La asociación debe pertenecer al previsto indicado en la URL."""
+
+    app = crear_app_test()
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        previsto = MovimientoPrevisto(
+            inmueble=inmueble,
+            naturaleza="INGRESO",
+            concepto="Alquiler octubre",
+            importe_esperado=100000,
+            estado="CONCILIADO",
+            metodo_conciliacion="INDIVIDUAL",
+        )
+
+        otro_previsto = MovimientoPrevisto(
+            inmueble=inmueble,
+            naturaleza="INGRESO",
+            concepto="Alquiler noviembre",
+            importe_esperado=100000,
+            estado="PENDIENTE",
+        )
+
+        bancario = MovimientoBancario(
+            fecha=date(2026, 10, 5),
+            naturaleza="INGRESO",
+            importe=100000,
+            tipo_original="TRANSFERENCIA",
+            huella_importacion="ruta-deshacer-ajeno",
+            estado="CONCILIADO",
+        )
+
+        conciliacion = Conciliacion(
+            movimiento_bancario=bancario,
+            movimiento_previsto=previsto,
+            importe_asociado=100000,
+        )
+
+        session.add_all([conciliacion, otro_previsto])
+        session.commit()
+
+        conciliacion_id = conciliacion.id
+        otro_previsto_id = otro_previsto.id
+        previsto_id = previsto.id
+        bancario_id = bancario.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # Se intenta deshacer la asociación usando otro previsto.
+    response = client.post(
+        f"/conciliacion/previstos/{otro_previsto_id}"
+        f"/asociaciones/{conciliacion_id}/deshacer"
+    )
+
+    assert response.status_code == 404
+
+    with session_factory() as session:
+        assert session.get(Conciliacion, conciliacion_id) is not None
+
+        previsto = session.get(MovimientoPrevisto, previsto_id)
+        bancario = session.get(MovimientoBancario, bancario_id)
+
+        assert previsto.estado == "CONCILIADO"
+        assert bancario.estado == "CONCILIADO"
 
 

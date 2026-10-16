@@ -1501,6 +1501,7 @@ class MovimientoBancario(Base):
         CheckConstraint(
             "estado IN ("
             "'PENDIENTE', "
+            "'PARCIAL', "
             "'CONCILIADO', "
             "'DESCARTADO'"
             ")",

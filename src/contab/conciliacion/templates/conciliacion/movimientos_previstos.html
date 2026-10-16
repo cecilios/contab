@@ -115,6 +115,26 @@
                             {% endif %}
                         </td>
                         <td>
+                            {% if movimiento.estado in ["CONCILIADO", "PARCIAL"] %}
+                                {% for conciliacion in movimiento.conciliaciones %}
+                                    <form
+                                        method="post"
+                                        action="{{ url_for(
+                                            'conciliacion.deshacer_asociacion_bancaria_desde_interfaz',
+                                            movimiento_id=movimiento.id,
+                                            conciliacion_id=conciliacion.id
+                                        ) }}"
+                                    >
+                                        <button type="submit">
+                                            Deshacer asociación
+                                            {{ importe_a_texto(
+                                                conciliacion.importe_asociado
+                                            ) }}
+                                        </button>
+                                    </form>
+                                {% endfor %}
+                            {% endif %}
+
                             {% if (
                                 movimiento.estado == "CONCILIADO"
                                 and movimiento.metodo_conciliacion == "MANUAL"
