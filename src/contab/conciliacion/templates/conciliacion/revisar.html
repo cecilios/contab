@@ -1,243 +1,508 @@
+
 {% extends "base.html" %}
 
 {% block title %}Revisar conciliación - Contab{% endblock %}
 
 {% block content %}
-    <h1>Revisar conciliación</h1>
+<div class="revision">
+    <h1 class="revision__titulo">Revisar conciliación</h1>
 
-    <p>
-        Revisa las correspondencias propuestas por Contab.
-        Pulsa Aceptar en cada una de las que consideres correctas.
-        Las demás permanecerán pendientes.
-    </p>
-
-    <p class="enlaces-acciones">
-        <a href="{{ url_for(
-            'conciliacion.listar_movimientos_bancarios'
-        ) }}">
+    <nav class="revision__navegacion">
+        <a
+            class="revision__enlace"
+            href="{{ url_for('conciliacion.listar_movimientos_bancarios') }}"
+        >
             Movimientos bancarios
         </a>
-
-        <a href="{{ url_for(
-            'conciliacion.listar_movimientos_previstos'
-        ) }}">
+        <a
+            class="revision__enlace"
+            href="{{ url_for('conciliacion.listar_movimientos_previstos') }}"
+        >
             Movimientos previstos
         </a>
-    </p>
+    </nav>
 
-    <h2>Propuestas de conciliación</h2>
+    <section class="revision__seccion revision__seccion--propuestas">
+        <h2 class="revision__subtitulo">Propuestas automáticas</h2>
 
-    {% if a_conciliar_exactos %}
-        <table class="movimientos-bancarios">
-            <thead>
-                <tr>
-                    <th>Fecha banco</th>
-                    <th>Movimiento bancario</th>
-                    <th>Importe</th>
-                    <th>Movimiento previsto</th>
-                    <th>Inmueble</th>
-                    <th>Acción</th>
+        {% if propuestas %}
+        <table class="revision-tabla revision-tabla--propuestas">
+            <thead class="revision-tabla__cabecera">
+                <tr class="revision-tabla__fila-cabecera">
+                    <th
+                        class="revision-tabla__columna"
+                        colspan="3"
+                    >
+                        Movimientos previstos
+                    </th>
+                    <th
+                        class="revision-tabla__columna revision-tabla__columna--bancario-inicio"
+                        colspan="3"
+                    >
+                        Movimientos bancarios
+                    </th>
+                    <th class="revision-tabla__columna">
+                        Acciones
+                    </th>
+                </tr>
+                <tr class="revision-tabla__fila-cabecera">
+                    <th class="revision-tabla__columna">Fecha</th>
+                    <th class="revision-tabla__columna">Concepto / inmueble</th>
+                    <th class="revision-tabla__columna revision-tabla__columna--importe">
+                        Importe
+                    </th>
+                    <th class="revision-tabla__columna revision-tabla__columna--bancario-inicio">
+                        Fecha
+                    </th>
+                    <th class="revision-tabla__columna">Descripción</th>
+                    <th class="revision-tabla__columna revision-tabla__columna--importe">
+                        Importe
+                    </th>
+                    <th class="revision-tabla__columna">Confirmación</th>
                 </tr>
             </thead>
 
-            <tbody>
-                {% for bancario, previsto in a_conciliar_exactos %}
-                    <tr>
-                        <td>
-                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
-                        </td>
+            {% for propuesta in propuestas %}
+                {% set total_previsto = propuesta.previstos
+                    | map(attribute="importe_esperado")
+                    | sum %}
+                {% set total_bancario = propuesta.bancarios
+                    | map(attribute="importe")
+                    | sum %}
 
-                        <td>
-                            {{ bancario.descripcion_original }}
-                        </td>
+                {% set es_diferente = (
+                    propuesta.previstos|length == 1
+                    and propuesta.bancarios|length == 1
+                    and saldo_movimiento_previsto(propuesta.previstos[0])[1]
+                        != saldo_movimiento_bancario(propuesta.bancarios[0])[1]
+                ) %}
 
-                        <td>
-                            {{ importe_a_texto(bancario.importe) }}
-                        </td>
+            <tbody class="revision-propuesta{% if es_diferente %} revision-propuesta--diferencia{% endif %}">
+                {% set numero_filas = [
+                    propuesta.previstos|length,
+                    propuesta.bancarios|length
+                ]|max %}
 
-                        <td>
-                            {{ previsto.concepto }}
-                            <br>
-                            <small>
-                                {{ intervalo_a_texto(previsto) }}
+                {% for indice in range(numero_filas) %}
+                <tr class="revision-propuesta__fila{% if loop.first %} revision-propuesta__fila--primera{% endif %}">
+                    <td class="revision-celda revision-celda--fecha">
+                        {% if indice < propuesta.previstos|length %}
+                            {% set previsto = propuesta.previstos[indice] %}
+                            {% if previsto.fecha_prevista_desde %}
+                                {{ previsto.fecha_prevista_desde.strftime("%d/%m/%Y") }}
+                            {% endif %}
+                        {% endif %}
+                    </td>
+
+                    <td class="revision-celda revision-celda--previsto">
+                        {% if indice < propuesta.previstos|length %}
+                            {% set previsto = propuesta.previstos[indice] %}
+                            <span class="revision-previsto__concepto">
+                                {{ previsto.concepto }}
+                            </span>
+                            <small class="revision-previsto__inmueble">
+                                {{ previsto.inmueble.referencia }}
                             </small>
-                        </td>
+                        {% endif %}
+                    </td>
 
-                        <td>
-                            {{ previsto.inmueble.referencia }}
-                        </td>
+                    <td class="revision-celda revision-celda--importe">
+                        {% if indice < propuesta.previstos|length %}
+                            {% set previsto = propuesta.previstos[indice] %}
+                            {% set pendiente = saldo_movimiento_previsto(previsto)[1] %}
 
-                        <td>
-                            <form
-                                method="post"
-                                action="{{ url_for(
-                                    'conciliacion.aceptar_propuesta_revision',
-                                    movimiento_id=bancario.id
-                                ) }}"
-                            >
-                                <input
-                                    type="hidden"
-                                    name="previsto_id"
-                                    value="{{ previsto.id }}"
+                            <span class="revision-importe__pendiente">
+                                {{ importe_a_texto(pendiente) }}
+                            </span>
+
+                            {% if pendiente != previsto.importe_esperado %}
+                                <small class="revision-importe__original">
+                                    Original:
+                                    {{ importe_a_texto(previsto.importe_esperado) }}
+                                </small>
+                            {% endif %}
+                        {% endif %}
+                    </td>
+
+                    <td class="revision-celda revision-celda--bancario-inicio">
+                        {% if indice < propuesta.bancarios|length %}
+                            {{ propuesta.bancarios[indice].fecha.strftime("%d/%m/%Y") }}
+                        {% endif %}
+                    </td>
+
+                    <td class="revision-celda revision-celda--bancario">
+                        {% if indice < propuesta.bancarios|length %}
+                            {{ propuesta.bancarios[indice].descripcion_original }}
+                        {% endif %}
+                    </td>
+
+                    <td class="revision-celda revision-celda--importe">
+                        {% if indice < propuesta.bancarios|length %}
+                            {% set bancario = propuesta.bancarios[indice] %}
+                            {% set pendiente = saldo_movimiento_bancario(bancario)[1] %}
+
+                            <span class="revision-importe__pendiente">
+                                {{ importe_a_texto(pendiente) }}
+                            </span>
+
+                            {% if pendiente != bancario.importe %}
+                                <small class="revision-importe__original">
+                                    Original:
+                                    {{ importe_a_texto(bancario.importe) }}
+                                </small>
+                            {% endif %}
+                        {% endif %}
+                    </td>
+
+                    <td class="revision-celda revision-celda--acciones">
+                        {% if loop.first %}
+                            {% if es_diferente %}
+                                {% set diferencia = (
+                                    saldo_movimiento_bancario(propuesta.bancarios[0])[1]
+                                    - saldo_movimiento_previsto(propuesta.previstos[0])[1]
+                                ) %}
+                                <small class="revision-propuesta__diferencia">
+                                    Diferencia:
+                                    {{ importe_a_texto(diferencia) }}
+                                </small>
+                            {% endif %}
+                            <div class="revision-propuesta__acciones">
+                                {% if not es_diferente %}
+                                <form
+                                    class="revision-propuesta__formulario revision-propuesta__formulario--aceptar"
+                                    method="post"
+                                    action="{{ url_for(
+                                        'conciliacion.aceptar_propuesta_agrupada_revision'
+                                    ) }}"
                                 >
+                                    {% for bancario in propuesta.bancarios %}
+                                        <input
+                                            class="revision-propuesta__identificador"
+                                            type="hidden"
+                                            name="bancario_ids"
+                                            value="{{ bancario.id }}"
+                                        >
+                                    {% endfor %}
 
-                                <button type="submit">
-                                    Aceptar
-                                </button>
-                            </form>
-                        </td>
+                                    {% for previsto in propuesta.previstos %}
+                                        <input
+                                            class="revision-propuesta__identificador"
+                                            type="hidden"
+                                            name="previsto_ids"
+                                            value="{{ previsto.id }}"
+                                        >
+                                    {% endfor %}
 
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                                    <button
+                                        class="revision-propuesta__boton revision-propuesta__boton--aceptar"
+                                        type="submit"
+                                    >
+                                        Aceptar
+                                    </button>
+                                </form>
+                                {% endif %}
 
-    {% else %}
-        <p>No hay propuestas con importe coincidente.</p>
-    {% endif %}
-
-    <h2>Propuestas con importes diferentes</h2>
-
-    <p>
-        Estas propuestas requieren revisión manual y no se
-        confirmarán automáticamente.
-    </p>
-
-    {% if a_conciliar_diferentes %}
-        <table class="movimientos-bancarios">
-            <thead>
-                <tr>
-                    <th>Fecha banco</th>
-                    <th>Movimiento bancario</th>
-                    <th>Importe banco</th>
-                    <th>Movimiento previsto</th>
-                    <th>Importe previsto</th>
-                    <th>Inmueble</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                {% for bancario, previsto in a_conciliar_diferentes %}
-                    <tr>
-                        <td>
-                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
-                        </td>
-
-                        <td>
-                            {{ bancario.descripcion_original }}
-                        </td>
-
-                        <td>
-                            {{ importe_a_texto(bancario.importe) }}
-                        </td>
-
-                        <td>
-                            {{ previsto.concepto }}
-                        </td>
-
-                        <td>
-                            {{ importe_a_texto(previsto.importe_esperado) }}
-                        </td>
-
-                        <td>
-                            {{ previsto.inmueble.referencia }}
-                        </td>
-
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>No hay propuestas con importes diferentes.</p>
-    {% endif %}
-
-    <h2>Propuestas de descarte</h2>
-
-    {% if a_descartar %}
-        <table class="movimientos-bancarios">
-            <thead>
-                <tr>
-                    <th>Fecha</th>
-                    <th>Movimiento bancario</th>
-                    <th>Importe</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                {% for bancario in a_descartar %}
-                    <tr>
-                        <td>
-                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
-                        </td>
-
-                        <td>
-                            {{ bancario.descripcion_original }}
-                        </td>
-
-                        <td>
-                            {{ importe_a_texto(bancario.importe) }}
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>No hay propuestas de descarte.</p>
-    {% endif %}
-
-    <h2>Pendientes</h2>
-
-    {% if pendientes %}
-        <table class="movimientos-bancarios">
-            <thead>
-                <tr>
-                    <th>Fecha</th>
-                    <th>Movimiento bancario</th>
-                    <th>Importe</th>
-                    <th>Acción</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                {% for bancario in pendientes %}
-                    <tr>
-                        <td>
-                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
-                        </td>
-
-                        <td>
-                            {{ bancario.descripcion_original }}
-                        </td>
-
-                        <td>
-                            {{ importe_a_texto(bancario.importe) }}
-                        </td>
-
-                        <td>
-                            <form
-                                method="post"
-                                action="{{ url_for(
-                                    'conciliacion.descartar_movimiento_bancario_desde_interfaz',
-                                    movimiento_id=bancario.id
-                                ) }}"
-                            >
-                                <input
-                                    type="hidden"
-                                    name="origen"
-                                    value="revision"
+                                <form
+                                    class="revision-propuesta__formulario revision-propuesta__formulario--rechazar"
+                                    method="post"
+                                    action="{{ url_for(
+                                        'conciliacion.rechazar_propuesta_agrupada_revision'
+                                    ) }}"
                                 >
+                                    {% for bancario in propuesta.bancarios %}
+                                        <input
+                                            class="revision-propuesta__identificador"
+                                            type="hidden"
+                                            name="bancario_ids"
+                                            value="{{ bancario.id }}"
+                                        >
+                                    {% endfor %}
 
-                                <button type="submit">
-                                    Descartar
-                                </button>
-                            </form>
-                        </td>
+                                    {% for previsto in propuesta.previstos %}
+                                        <input
+                                            class="revision-propuesta__identificador"
+                                            type="hidden"
+                                            name="previsto_ids"
+                                            value="{{ previsto.id }}"
+                                        >
+                                    {% endfor %}
 
-                    </tr>
+                                    <button
+                                        class="revision-propuesta__boton revision-propuesta__boton--rechazar"
+                                        type="submit"
+                                    >
+                                        Rechazar
+                                    </button>
+                                </form>
+
+                            </div>
+                        {% endif %}
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
+            {% endfor %}
         </table>
-    {% else %}
-        <p>No hay movimientos pendientes de resolver.</p>
-    {% endif %}
+        {% else %}
+            <p class="revision__vacio">
+                No hay propuestas automáticas.
+            </p>
+        {% endif %}
+    </section>
+
+    <section class="revision__seccion revision__seccion--manual">
+        <h2 class="revision__subtitulo">Conciliación manual</h2>
+
+        <p class="revision__descripcion">
+            Selecciona movimientos previstos y bancarios.
+            Los importes deben coincidir para poder conciliarlos.
+        </p>
+
+        <form
+            id="revision-manual-formulario"
+            class="revision-manual__formulario"
+            method="post"
+            action="{{ url_for(
+                'conciliacion.confirmar_seleccion_manual_revision'
+            ) }}"
+        >
+            <div class="revision-manual">
+                <div class="revision-manual__grupo revision-manual__grupo--previstos">
+                    <h3 class="revision-manual__titulo">
+                        Movimientos previstos
+                    </h3>
+
+                    <table class="revision-tabla revision-tabla--manual">
+                        <thead class="revision-tabla__cabecera">
+                            <tr class="revision-tabla__fila-cabecera">
+                                <th class="revision-tabla__columna revision-tabla__columna--seleccion">
+                                    Sel.
+                                </th>
+                                <th class="revision-tabla__columna">
+                                    Fecha
+                                </th>
+                                <th class="revision-tabla__columna">
+                                    Concepto / inmueble
+                                </th>
+                                <th class="revision-tabla__columna revision-tabla__columna--importe">
+                                    Importe
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody class="revision-manual__cuerpo">
+                            {% for previsto in previstos_sin_propuesta %}
+                            {% set pendiente = saldo_movimiento_previsto(previsto)[1] %}
+                            <tr class="revision-manual__fila">
+                                <td class="revision-celda revision-celda--seleccion">
+                                    <input
+                                        class="revision-manual__casilla revision-manual__casilla--previsto"
+                                        type="checkbox"
+                                        name="previsto_ids"
+                                        value="{{ previsto.id }}"
+                                        data-importe="{{ pendiente }}"
+                                    >
+                                </td>
+
+                                <td class="revision-celda revision-celda--fecha">
+                                    {% if previsto.fecha_prevista_desde %}
+                                        {{ previsto.fecha_prevista_desde.strftime("%d/%m/%Y") }}
+                                    {% endif %}
+                                </td>
+
+                                <td class="revision-celda revision-celda--previsto">
+                                    <span class="revision-previsto__concepto">
+                                        {{ previsto.concepto }}
+                                    </span>
+                                    <small class="revision-previsto__inmueble">
+                                        {{ previsto.inmueble.referencia }}
+                                    </small>
+                                </td>
+
+                                <td class="revision-celda revision-celda--importe">
+                                    <span class="revision-importe__pendiente">
+                                        {{ importe_a_texto(pendiente) }}
+                                    </span>
+
+                                    {% if pendiente != previsto.importe_esperado %}
+                                        <small class="revision-importe__original">
+                                            Original:
+                                            {{ importe_a_texto(previsto.importe_esperado) }}
+                                        </small>
+                                    {% endif %}
+                                </td>
+
+                            </tr>
+                            {% else %}
+                            <tr class="revision-manual__fila revision-manual__fila--vacia">
+                                <td class="revision-celda revision-celda--vacia" colspan="4">
+                                    No hay previstos disponibles.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="revision-manual__grupo revision-manual__grupo--bancarios">
+                    <h3 class="revision-manual__titulo">
+                        Movimientos bancarios
+                    </h3>
+
+                    <table class="revision-tabla revision-tabla--manual">
+                        <thead class="revision-tabla__cabecera">
+                            <tr class="revision-tabla__fila-cabecera">
+                                <th class="revision-tabla__columna revision-tabla__columna--seleccion">
+                                    Sel.
+                                </th>
+                                <th class="revision-tabla__columna">
+                                    Fecha
+                                </th>
+                                <th class="revision-tabla__columna">
+                                    Descripción
+                                </th>
+                                <th class="revision-tabla__columna revision-tabla__columna--importe">
+                                    Importe
+                                </th>
+                                <th class="revision-tabla__columna revision-tabla__columna--acciones">
+                                    Acción
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody class="revision-manual__cuerpo">
+                            {% for bancario in bancarios_sin_propuesta %}
+                            {% set pendiente = saldo_movimiento_bancario(bancario)[1] %}
+                            <tr class="revision-manual__fila">
+                                <td class="revision-celda revision-celda--seleccion">
+                                    <input
+                                        class="revision-manual__casilla revision-manual__casilla--bancario"
+                                        type="checkbox"
+                                        name="bancario_ids"
+                                        value="{{ bancario.id }}"
+                                        data-importe="{{ pendiente }}"
+                                    >
+                                </td>
+
+                                <td class="revision-celda revision-celda--fecha">
+                                    {{ bancario.fecha.strftime("%d/%m/%Y") }}
+                                </td>
+
+                                <td class="revision-celda revision-celda--bancario">
+                                    {{ bancario.descripcion_original }}
+                                </td>
+
+                                <td class="revision-celda revision-celda--importe">
+                                    <span class="revision-importe__pendiente">
+                                        {{ importe_a_texto(pendiente) }}
+                                    </span>
+
+                                    {% if pendiente != bancario.importe %}
+                                        <small class="revision-importe__original">
+                                            Original:
+                                            {{ importe_a_texto(bancario.importe) }}
+                                        </small>
+                                    {% endif %}
+                                </td>
+
+                                <td class="revision-celda revision-celda--acciones">
+                                    <button
+                                        class="revision-manual__boton-descarte"
+                                        type="submit"
+                                        form="revision-descarte-{{ bancario.id }}"
+                                    >
+                                        Descartar
+                                    </button>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr class="revision-manual__fila revision-manual__fila--vacia">
+                                <td class="revision-celda revision-celda--vacia" colspan="5">
+                                    No hay bancarios disponibles.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="revision-manual__resumen">
+                <div class="revision-manual__total">
+                    <span class="revision-manual__etiqueta">
+                        Total previsto:
+                    </span>
+                    <strong
+                        id="revision-manual-total-previstos"
+                        class="revision-manual__valor"
+                    >
+                        0,00 €
+                    </strong>
+                </div>
+
+                <div class="revision-manual__total">
+                    <span class="revision-manual__etiqueta">
+                        Total bancario:
+                    </span>
+                    <strong
+                        id="revision-manual-total-bancarios"
+                        class="revision-manual__valor"
+                    >
+                        0,00 €
+                    </strong>
+                </div>
+
+                <div class="revision-manual__total">
+                    <span class="revision-manual__etiqueta">
+                        Diferencia:
+                    </span>
+                    <strong
+                        id="revision-manual-diferencia"
+                        class="revision-manual__valor revision-manual__valor--diferencia"
+                    >
+                        0,00 €
+                    </strong>
+                </div>
+
+                <button
+                    class="revision-manual__boton-confirmar"
+                    type="submit"
+                    disabled
+                >
+                    Conciliar seleccionados
+                </button>
+            </div>
+        </form>
+
+        {% for bancario in bancarios_sin_propuesta %}
+        <form
+            id="revision-descarte-{{ bancario.id }}"
+            class="revision-manual__formulario-descarte"
+            method="post"
+            action="{{ url_for(
+                'conciliacion.descartar_movimiento_bancario_desde_interfaz',
+                movimiento_id=bancario.id
+            ) }}"
+        >
+            <input
+                class="revision-manual__campo-origen"
+                type="hidden"
+                name="origen"
+                value="revision"
+            >
+        </form>
+        {% endfor %}
+    </section>
+
+</div>
+
+<script
+    class="revision__script"
+    src="{{ url_for(
+        'static',
+        filename='js/revision_conciliacion.js'
+    ) }}"
+    defer
+></script>
+
 {% endblock %}

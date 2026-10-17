@@ -29,15 +29,20 @@ from contab.conciliacion.importacion import (
 )
 from contab.conciliacion.services import (
     ConciliacionError,
+    PropuestaConciliacion,
+    buscar_propuestas_conciliacion,
     cancelar_movimiento_previsto,
     clasificar_movimientos_bancarios,
     conciliar_movimiento_previsto_manualmente,
     confirmar_conciliacion,
+    confirmar_propuesta_conciliacion,
     descartar_movimiento_bancario,
     deshacer_asociacion_bancaria,
     deshacer_conciliacion_manual,
     restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
+    saldo_movimiento_bancario,
+    saldo_movimiento_previsto,
 )
 from contab.context import (
     get_bank_name,
@@ -72,6 +77,43 @@ ESTADOS_MOVIMIENTO_PREVISTO = {
     "CANCELADO": "Cancelado",
 }
 
+
+
+
+def _rechazos_revision() -> tuple[set[int], set[int]]:
+    """Obtiene los movimientos excluidos de propuestas en esta sesión."""
+
+    database_name = get_database_name()
+
+    rechazos = session.get(
+        "conciliacion_revision_rechazos",
+        {},
+    ).get(database_name, {})
+
+    return (
+        set(rechazos.get("bancarios", [])),
+        set(rechazos.get("previstos", [])),
+    )
+
+
+def _guardar_rechazos_revision(
+    bancario_ids: set[int],
+    previsto_ids: set[int],
+) -> None:
+    """Conserva los rechazos para la base de datos activa."""
+
+    database_name = get_database_name()
+
+    rechazos = dict(
+        session.get("conciliacion_revision_rechazos", {})
+    )
+
+    rechazos[database_name] = {
+        "bancarios": sorted(bancario_ids),
+        "previstos": sorted(previsto_ids),
+    }
+
+    session["conciliacion_revision_rechazos"] = rechazos
 
 
 def _intervalo_a_texto(
@@ -133,7 +175,6 @@ def _estado_previsto_retorno() -> str:
     return estado
 
 
-
 def _render_formulario_importacion(
     *,
     error: str | None = None,
@@ -150,11 +191,8 @@ def _render_formulario_importacion(
     )
 
 
-
-
-@bp.get("/revisar")
-def revisar_conciliacion():
-    """Muestra las propuestas pendientes de aceptación individual."""
+def _obtener_revision_conciliacion(db_session):
+    """Carga movimientos y calcula propuestas respetando los rechazos."""
 
     database_name = get_database_name()
 
@@ -167,64 +205,112 @@ def revisar_conciliacion():
         [],
     )
 
+    movimientos_bancarios = db_session.scalars(
+        select(MovimientoBancario)
+        .where(
+            MovimientoBancario.estado.in_(
+                ("PENDIENTE", "PARCIAL")
+            )
+        )
+        .order_by(
+            MovimientoBancario.fecha.desc(),
+            MovimientoBancario.id.desc(),
+        )
+    ).all()
+
+    movimientos_previstos = db_session.scalars(
+        select(MovimientoPrevisto)
+        .options(
+            joinedload(MovimientoPrevisto.inmueble)
+        )
+        .where(
+            MovimientoPrevisto.estado.in_(
+                ("PENDIENTE", "PARCIAL")
+            )
+        )
+        .order_by(
+            MovimientoPrevisto.fecha_prevista_desde,
+            MovimientoPrevisto.id,
+        )
+    ).all()
+
+    (
+        bancario_ids_rechazados,
+        previsto_ids_rechazados,
+    ) = _rechazos_revision()
+
+    bancarios_para_propuestas = [
+        bancario
+        for bancario in movimientos_bancarios
+        if bancario.id not in bancario_ids_rechazados
+    ]
+
+    previstos_para_propuestas = [
+        previsto
+        for previsto in movimientos_previstos
+        if previsto.id not in previsto_ids_rechazados
+    ]
+
+    propuestas = buscar_propuestas_conciliacion(
+        bancarios_para_propuestas,
+        previstos_para_propuestas,
+        aliases_configurados=aliases_configurados,
+    )
+
+    return (
+        movimientos_bancarios,
+        movimientos_previstos,
+        propuestas,
+    )
+
+
+@bp.get("/revisar")
+def revisar_conciliacion():
+    """Muestra propuestas automáticas y movimientos para revisión manual."""
+
+    database_name = get_database_name()
     session_factory = get_session_factory()
 
     with session_factory() as db_session:
-        movimientos_bancarios = db_session.scalars(
-            select(MovimientoBancario)
-            .where(
-                MovimientoBancario.estado == "PENDIENTE"
-            )
-            .order_by(
-                MovimientoBancario.fecha.desc(),
-                MovimientoBancario.id.desc(),
-            )
-        ).all()
-
-        movimientos_previstos = db_session.scalars(
-            select(MovimientoPrevisto)
-            .options(
-                joinedload(MovimientoPrevisto.inmueble)
-            )
-            .where(
-                MovimientoPrevisto.estado == "PENDIENTE"
-            )
-            .order_by(
-                MovimientoPrevisto.fecha_prevista_desde,
-                MovimientoPrevisto.id,
-            )
-        ).all()
-
         (
-            a_conciliar,
-            a_descartar,
-            pendientes,
-        ) = clasificar_movimientos_bancarios(
             movimientos_bancarios,
             movimientos_previstos,
-            aliases_configurados=aliases_configurados,
-        )
+            propuestas,
+        ) = _obtener_revision_conciliacion(db_session)
 
-        a_conciliar_exactos = [
-            (bancario, previsto)
-            for bancario, previsto in a_conciliar
-            if bancario.importe == previsto.importe_esperado
+        ids_bancarios_propuestos = {
+            bancario.id
+            for propuesta in propuestas
+            for bancario in propuesta.bancarios
+        }
+
+        ids_previstos_propuestos = {
+            previsto.id
+            for propuesta in propuestas
+            for previsto in propuesta.previstos
+        }
+
+        bancarios_sin_propuesta = [
+            bancario
+            for bancario in movimientos_bancarios
+            if bancario.id not in ids_bancarios_propuestos
         ]
 
-        a_conciliar_diferentes = [
-            (bancario, previsto)
-            for bancario, previsto in a_conciliar
-            if bancario.importe != previsto.importe_esperado
+        previstos_sin_propuesta = [
+            previsto
+            for previsto in movimientos_previstos
+            if previsto.id not in ids_previstos_propuestos
         ]
 
         return render_template(
             "conciliacion/revisar.html",
-            a_conciliar_exactos=a_conciliar_exactos,
-            a_conciliar_diferentes=a_conciliar_diferentes,
-            a_descartar=a_descartar,
-            pendientes=pendientes,
+            propuestas=propuestas,
+            bancarios_sin_propuesta=bancarios_sin_propuesta,
+            previstos_sin_propuesta=previstos_sin_propuesta,
             importe_a_texto=importe_a_texto,
             intervalo_a_texto=_intervalo_a_texto,
+            saldo_movimiento_bancario=saldo_movimiento_bancario,
+            saldo_movimiento_previsto=saldo_movimiento_previsto,
             database_name=database_name,
         )
 
@@ -873,6 +959,258 @@ def deshacer_asociacion_bancaria_desde_interfaz(
             "conciliacion.listar_movimientos_previstos",
             estado="TODOS",
         )
+    )
+
+
+@bp.post("/revisar/propuestas/aceptar")
+def aceptar_propuesta_agrupada_revision():
+    """Acepta una propuesta automática completa y todavía válida."""
+
+    try:
+        bancario_ids = [
+            int(valor)
+            for valor in request.form.getlist("bancario_ids")
+        ]
+        previsto_ids = [
+            int(valor)
+            for valor in request.form.getlist("previsto_ids")
+        ]
+    except ValueError:
+        return "Identificadores de movimientos no válidos.", 400
+
+    if (
+        not bancario_ids
+        or not previsto_ids
+        or len(set(bancario_ids)) != len(bancario_ids)
+        or len(set(previsto_ids)) != len(previsto_ids)
+        or any(identificador <= 0 for identificador in bancario_ids)
+        or any(identificador <= 0 for identificador in previsto_ids)
+    ):
+        return "La propuesta indicada no es válida.", 400
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as db_session:
+            with db_session.begin():
+                _, _, propuestas = _obtener_revision_conciliacion(
+                    db_session
+                )
+
+                ids_bancarios_solicitados = set(bancario_ids)
+                ids_previstos_solicitados = set(previsto_ids)
+
+                propuesta_elegida = next(
+                    (
+                        propuesta
+                        for propuesta in propuestas
+                        if {
+                            bancario.id
+                            for bancario in propuesta.bancarios
+                        } == ids_bancarios_solicitados
+                        and {
+                            previsto.id
+                            for previsto in propuesta.previstos
+                        } == ids_previstos_solicitados
+                    ),
+                    None,
+                )
+
+                if propuesta_elegida is None:
+                    raise ConciliacionError(
+                        "La propuesta ya no es válida. "
+                        "Vuelve a revisar la conciliación."
+                    )
+
+                asociaciones = confirmar_propuesta_conciliacion(
+                    propuesta_elegida
+                )
+
+                db_session.add_all(asociaciones)
+
+    except ConciliacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for("conciliacion.revisar_conciliacion")
+    )
+
+
+@bp.post("/revisar/propuestas/rechazar")
+def rechazar_propuesta_agrupada_revision():
+    """Libera una propuesta automática para conciliación manual."""
+
+    try:
+        bancario_ids = [
+            int(valor)
+            for valor in request.form.getlist("bancario_ids")
+        ]
+        previsto_ids = [
+            int(valor)
+            for valor in request.form.getlist("previsto_ids")
+        ]
+    except ValueError:
+        return "Identificadores de movimientos no válidos.", 400
+
+    if (
+        not bancario_ids
+        or not previsto_ids
+        or len(set(bancario_ids)) != len(bancario_ids)
+        or len(set(previsto_ids)) != len(previsto_ids)
+        or any(identificador <= 0 for identificador in bancario_ids)
+        or any(identificador <= 0 for identificador in previsto_ids)
+    ):
+        return "La propuesta indicada no es válida.", 400
+
+    session_factory = get_session_factory()
+
+    with session_factory() as db_session:
+        _, _, propuestas = _obtener_revision_conciliacion(
+            db_session
+        )
+
+        ids_bancarios_solicitados = set(bancario_ids)
+        ids_previstos_solicitados = set(previsto_ids)
+
+        propuesta_elegida = next(
+            (
+                propuesta
+                for propuesta in propuestas
+                if {
+                    bancario.id
+                    for bancario in propuesta.bancarios
+                } == ids_bancarios_solicitados
+                and {
+                    previsto.id
+                    for previsto in propuesta.previstos
+                } == ids_previstos_solicitados
+            ),
+            None,
+        )
+
+        if propuesta_elegida is None:
+            return (
+                "La propuesta ya no es válida. "
+                "Vuelve a revisar la conciliación.",
+                400,
+            )
+
+    (
+        bancario_ids_rechazados,
+        previsto_ids_rechazados,
+    ) = _rechazos_revision()
+
+    _guardar_rechazos_revision(
+        bancario_ids_rechazados | ids_bancarios_solicitados,
+        previsto_ids_rechazados | ids_previstos_solicitados,
+    )
+
+    return redirect(
+        url_for("conciliacion.revisar_conciliacion")
+    )
+
+
+@bp.post("/revisar/manual/confirmar")
+def confirmar_seleccion_manual_revision():
+    """Concilia movimientos elegidos en la sección manual."""
+
+    try:
+        bancario_ids = [
+            int(valor)
+            for valor in request.form.getlist("bancario_ids")
+        ]
+        previsto_ids = [
+            int(valor)
+            for valor in request.form.getlist("previsto_ids")
+        ]
+    except ValueError:
+        return "Identificadores de movimientos no válidos.", 400
+
+    if (
+        not bancario_ids
+        or not previsto_ids
+        or len(set(bancario_ids)) != len(bancario_ids)
+        or len(set(previsto_ids)) != len(previsto_ids)
+        or any(valor <= 0 for valor in bancario_ids)
+        or any(valor <= 0 for valor in previsto_ids)
+    ):
+        return "La selección manual no es válida.", 400
+
+    if len(bancario_ids) > 1 and len(previsto_ids) > 1:
+        return (
+            "La conciliación manual m:n "
+            "todavía no está implementada.",
+            400,
+        )
+
+    session_factory = get_session_factory()
+
+    try:
+        with session_factory() as db_session:
+            with db_session.begin():
+                (
+                    movimientos_bancarios,
+                    movimientos_previstos,
+                    propuestas,
+                ) = _obtener_revision_conciliacion(db_session)
+
+                ids_bancarios_propuestos = {
+                    movimiento.id
+                    for propuesta in propuestas
+                    for movimiento in propuesta.bancarios
+                }
+
+                ids_previstos_propuestos = {
+                    movimiento.id
+                    for propuesta in propuestas
+                    for movimiento in propuesta.previstos
+                }
+
+                bancarios_manuales = {
+                    movimiento.id: movimiento
+                    for movimiento in movimientos_bancarios
+                    if movimiento.id not in ids_bancarios_propuestos
+                }
+
+                previstos_manuales = {
+                    movimiento.id: movimiento
+                    for movimiento in movimientos_previstos
+                    if movimiento.id not in ids_previstos_propuestos
+                }
+
+                if (
+                    not set(bancario_ids).issubset(bancarios_manuales)
+                    or not set(previsto_ids).issubset(previstos_manuales)
+                ):
+                    raise ConciliacionError(
+                        "Alguno de los movimientos seleccionados "
+                        "ya no está disponible en conciliación manual."
+                    )
+
+                propuesta = PropuestaConciliacion(
+                    bancarios=[
+                        bancarios_manuales[identificador]
+                        for identificador in bancario_ids
+                    ],
+                    previstos=[
+                        previstos_manuales[identificador]
+                        for identificador in previsto_ids
+                    ],
+                    puntuacion=0,
+                    motivos=[],
+                )
+
+                asociaciones = confirmar_propuesta_conciliacion(
+                    propuesta
+                )
+
+                db_session.add_all(asociaciones)
+
+    except ConciliacionError as exc:
+        return str(exc), 400
+
+    return redirect(
+        url_for("conciliacion.revisar_conciliacion")
     )
 
 

@@ -1409,9 +1409,116 @@ def buscar_propuestas_conciliacion(
             aliases_configurados,
         )
 
-    # Resolver conjuntamente los conflictos entre tipos.
-    return _seleccionar_propuestas_agrupadas(propuestas)
 
+    # Resolver primero las propuestas exactas.
+    seleccionadas = _seleccionar_propuestas_agrupadas(
+        propuestas
+    )
+
+    # Los movimientos de una propuesta exacta no pueden
+    # participar en una propuesta con diferencia.
+    bancarios_ocupados = {
+        bancario.id
+        for propuesta in seleccionadas
+        for bancario in propuesta.bancarios
+    }
+
+    previstos_ocupados = {
+        previsto.id
+        for propuesta in seleccionadas
+        for previsto in propuesta.previstos
+    }
+
+    bancarios_libres = [
+        bancario
+        for bancario in bancarios
+        if (
+            bancario.estado in {"PENDIENTE", "PARCIAL"}
+            and bancario.id not in bancarios_ocupados
+        )
+    ]
+
+    previstos_libres = [
+        previsto
+        for previsto in previstos
+        if (
+            previsto.estado in {"PENDIENTE", "PARCIAL"}
+            and previsto.id not in previstos_ocupados
+        )
+    ]
+
+    # Buscar sólo correspondencias 1:1 con diferencia
+    # y contraparte claramente identificada.
+    candidatos_diferentes = []
+
+    for bancario in bancarios_libres:
+        _, pendiente_bancario = saldo_movimiento_bancario(
+            bancario
+        )
+
+        if pendiente_bancario <= 0:
+            continue
+
+        for previsto in previstos_libres:
+            _, pendiente_previsto = saldo_movimiento_previsto(
+                previsto
+            )
+
+            if pendiente_previsto <= 0:
+                continue
+
+            if pendiente_bancario == pendiente_previsto:
+                continue
+
+            if bancario.naturaleza != previsto.naturaleza:
+                continue
+
+            if not _fecha_compatible_conciliacion(
+                bancario,
+                previsto,
+            ):
+                continue
+
+            if not _bancario_identifica_contraparte(
+                bancario,
+                previsto,
+                aliases_configurados,
+            ):
+                continue
+
+            candidatos_diferentes.append(
+                (bancario, previsto)
+            )
+
+    # No sugerir correspondencias ambiguas:
+    # cada movimiento debe tener un único candidato.
+    for bancario, previsto in candidatos_diferentes:
+        alternativas_bancario = sum(
+            candidato_bancario.id == bancario.id
+            for candidato_bancario, _ in candidatos_diferentes
+        )
+
+        alternativas_previsto = sum(
+            candidato_previsto.id == previsto.id
+            for _, candidato_previsto in candidatos_diferentes
+        )
+
+        if (
+            alternativas_bancario != 1
+            or alternativas_previsto != 1
+        ):
+            continue
+
+        seleccionadas.append(
+            PropuestaConciliacion(
+                bancarios=[bancario],
+                previstos=[previsto],
+                puntuacion=0,
+                motivos=["Correspondencia con diferencia."],
+            )
+        )
+
+    return seleccionadas
 
 
 def confirmar_propuesta_conciliacion(
