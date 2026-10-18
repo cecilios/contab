@@ -4128,3 +4128,67 @@ def test_revision_muestra_propuesta_uno_a_uno_con_diferencia() -> None:
         ).estado == "PENDIENTE"
 
 
+
+def test_aceptar_propuesta_exacta_rechaza_diferencia() -> None:
+    """No confirma por la ruta exacta una propuesta con diferencia."""
+
+    client, session_factory, ids = (
+        crear_escenario_aceptacion_individual()
+    )
+
+    # La correspondencia con diferencia debe ser visible
+    # entre las propuestas automáticas.
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+    assert "revision-propuesta--diferencia" in response.text
+    assert "Seguro septiembre" in response.text
+
+    # Intentamos utilizar directamente la ruta de aceptación
+    # exacta, aunque la pantalla no ofrezca ese botón.
+    response = client.post(
+        "/conciliacion/revisar/propuestas/aceptar",
+        data={
+            "bancario_ids": [
+                str(ids["b_diferente"]),
+            ],
+            "previsto_ids": [
+                str(ids["p_diferente"]),
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+
+    with session_factory() as db_session:
+        asociaciones = db_session.scalars(
+            select(Conciliacion)
+        ).all()
+
+        assert asociaciones == []
+
+        previsto = db_session.get(
+            MovimientoPrevisto,
+            ids["p_diferente"],
+        )
+
+        bancario = db_session.get(
+            MovimientoBancario,
+            ids["b_diferente"],
+        )
+
+        assert previsto.estado == "PENDIENTE"
+        assert bancario.estado == "PENDIENTE"
+
+        # Los importes originales deben permanecer intactos.
+        assert previsto.importe_esperado == 25000
+        assert bancario.importe == 24000
+
+    # La propuesta continúa disponible para revisión.
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+    assert "Seguro septiembre" in response.text
+    assert "ASEGURADORA XYZ" in response.text
+
+

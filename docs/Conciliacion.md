@@ -1,247 +1,72 @@
-# Conciliación de movimientos
+# Conciliación bancaria
 
 ## Finalidad
 
-La conciliación bancaria es uno de los dos objetivos principales de Contab, junto con la obtención de información contable adaptable a las necesidades fiscales.
+Contab facilita la revisión periódica de movimientos bancarios y su correspondencia con los cobros y pagos previstos. **Contab propone y el usuario confirma.** Los importes originales nunca se alteran para hacerlos coincidir.
 
-Su finalidad es reducir el trabajo necesario para revisar los movimientos bancarios, relacionarlos con los ingresos y gastos esperados y localizar las excepciones que requieren intervención.
+La conciliación y el control económico responden a dos preguntas distintas:
 
-Contab propone y facilita el trabajo, pero el usuario conserva siempre el control y confirma el resultado final.
+- **Conciliación:** ¿a qué cobro o pago previsto corresponde este movimiento bancario y qué importe se ha asociado?
+- **Situación del contrato:** ¿cuánto es exigible, cuánto se ha cobrado efectivamente y cuál es la deuda o el crédito acumulado?
 
-La conciliación no debe forzar todos los casos reales a una correspondencia individual entre un movimiento bancario y un movimiento previsto. Lo importante es que cada situación quede resuelta de forma comprensible y trazable.
+Aceptar una pequeña diferencia al conciliar **no implica condonarla**, ni crear un apunte artificial. La diferencia permanece en el saldo económico del contrato.
 
-## El problema real
+## Movimientos y estados
 
-El usuario revisa periódicamente los movimientos del banco y trata de relacionarlos con alquileres cobrados, facturas y recibos pagados, gastos previstos y otros movimientos conocidos.
+Un **movimiento bancario** conserva la fecha, el importe, la naturaleza (ingreso o gasto) y la descripción original del banco. Un **movimiento previsto** representa un cobro o pago esperado, normalmente vinculado a un apunte o una factura.
 
-La información bancaria no es uniforme. Los textos pueden contener nombres, direcciones, referencias o descripciones genéricas y no siempre permiten identificar directamente el inmueble o concepto correspondiente.
+Los movimientos pueden estar **Pendiente**, **Parcial** o **Conciliado**. El bancario puede estar también **Descartado** (ajeno a Contab) y el previsto **Cancelado**. Descarte y cancelación son reversibles.
 
-La mayoría de los movimientos ordinarios tienen una correspondencia sencilla:
+**Parcial** significa que sólo se ha asociado parte del importe y que el saldo restante puede participar en conciliaciones posteriores.
 
-* los alquileres suelen coincidir con un ingreso bancario;
-* los recibos domiciliados suelen coincidir exactamente con el gasto contabilizado;
-* las transferencias realizadas para pagar gastos suelen coincidir con el importe previsto.
+## Revisar conciliación
 
-Sin embargo, existen excepciones reales:
+La pantalla **Revisar conciliación** tiene dos zonas:
 
-* un pago grande puede dividirse en varias transferencias;
-* tributos como IBI y TRU pueden contabilizarse por inmueble pero ser cobrados por el Ayuntamiento de forma agrupada;
-* algunos gastos se pagan en efectivo o con tarjeta y no aparecen en la cuenta conciliada;
-* algunos ingresos excepcionales pueden cobrarse en efectivo;
-* un inquilino con atrasos puede realizar pagos parciales e irregulares cuyo control resulta más útil por saldo total que asignando artificialmente cada ingreso a una mensualidad concreta;
-* una diferencia en un recibo domiciliado puede indicar un error en el apunte contable y debe revisarse, no aceptarse automáticamente.
+- **Propuestas automáticas.** Contab presenta correspondencias posibles. Se aceptan o rechazan individualmente. Rechazar una propuesta la traslada a la sección manual durante la sesión, sin modificar la base de datos.
+- **Selección manual de movimientos.** El usuario selecciona previstos y bancarios que reconoce y confirma la correspondencia. Se muestran los totales de ambos lados y la diferencia.
 
-Estas excepciones son poco frecuentes y el número de inmuebles es pequeño. Contab no intenta automatizarlas todas. Debe permitir resolverlas explícitamente y dejar constancia de lo ocurrido.
+En la operativa actual pueden confirmarse correspondencias **1:1, 1:n y m:1 de importes coincidentes**, con saldos pendientes incluidos. Las propuestas 1:1 con importes distintos **se muestran, pero aún no pueden aceptarse**.
 
-## Movimientos bancarios y previstos
+El algoritmo debe priorizar los importes exactos y proponer sólo diferencias pequeñas y bien identificadas. No debe sugerir pagos parciales muy desiguales como si fuesen pequeñas diferencias. La detección automática de 1:3 y 3:1 está aplazada, aunque la selección manual exacta permite esas cardinalidades.
 
-La conciliación trabaja principalmente con dos clases de movimientos.
+Los movimientos bancarios ajenos a Contab pueden **Descartarse** y restaurarse posteriormente.
 
-Un **movimiento bancario** representa una operación importada de la cuenta bancaria. Conserva la fecha, naturaleza —ingreso o gasto—, importe y los textos originales proporcionados por el banco.
+## Conciliación manual sin banco
 
-Puede estar:
+Es una función diferente de la selección manual de movimientos bancarios. Permite dar por resuelto un previsto sin asociarle un movimiento de la cuenta importada: por ejemplo, por un cobro en metálico o un pago desde otra cuenta.
 
-* **Pendiente:** todavía no está resuelto.
-* **Conciliado:** ha sido relacionado y confirmado.
-* **Descartado:** es personal o ajeno a Contab.
+Es **obligatorio escribir el motivo** en las notas. No se inventa un movimiento bancario y la operación debe poder deshacerse.
 
-Descartar es reversible.
+Esta función existía en Contab, pero **debemos recuperar o comprobar su acceso en la interfaz renovada**. No debe desaparecer ni confundirse con la selección manual de casillas.
 
-Un **movimiento previsto** representa un cobro o pago que Contab espera encontrar o resolver. Actualmente, los movimientos previstos pueden crearse desde los apuntes contables. El modelo permite también movimientos sin apunte asociado, pero no se ha construido una operativa adicional mientras no exista un caso real que la justifique.
-Puede estar:
+## Conciliación exacta, progresiva y con diferencia
 
-* **Pendiente.**
-* **Parcialmente conciliado.**
-* **Conciliado.**
-* **Cancelado.**
+- **Exacta:** coinciden los importes pendientes; se confirma la asociación y quedan conciliados los movimientos cuya parte disponible se ha agotado.
+- **Progresiva:** el usuario aplica sólo parte del importe disponible. Por ejemplo, una factura de 1.000 € y un ingreso de 600 €: el bancario queda conciliado y la factura parcial, con 400 € disponibles para asociar más adelante.
+- **Aceptar diferencia:** el usuario reconoce una correspondencia, por ejemplo 1.000 € previstos y 995 € ingresados, y cierra su revisión sin esperar otro cobro. La diferencia de 5 € permanece en el saldo económico. **Esta última operación está pendiente de implementar.**
 
-La cancelación es reversible.
+Cuando los importes sean iguales basta con **Aceptar**. Para importes distintos, la futura interfaz ofrecerá dos acciones sencillas: **Conciliar parcialmente** o **Aceptar diferencia**. No preguntará si hay que reclamar, condonar o compensar: eso no se decide al conciliar.
 
-El estado expresa si el movimiento está resuelto, no cómo se ha resuelto.
+La conciliación progresiva admite sucesivas asociaciones **1:n o m:1** durante meses; **no se implementará una operación m:n independiente**.
 
-### Relación con los apuntes contables
+## Situación económica del contrato
 
-Al crear manualmente un apunte contable, Contab propone generar también su movimiento previsto. La opción está activada por defecto y puede desactivarse expresamente.
+La futura pantalla de situación por contrato o local mostrará, a una fecha dada, las **facturas y otros importes exigibles** frente a los **ingresos reales atribuidos al contrato**, y sus totales:
 
-El movimiento reutiliza del apunte el inmueble, naturaleza, concepto, importe total y tercero. Las fechas previstas son independientes de la fecha contable y pueden dejarse vacías.
+**Saldo del contrato = total exigible − total efectivamente cobrado.**
 
-La generación del movimiento previsto no depende del tratamiento contable del apunte. Un gasto `CONTABILIZAR`, `REPERCUTIR` o `FACTURAR` representa igualmente un posible pago al proveedor y puede generar su correspondiente movimiento previsto de gasto.
+Un saldo positivo indica deuda del inquilino; uno negativo, crédito a su favor. Se acumulan las diferencias entre períodos, también los céntimos.
 
-En `REPERCUTIR` y `FACTURAR` pueden aparecer posteriormente otras operaciones bancarias independientes:
+Ejemplo: en octubre se debían 920 € y se ingresaron 900 €; quedan 20 € de deuda. En noviembre se debían 920 € y se ingresaron 940 €; el saldo acumulado pasa a cero, aunque ambas conciliaciones bancarias se hayan cerrado con diferencia.
 
-- el ingreso del inquilino correspondiente a una solicitud de reembolso;
-- el cobro de una factura que incluya el gasto.
+**Esta pantalla aún está pendiente de desarrollar.** La atribución de ingresos al contrato, incluidos los cobros en efectivo y los pagos a cuenta sin factura específica, debe ser inequívoca y evitar dobles cómputos.
 
-Estas operaciones posteriores tendrán sus propios movimientos previstos. No sustituyen al movimiento previsto asociado al pago original al proveedor.
+## Principios
 
-Mientras el movimiento del apunte está pendiente o cancelado, las modificaciones del apunte se trasladan al movimiento previsto.
-
-Una vez conciliado total o parcialmente, el inmueble, la naturaleza y el importe del apunte quedan protegidos. Los cambios descriptivos siguen siendo posibles y se sincronizan sin alterar las fechas previstas, estado, método ni notas de conciliación.
-
-Esta separación permite registrar una sola vez el hecho económico original y mantener independientes su tratamiento contable y las distintas operaciones bancarias que puedan derivarse de él.
-
-## Estado y método de conciliación
-
-Se mantienen separadas dos preguntas:
-
-* **Estado:** ¿está resuelto?
-* **Método:** ¿cómo sabemos que está resuelto?
-
-Por ello no existen estados especiales como `MANUAL` o `CONTABILIZADO`.
-
-Actualmente un movimiento previsto conciliado puede tener dos métodos:
-
-* **Individual:** existe una correspondencia normal entre un movimiento bancario y un movimiento previsto.
-* **Manual:** el usuario ha comprobado la situación por otro medio y ha explicado cómo se resolvió.
-
-En ambos casos el estado final es **Conciliado**.
-
-Esta separación permite ampliar en el futuro los métodos de resolución sin complicar innecesariamente los estados.
-
-## Propuestas automáticas
-
-La conciliación automática intenta resolver el caso habitual de correspondencia individual entre un movimiento bancario pendiente y un movimiento previsto pendiente.
-
-Las propuestas se calculan mediante reglas sencillas y explícitas basadas en:
-
-* igualdad del importe;
-* identificación de la contraparte en el texto bancario;
-* alias conocidos que permiten reconocer el inmueble y tipo de movimiento;
-* proximidad de las fechas.
-
-Los textos se comparan normalizados para ignorar diferencias de mayúsculas, acentos y espacios.
-
-Sólo se propone una correspondencia cuando existe un candidato suficientemente claro y no hay empate entre los mejores candidatos.
-
-No se utiliza por ahora coincidencia aproximada, aprendizaje automático ni comportamiento histórico. Las reglas se ampliarán únicamente cuando los casos reales demuestren que resulta útil.
-
-## Confirmación automática individual
-
-Una propuesta automática nunca modifica los movimientos hasta que el usuario la acepta expresamente.
-
-La pantalla **Revisar conciliación** muestra las correspondencias propuestas por Contab.
-
-Cada propuesta con importes coincidentes dispone de un botón **Aceptar**. Al pulsarlo, se confirma inmediatamente y de forma individual esa correspondencia. No existe una confirmación global.
-
-Las propuestas que el usuario no acepta permanecen pendientes, sin necesidad de rechazarlas expresamente.
-
-Para aceptar una correspondencia individual, ambos movimientos deben estar pendientes, tener la misma naturaleza y exactamente el mismo importe.
-
-Antes de guardar la conciliación, el servidor vuelve a calcular la propuesta y verifica que la correspondencia seleccionada sigue siendo válida.
-
-Al confirmarla:
-
-* el movimiento bancario queda **Conciliado**;
-* el movimiento previsto queda **Conciliado**;
-* el método del movimiento previsto queda registrado como **Individual**;
-* se conserva la relación entre ambos movimientos.
-
-La operación afecta exclusivamente a la pareja aceptada. Después se vuelve a mostrar la revisión con las propuestas actualizadas.
-
-Las propuestas con importes diferentes se muestran separadamente y no pueden aceptarse mediante este procedimiento. Requieren investigación o resolución manual.
-
-### Descarte de movimientos bancarios
-
-La sección **Pendientes** de la pantalla Revisar conciliación permite descartar individualmente movimientos personales o ajenos a Contab mediante el botón **Descartar**.
-
-El descarte es inmediato y no requiere una segunda confirmación.
-
-El movimiento pasa a estado **Descartado** y deja de aparecer en la revisión, que considera únicamente movimientos bancarios pendientes.
-
-El descarte no elimina el movimiento de la base de datos ni modifica los apuntes contables.
-
-Los movimientos descartados siguen disponibles en **Movimientos bancarios**, utilizando el filtro de estado existente. Desde esa pantalla pueden restaurarse a **Pendiente**.
-
-La operación utiliza el mismo servicio de descarte que el listado de movimientos bancarios.
-
-## Conciliación manual
-
-Cuando una situación real no puede representarse correctamente mediante una correspondencia bancaria individual, el usuario puede conciliar manualmente el movimiento previsto.
-
-La conciliación manual sirve, por ejemplo, para:
-
-* gastos o ingresos en efectivo;
-* gastos pagados con una tarjeta que no corresponde a la cuenta importada;
-* tributos contabilizados individualmente pero cobrados de forma agrupada;
-* situaciones de atrasos controladas externamente por saldo;
-* otras excepciones que el usuario haya comprobado por medios distintos de una correspondencia bancaria individual.
-
-Para conciliar manualmente es obligatorio introducir una explicación.
-
-Al confirmarla:
-
-* el movimiento previsto pasa a **Conciliado**;
-* su método queda registrado como **Manual**;
-* la explicación se conserva en sus notas;
-* no se crea artificialmente ningún movimiento bancario ni una relación bancaria inexistente.
-
-En el listado de movimientos previstos se muestra el método junto al estado. Para las conciliaciones manuales se muestra también la explicación, de forma que la excepción pueda entenderse directamente.
-
-Ejemplo:
-
-```
-Conciliado · Manual
-Incluido en los cargos agrupados del Ayuntamiento.
-```
-
-La finalidad de la explicación es poder comprender posteriormente qué ocurrió y por qué el movimiento se consideró resuelto.
-
-## Deshacer una conciliación manual
-
-Una conciliación manual puede haberse confirmado por error y debe ser reversible.
-
-El usuario puede utilizar **Deshacer conciliación** sobre un movimiento conciliado manualmente.
-
-El movimiento vuelve entonces a:
-
-* estado **Pendiente**;
-* sin método de conciliación;
-* sin la explicación de la conciliación manual.
-
-Esta operación sólo está disponible para conciliaciones manuales.
-
-Una conciliación individual con un movimiento bancario asociado no puede deshacerse mediante esta acción, porque requeriría tratar también la relación y el estado del movimiento bancario.
-
-## Flujo habitual
-
-El proceso normal de conciliación es:
-
-1. El usuario importa el CSV descargado del banco.
-2. Contab incorpora los movimientos nuevos evitando duplicados.
-3. La revisión considera los movimientos bancarios y previstos pendientes.
-4. Contab calcula las propuestas automáticas.
-5. El usuario revisa las propuestas antes de que se modifique ningún movimiento.
-6. Las propuestas exactas aceptadas se confirman como conciliaciones individuales.
-7. Las discrepancias y movimientos sin correspondencia permanecen pendientes para su revisión.
-8. Los movimientos bancarios personales o ajenos a Contab pueden descartarse.
-9. Los movimientos previstos que hayan sido resueltos por otros medios pueden conciliarse manualmente dejando una explicación.
-
-El objetivo no es conseguir que todo sea automático, sino que los casos normales requieran poco trabajo y que las excepciones queden claramente identificadas.
-
-## Correspondencias complejas
-
-Existen casos reales que podrían requerir relaciones más complejas:
-
-* varios movimientos bancarios para un único movimiento previsto;
-* un movimiento bancario que agrupe varios movimientos previstos;
-* conciliaciones parciales;
-* control de determinados atrasos por saldo.
-
-Contab no implementa todavía estos casos de forma general.
-
-No se desarrollarán por anticipado mientras la conciliación individual y manual permitan resolver adecuadamente el trabajo real. Si el uso diario demuestra que alguno de estos casos es suficientemente frecuente o costoso, se diseñará a partir de ejemplos reales.
-
-## Principios adoptados
-
-Las decisiones de conciliación siguen estos principios:
-
-* **Control del usuario.** Una propuesta automática nunca es una conciliación definitiva sin confirmación.
-* **Automatizar lo frecuente.** El caso normal debe resolverse con el menor trabajo posible.
-* **No forzar las excepciones.** Una situación que no es realmente 1:1 no debe aparentarlo para satisfacer el modelo.
-* **Trazabilidad.** Debe poder entenderse posteriormente por qué un movimiento se consideró resuelto.
-* **Reversibilidad.** Las decisiones que puedan tomarse por error deben poder corregirse cuando sea razonable.
-* **Simplicidad.** No se implementan relaciones complejas hasta que los casos reales demuestren su necesidad.
-* **Separación contable.** La conciliación no crea ni modifica automáticamente apuntes contables para resolver información que desconoce.
-* **Conservar la información bancaria original.** Los textos del banco son pistas importantes para la identificación y deben mantenerse.
-
-El propósito final es que la conciliación reduzca trabajo y señale excepciones, sin convertir Contab en un sistema bancario complejo ni ocultar al usuario cómo se ha resuelto cada situación.
+1. Contab propone; el usuario confirma.
+2. Los importes originales y las correspondencias quedan trazables.
+3. El estado **Parcial** conserva la posibilidad de seguir aplicando saldos.
+4. Una diferencia aceptada no desaparece de la situación económica.
+5. Las decisiones deben poder corregirse; no se crean movimientos ficticios para cuadrar importes.
+6. No se crea una operación m:n ni un sistema de grupos de conciliación adicional.

@@ -975,175 +975,58 @@ REPERCUTIR
 
 This also ensures that historical activity from an inactive child property can still appear for the relevant year.
 
-## Bank import
+## Bank import and reconciliation: current implementation and agreed target
 
-Bank-file parsing belongs to:
+This section supersedes the former `## Bank import`, `## Automatic reconciliation`, and `## Manual reconciliation` sections. See also `docs/Conciliacion.md` for the end-user description.
 
-```text
-src/contab/conciliacion/importacion.py
-```
+### Import and state model
 
-Current behavior:
+Bank imports are implemented in `src/contab/conciliacion/importacion.py`; original bank text, amount in cents, nature, date and fingerprint are retained. Current supported banks: IBERCAJA and CAIXABANK. Bank movements may be `PENDIENTE`, `PARCIAL`, `CONCILIADO` or `DESCARTADO`; expected movements may be `PENDIENTE`, `PARCIAL`, `CONCILIADO` or `CANCELADO`. `PARCIAL` is **part of the intended future model**, not legacy behavior, and must not be removed or treated as deprecated.
 
-* uses operation date, not value date;
-* parses Spanish monetary formats;
-* stores positive cents;
-* derives nature from source sign;
-* preserves original type and description;
-* preserves optional bank reference;
-* rejects zero or malformed values;
-* creates stable SHA-256 import fingerprints;
-* uses an occurrence counter to distinguish legitimate identical rows in the same CSV.
+`Conciliacion` relates one bank movement to one expected movement with a positive `importe_asociado`; the pair is unique. `saldo_movimiento_bancario()` and `saldo_movimiento_previsto()` return `(asociado, pendiente)` based on existing associations. `validar_asociacion()`, `asociar_movimientos()`, `confirmar_grupo_conciliacion()` and `confirmar_propuesta_conciliacion()` implement atomic domain behavior without committing. Routes own transactions. Preserve the integrity and undo semantics of partial associations.
 
-`preparar_movimientos_bancarios()` returns new model objects and does not add or commit them.
+The target combines two compatible modes:
 
-Do not add bank/account/value-date/balance/accounting-entry fields without a real requirement.
+- **B — Exact matches:** 1:1, 1:n and m:1 with equal aggregate remaining balances. Implemented and tested in the review screen.
+- **A — Progressive reconciliation:** associate an amount smaller than one or both remaining balances; update `PARCIAL` and leave available remainder for later association. The service and model groundwork exists; UI for intentional manual partial applications remains to implement. One can progressively associate 1:n or m:1 across reviews; **there will be no separate m:n operation**.
 
-Bank movement states:
+There is a third, distinct user decision:
 
-```text
-PENDIENTE
-CONCILIADO
-DESCARTADO
-```
+- **Accept a small discrepancy and close review:** bank-to-expected correspondence is confirmed even though original amounts differ; unlike a progressive allocation, the leftover amount must not keep the reviewed movement in the reconciliation queue. The economic difference is **not waived** and must persist in contract-level exigible-minus-collected totals. This is **not implemented** and its closure/undo data model must be specified by tests before any migration. Never equate `saldo_pendiente == 0` with all possible review-closure semantics. Do not invent groups or rewrite existing amounts.
 
-Expected movement states:
+Example: expected rent 1,000 € and bank receipt 950 €. **Progressive** means associate 950 €, bank reconciled, expected `PARCIAL` with 50 € still available for later associations. **Accepted discrepancy** means user closes review of this correspondence; the contract nevertheless has 50 € economic debt. The UI for unmatched amounts should expose only two clear actions, e.g. `Conciliar parcialmente` and `Aceptar diferencia`; exact matches retain one `Aceptar` action. No condonation/reclaim question.
 
-```text
-PENDIENTE
-PARCIAL
-CONCILIADO
-CANCELADO
-```
+### Review screen
 
-Cancellation/discard is reversible.
+`GET /conciliacion/revisar` has automatic proposals and independent manual-selection tables. `_obtener_revision_conciliacion(db_session)` is the shared query/proposal calculation used by GET and POST routes, respecting session-only rejected proposals. Bank/expected movements in `PENDIENTE` and `PARCIAL` are considered; display and selection totals use *remaining balances*, with original amount as secondary information for partially reconciled movements.
 
-## Automatic reconciliation
+Current automatic proposals: exact 1:1 and group 1:2 / 2:1; plus visibly distinct 1:1 discrepancies, not yet confirmable. UI supports manually selected exact 1:1, 1:2, 2:1, 1:3, 3:1 and rejects m:n and unequal sums. Automatic discovery 1:3 and 3:1 is intentionally postponed.
 
-Automatic reconciliation currently handles the normal 1:1 case.
+POST endpoints: `/conciliacion/revisar/propuestas/aceptar`, `/conciliacion/revisar/propuestas/rechazar`, `/conciliacion/revisar/manual/confirmar`. Rejection moves involved movements to manual selection *without database mutation*, scoped to the current Flask/database session. Acceptance recomputes currently available proposals and does not allow bypassing a rejection with stale POST forms. The bank discard action remains available. Legacy individual acceptance route exists for test/backward compatibility.
 
-Normalization:
+**Automatic selection correction pending:** exact amount matching has absolute priority; near matches may be suggested only within an agreed small relative deviation (candidate threshold: **5%**, subject to tests), same nature, compatible date, and reliably identified counterparty/alias. An absurd suggestion such as 1,256 € expected against 125 € bank must be ruled out. A 5% threshold, if adopted, applies to **automatic proposals only**, not to manual progressive reconciliation. Ambiguous matches are not chosen arbitrarily. The present discrepancy selector does not yet enforce this threshold.
 
-* removes accents;
-* converts to uppercase;
-* collapses whitespace.
+### Manual without bank
 
-Candidate scoring:
+The distinct preexisting operation `conciliar_movimiento_previsto_manualmente(movimiento, notas)` marks an expected movement `CONCILIADO` with `metodo_conciliacion=MANUAL` and **nonblank explanation**, creating **no** bank association; `deshacer_conciliacion_manual()` reverses it. Use cases: cash settlement, payment from another account, other verified resolution. **The renewed review UI must restore/verify a way to invoke it.** Do not confuse it with manual selection of bank and expected movement checkboxes. For this operation, the income source and contract-level reporting must be treated without fabricating a bank receipt or double counting.
 
-```text
-exact amount                 +100
-counterparty match            +50
-property/type alias match     +40
-date proximity                +20
-```
+### Contract economic balance (planned)
 
-Same nature is mandatory.
+Contract statement must show, at a selected date, obligations due and actual receipts attributable to that contract, and:
 
-A bank movement more than seven days before the beginning of the expected interval is incompatible.
+`saldo = exigible_total - cobrado_atribuido_total` (positive: debtor balance; negative: tenant credit).
 
-A movement later than the expected interval may remain a candidate but receives no date score.
+The arithmetic economic balance is independent of exact/progressive/accepted-difference review status and carries differences across months, down to cents. Distinguish ownership/contract attribution from pairing movements; do not count a bank receipt twice when multiple expected movements or contracts are involved. Confirm how to attribute payments on account not associated with a specific invoice and cash collections; design this before implementing the statement. No invoice or amount alteration, artificial accounting adjustments or automatic forgiveness.
 
-A proposal is produced only when:
+### Next test-first increments
 
-```text
-best score > 20
-and
-no tie for best score
-```
+1. Restore/verify no-bank manual reconciliation in the renewed UI; preserve obligatory notes and reversal.
+2. Protect automatic selection from large mismatches, prioritize exact matches and add relative-threshold tests.
+3. Define persistent review-closure semantics separately from partial allocated saldo, including undo, mixed previous partial associations, both shortfalls and excesses. Only then decide the smallest necessary migration.
+4. Implement manual progressive allocation and acceptance of small differences via the agreed simple actions.
+5. Implement contract-level exigible/actual-receipt statement with correct attribution and no double counting.
 
-Mismatched amounts are shown separately and cannot be accepted through normal automatic reconciliation.
-
-The review screen is:
-
-```text
-/conciliacion/revisar
-```
-
-Reconciliation proposals are accepted individually.
-
-Each exact-amount proposal has an **Aceptar** button.
-
-Pressing it immediately confirms only the selected bank/expected movement pair.
-
-There is no bulk confirmation and no temporary proposal rejection mechanism.
-
-Unaccepted proposals simply remain pending.
-
-The individual acceptance endpoint is:
-
-```text
-POST /conciliacion/revisar/<movimiento_id>/aceptar
-```
-
-The form submits:
-
-```text
-previsto_id
-```
-
-Before accepting, the server:
-
-1. verifies that the bank movement is pending;
-2. recalculates its proposal using current pending expected movements and configured aliases;
-3. verifies that the proposed expected movement matches `previsto_id`;
-4. delegates domain validation and state changes to `confirmar_conciliacion()`.
-
-The operation runs in a database transaction.
-
-A successful acceptance creates a persistent `Conciliacion`, marks both movements reconciled and sets the expected movement method to:
-
-```text
-INDIVIDUAL
-```
-
-The user is redirected to the review screen, where proposals are recalculated.
-
-### Discarding bank movements during review
-
-The **Pendientes** section offers a **Descartar** button for each bank movement.
-
-It reuses:
-
-```text
-POST /conciliacion/movimientos/<movimiento_id>/descartar
-```
-
-The review form includes:
-
-```text
-origen = revision
-```
-
-so the endpoint returns to the review screen.
-
-Discarding is immediate and changes the bank movement to:
-
-```text
-DESCARTADO
-```
-
-Discarded movements no longer appear in review because that screen queries only pending movements.
-
-They remain accessible and reversible from the bank-movement listing.
-
-## Manual reconciliation
-
-An expected movement can be reconciled manually when the real situation is not represented by normal bank 1:1 correspondence.
-
-Manual reconciliation requires nonblank notes explaining the resolution.
-
-It sets:
-
-```text
-estado = CONCILIADO
-metodo_conciliacion = MANUAL
-```
-
-Manual reconciliation is reversible.
-
-Normal `INDIVIDUAL` reconciliation cannot be undone through the manual-reversal action because it also involves a bank movement and persistent reconciliation relation.
-
-Do not implement general 1:n, n:1 or partial reconciliation until real use shows that the current individual/manual combination is insufficient.
+**Do not** replace `PARCIAL`, create reconciliation groups, or plan an independent m:n UI or operation.
 
 ## Billing: current operational scope
 
@@ -1741,166 +1624,8 @@ Further document-generation work should be driven by real use.
 
 ## Current stopping point
 
-The latest completed functional block is the accounting distribution, reimbursement and reporting integration.
-
-Implemented and tested:
-
-```text
-ApunteContable
-    ↓
-normal property
-    → accounting components remain on entry
-
-type-T property
-    ↓
-DistribucionApunte per child property
-    → persisted participation
-    → persisted base
-    → persisted IVA
-    → persisted retention
-    → persisted total
-```
-
-Temporal attribution is:
-
-```text
-ApunteContable / DistribucionApunte
-    ↓
-period + applicable contracts
-    ↓
-ImputacionContrato
-    → persisted base
-    → persisted IVA
-    → persisted retention
-    → persisted total
-```
-
-`REPERCUTIR` workflow is complete for the known cases:
-
-```text
-pending expense
-    ↓
-select for contract
-    ↓
-review calculated allocation
-    ↓
-communicate externally
-    ↓
-Marcar como enviado
-    ↓
-persist atomically:
-        ImputacionContrato(s)
-        SolicitudReembolso
-        SolicitudReembolsoLinea(s)
-        MovimientoPrevisto INGRESO
-```
-
-Undo behavior is:
-
-```text
-PENDIENTE / CANCELADO
-    → undo allowed
-
-PARCIAL / CONCILIADO
-    → undo rejected
-```
-
-Undo restores the original expense to pending reimbursement state.
-
-Accounting reports now apply:
-
-```text
-CONTABILIZAR
-    → full owner's amount
-
-FACTURAR
-    → full original expense remains owner's expense
-
-REPERCUTIR
-    → only non-imputed residual remains owner's expense
-```
-
-For type-`T` properties:
-
-```text
-source ApunteContable
-    ↓
-persisted DistribucionApunte
-    ↓
-persisted ImputacionContrato when applicable
-    ↓
-child-property accounting output
-```
-
-The type-`T` container itself is not shown as separate accounting.
-
-Historical decisions are protected.
-
-If persisted contract imputations exist, source accounting fields that determine the allocation cannot be modified.
-
-Protected fields are:
-
-```text
-inmueble
-fecha
-base
-iva_importe
-retencion_importe
-periodo_desde
-periodo_hasta
-criterio_periodo
-tratamiento
-```
-
-The same rule applies when the persisted imputation belongs to a distribution of a type-`T` entry.
-
-Descriptive fields such as notes remain editable.
-
-An accounting entry with persisted contract imputations cannot be deleted until the reversible downstream reimbursement operation has been undone.
-
-The full pytest suite was green at completion of this block.
+The accounting/distribution/reimbursement modules remain implemented. The latest reconciliation block has the new two-section review screen, exact 1:1, 1:n, m:1 confirmation, `PARCIAL` saldo support, session-only rejection, and visible but unconfirmable 1:1 mismatch proposals. The tests for exact precedence, insufficient identification, ambiguity and rejecting a mismatched exact-acceptance POST were passing at the latest reported full-suite run. The subsequent discussion set the reconciliation design rules documented above; no new production changes for these rules have yet been made.
 
 ## Next change
 
-Do not extend the reimbursement/distribution subsystem merely because the current block is complete.
-
-The implemented `REPERCUTIR` workflow, type-`T` allocation and IVA-report integration are sufficient for the currently known cases.
-
-The immediate priority remains real operational use.
-
-Choose the next work from concrete needs discovered while using:
-
-```text
-accounting
-bank import
-reconciliation
-invoice preparation
-invoice review
-rent revisions
-contract annexes
-reimbursements
-fiscal reports
-```
-
-Likely next areas are:
-
-1. accounting completeness and integrity controls;
-2. year-end / IRPF / IRNR reporting required by real fiscal preparation;
-3. `FACTURAR` integration with invoice preparation when the first concrete case appears;
-4. invoice annulment or rectification when first required;
-5. operational problems discovered during bank reconciliation or parallel accounting use.
-
-Preserve the general correction rule:
-
-```text
-still fully reversible
-    → undo downstream effects
-    → correct source
-    → perform operation again
-
-persistent historical effect must remain
-    → do not silently recalculate or overwrite it
-    → use an explicit rectification workflow when needed
-```
-
-Prefer fixing real operational friction over adding anticipated functionality.
+Focus on reconciliation in small TDD increments: restore no-bank manual reconciliation, block absurd automatic amount mismatches, then design progressive versus accepted-difference closure and the economic contract statement. Do not build a separate m:n operation or group persistence merely for future possibilities.

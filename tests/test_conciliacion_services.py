@@ -122,6 +122,25 @@ def _bancario_para_confirmar(referencia, importe):
     )
 
 
+def _movimiento_bancario_para_diferencias(
+    importe: int,
+    descripcion: str,
+    referencia: str,
+) -> MovimientoBancario:
+    """Construye un movimiento bancario para probar propuestas."""
+
+    return MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=importe,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original=descripcion,
+        referencia_bancaria="",
+        huella_importacion=referencia,
+        estado="PENDIENTE",
+    )
+
+
 
 
 def test_crear_movimiento_previsto(inmueble) -> None:
@@ -5354,5 +5373,124 @@ def test_confirmar_propuesta_rechaza_grupo_m_n(
         and bancario.conciliaciones == []
         for bancario in bancarios
     )
+
+
+
+def test_propuesta_exacta_prevalece_sobre_diferencia(
+    inmueble,
+) -> None:
+    """Prefiere la correspondencia exacta frente a una aproximada."""
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=92000,
+        contraparte="ANA PEREZ",
+        estado="PENDIENTE",
+    )
+
+    bancario_exacto = _movimiento_bancario_para_diferencias(
+        92000,
+        "TRANSFERENCIA ANA PEREZ",
+        "prioridad-exacto",
+    )
+
+    bancario_diferente = _movimiento_bancario_para_diferencias(
+        90000,
+        "TRANSFERENCIA ANA PEREZ",
+        "prioridad-diferente",
+    )
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario_diferente, bancario_exacto],
+        [previsto],
+    )
+
+    assert len(propuestas) == 1
+
+    assert propuestas[0].bancarios == [bancario_exacto]
+    assert propuestas[0].previstos == [previsto]
+
+    # El movimiento diferente queda libre.
+    assert all(
+        bancario_diferente not in propuesta.bancarios
+        for propuesta in propuestas
+    )
+
+
+
+def test_no_proponer_diferencia_sin_identificar_contraparte(
+    inmueble,
+) -> None:
+    """No propone diferencias basándose únicamente en la fecha."""
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=92000,
+        contraparte="ANA PEREZ",
+        estado="PENDIENTE",
+    )
+
+    bancario = _movimiento_bancario_para_diferencias(
+        90000,
+        "TRANSFERENCIA SIN IDENTIFICAR",
+        "diferencia-sin-contraparte",
+    )
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario],
+        [previsto],
+    )
+
+    assert propuestas == []
+
+
+
+def test_no_proponer_diferencia_ambigua(
+    inmueble,
+) -> None:
+    """No elige entre dos previstos plausibles para un bancario."""
+
+    previsto_1 = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        naturaleza="INGRESO",
+        concepto="Alquiler local A",
+        importe_esperado=92000,
+        contraparte="ANA PEREZ",
+        estado="PENDIENTE",
+    )
+
+    previsto_2 = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        naturaleza="INGRESO",
+        concepto="Alquiler local B",
+        importe_esperado=93000,
+        contraparte="ANA PEREZ",
+        estado="PENDIENTE",
+    )
+
+    bancario = _movimiento_bancario_para_diferencias(
+        90000,
+        "INGRESO ANA PEREZ",
+        "diferencia-ambigua",
+    )
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario],
+        [previsto_1, previsto_2],
+    )
+
+    assert propuestas == []
 
 
