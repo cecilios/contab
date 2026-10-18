@@ -32,8 +32,16 @@ document.addEventListener("DOMContentLoaded", () => {
         "revision-manual-diferencia"
     );
 
-    const botonConfirmar = formulario.querySelector(
-        ".revision-manual__boton-confirmar"
+    const botonExacta = formulario.querySelector(
+        '.revision-manual__boton-confirmar'
+    );
+
+    const botonParcial = formulario.querySelector(
+        '.revision-manual__boton-parcial'
+    );
+
+    const botonDiferencia = formulario.querySelector(
+        '.revision-manual__boton-diferencia'
     );
 
     const formatear = (centimos) =>
@@ -55,6 +63,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const contarSeleccionados = (casillas) =>
         casillas.filter((casilla) => casilla.checked).length;
+
+    function configurarBoton(boton, visible, habilitado) {
+        boton.hidden = !visible;
+        boton.disabled = !habilitado;
+    }
 
     function actualizarTotales() {
         const importePrevistos = totalSeleccionado(previstos);
@@ -79,10 +92,34 @@ document.addEventListener("DOMContentLoaded", () => {
         const importesCoinciden =
             importePrevistos === importeBancarios;
 
-        botonConfirmar.disabled = !(
+        const confirmarExacta =
             hayAmbosLados
             && !esMuchosAMuchos
-            && importesCoinciden
+            && importesCoinciden;
+
+        const confirmarDiferencia =
+            hayAmbosLados
+            && !esMuchosAMuchos
+            && !importesCoinciden
+            && importePrevistos > 0
+            && importeBancarios > 0;
+
+        configurarBoton(
+            botonExacta,
+            !confirmarDiferencia,
+            confirmarExacta
+        );
+
+        configurarBoton(
+            botonParcial,
+            confirmarDiferencia,
+            confirmarDiferencia
+        );
+
+        configurarBoton(
+            botonDiferencia,
+            confirmarDiferencia,
+            confirmarDiferencia
         );
 
         diferencia.classList.toggle(

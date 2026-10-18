@@ -1609,6 +1609,20 @@ class Conciliacion(Base):
         nullable=False,
     )
 
+    cierra_bancario: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+
+    cierra_previsto: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+
     movimiento_bancario: Mapped["MovimientoBancario"] = relationship(
         back_populates="conciliaciones",
     )

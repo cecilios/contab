@@ -35,10 +35,12 @@ from contab.conciliacion.services import (
     clasificar_movimientos_bancarios,
     conciliar_movimiento_previsto_manualmente,
     confirmar_conciliacion,
+    confirmar_grupo_conciliacion,
     confirmar_propuesta_conciliacion,
     descartar_movimiento_bancario,
     deshacer_asociacion_bancaria,
     deshacer_conciliacion_manual,
+    preparar_asociaciones_cronologicas,
     restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
     saldo_movimiento_bancario,
@@ -966,6 +968,15 @@ def deshacer_asociacion_bancaria_desde_interfaz(
 def aceptar_propuesta_agrupada_revision():
     """Acepta una propuesta automática completa y todavía válida."""
 
+    accion = request.form.get("accion", "exacta")
+
+    if accion not in {
+        "exacta",
+        "parcial",
+        "aceptar_diferencia",
+    }:
+        return "Acción de conciliación no válida.", 400
+
     try:
         bancario_ids = [
             int(valor)
@@ -1022,9 +1033,44 @@ def aceptar_propuesta_agrupada_revision():
                         "Vuelve a revisar la conciliación."
                     )
 
-                asociaciones = confirmar_propuesta_conciliacion(
-                    propuesta_elegida
-                )
+                if accion == "exacta":
+                    asociaciones = confirmar_propuesta_conciliacion(
+                        propuesta_elegida
+                    )
+                else:
+                    bancarios = propuesta_elegida.bancarios
+                    previstos = propuesta_elegida.previstos
+
+                    if len(bancarios) != 1 or len(previstos) != 1:
+                        raise ConciliacionError(
+                            "Esta acción sólo admite propuestas "
+                            "automáticas 1:1."
+                        )
+
+                    pendiente_bancario = (
+                        saldo_movimiento_bancario(bancarios[0])[1]
+                    )
+                    pendiente_previsto = (
+                        saldo_movimiento_previsto(previstos[0])[1]
+                    )
+
+                    if pendiente_bancario == pendiente_previsto:
+                        raise ConciliacionError(
+                            "Los importes coinciden. "
+                            "Utiliza la confirmación exacta."
+                        )
+
+                    preparadas = preparar_asociaciones_cronologicas(
+                        bancarios,
+                        previstos,
+                    )
+
+                    asociaciones = confirmar_grupo_conciliacion(
+                        preparadas,
+                        cerrar_diferencia=(
+                            accion == "aceptar_diferencia"
+                        ),
+                    )
 
                 db_session.add_all(asociaciones)
 
@@ -1112,7 +1158,16 @@ def rechazar_propuesta_agrupada_revision():
 
 @bp.post("/revisar/manual/confirmar")
 def confirmar_seleccion_manual_revision():
-    """Concilia movimientos elegidos en la sección manual."""
+    """Confirma una selección manual exacta, parcial o con diferencia."""
+
+    accion = request.form.get("accion", "exacta")
+
+    if accion not in {
+        "exacta",
+        "parcial",
+        "aceptar_diferencia",
+    }:
+        return "La acción de conciliación no es válida.", 400
 
     try:
         bancario_ids = [
@@ -1137,11 +1192,7 @@ def confirmar_seleccion_manual_revision():
         return "La selección manual no es válida.", 400
 
     if len(bancario_ids) > 1 and len(previsto_ids) > 1:
-        return (
-            "La conciliación manual m:n "
-            "todavía no está implementada.",
-            400,
-        )
+        return "La conciliación manual m:n no está admitida.", 400
 
     session_factory = get_session_factory()
 
@@ -1152,7 +1203,9 @@ def confirmar_seleccion_manual_revision():
                     movimientos_bancarios,
                     movimientos_previstos,
                     propuestas,
-                ) = _obtener_revision_conciliacion(db_session)
+                ) = _obtener_revision_conciliacion(
+                    db_session
+                )
 
                 ids_bancarios_propuestos = {
                     movimiento.id
@@ -1179,30 +1232,75 @@ def confirmar_seleccion_manual_revision():
                 }
 
                 if (
-                    not set(bancario_ids).issubset(bancarios_manuales)
-                    or not set(previsto_ids).issubset(previstos_manuales)
+                    not set(bancario_ids).issubset(
+                        bancarios_manuales
+                    )
+                    or not set(previsto_ids).issubset(
+                        previstos_manuales
+                    )
                 ):
                     raise ConciliacionError(
                         "Alguno de los movimientos seleccionados "
                         "ya no está disponible en conciliación manual."
                     )
 
-                propuesta = PropuestaConciliacion(
-                    bancarios=[
-                        bancarios_manuales[identificador]
-                        for identificador in bancario_ids
-                    ],
-                    previstos=[
-                        previstos_manuales[identificador]
-                        for identificador in previsto_ids
-                    ],
-                    puntuacion=0,
-                    motivos=[],
-                )
+                bancarios = [
+                    bancarios_manuales[identificador]
+                    for identificador in bancario_ids
+                ]
 
-                asociaciones = confirmar_propuesta_conciliacion(
-                    propuesta
-                )
+                previstos = [
+                    previstos_manuales[identificador]
+                    for identificador in previsto_ids
+                ]
+
+                if accion == "exacta":
+                    propuesta = PropuestaConciliacion(
+                        bancarios=bancarios,
+                        previstos=previstos,
+                        puntuacion=0,
+                        motivos=[],
+                    )
+
+                    asociaciones = confirmar_propuesta_conciliacion(
+                        propuesta
+                    )
+
+                else:
+                    total_bancario = sum(
+                        saldo_movimiento_bancario(movimiento)[1]
+                        for movimiento in bancarios
+                    )
+
+                    total_previsto = sum(
+                        saldo_movimiento_previsto(movimiento)[1]
+                        for movimiento in previstos
+                    )
+
+                    if total_bancario == total_previsto:
+                        raise ConciliacionError(
+                            "Los importes coinciden. "
+                            "Utiliza la conciliación exacta."
+                        )
+
+                    # Reparte los saldos por orden cronológico,
+                    # sin modificar todavía ningún movimiento.
+                    asociaciones_preparadas = (
+                        preparar_asociaciones_cronologicas(
+                            bancarios,
+                            previstos,
+                        )
+                    )
+
+                    # El servicio valida y confirma el resultado.
+                    # Sólo la segunda acción cierra expresamente
+                    # el saldo restante.
+                    asociaciones = confirmar_grupo_conciliacion(
+                        asociaciones_preparadas,
+                        cerrar_diferencia=(
+                            accion == "aceptar_diferencia"
+                        ),
+                    )
 
                 db_session.add_all(asociaciones)
 

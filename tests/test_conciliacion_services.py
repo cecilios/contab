@@ -37,6 +37,7 @@ from contab.conciliacion.services import (
     descartar_movimiento_bancario,
     deshacer_asociacion_bancaria,
     deshacer_conciliacion_manual,
+    preparar_asociaciones_cronologicas,
     proponer_conciliacion,
     puntuar_candidato_conciliacion,
     restaurar_movimiento_bancario,
@@ -5493,4 +5494,1044 @@ def test_no_proponer_diferencia_ambigua(
 
     assert propuestas == []
 
+
+
+@pytest.mark.parametrize(
+    ("importe_bancario", "debe_proponer"),
+    [
+        (100000, True),  # Exacto.
+        (99500, True),   # Diferencia del 0,5 %.
+        (95000, True),   # Diferencia del 5 %.
+        (94999, False),  # Supera el 5 %.
+        (105000, True),  # Exceso del 5 %.
+        (105001, False), # Supera el 5 %.
+        (12500, False),  # Diferencia desproporcionada.
+    ],
+)
+def test_limite_diferencia_propuesta_automatica(
+    inmueble,
+    importe_bancario,
+    debe_proponer,
+) -> None:
+    """Sólo sugiere diferencias de hasta el 5 %."""
+
+    previsto = MovimientoPrevisto(
+        inmueble=inmueble,
+        fecha_prevista_desde=date(2026, 10, 1),
+        fecha_prevista_hasta=date(2026, 10, 10),
+        naturaleza="INGRESO",
+        concepto="Alquiler octubre",
+        importe_esperado=100000,
+        contraparte="ANA PEREZ",
+        estado="PENDIENTE",
+    )
+
+    bancario = _movimiento_bancario_para_diferencias(
+        importe_bancario,
+        "TRANSFERENCIA ANA PEREZ",
+        f"limite-diferencia-{importe_bancario}",
+    )
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario],
+        [previsto],
+    )
+
+    if debe_proponer:
+        assert len(propuestas) == 1
+        assert propuestas[0].bancarios == [bancario]
+        assert propuestas[0].previstos == [previsto]
+    else:
+        assert propuestas == []
+
+    # El selector nunca modifica los movimientos.
+    assert bancario.estado == "PENDIENTE"
+    assert previsto.estado == "PENDIENTE"
+
+
+
+def test_progresiva_conserva_saldo_disponible(
+    session,
+    inmueble,
+) -> None:
+    """Un pago parcial no cierra la factura."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler enero",
+        100000,
+    )
+    bancario = _bancario_para_confirmar(
+        "progresiva-600",
+        60000,
+    )
+
+    session.add_all([previsto, bancario])
+    session.flush()
+
+    asociaciones = confirmar_grupo_conciliacion([
+        (bancario, previsto, 60000),
+    ])
+
+    session.add_all(asociaciones)
+    session.commit()
+
+    assert bancario.estado == "CONCILIADO"
+    assert previsto.estado == "PARCIAL"
+
+    assert saldo_movimiento_bancario(bancario) == (60000, 0)
+    assert saldo_movimiento_previsto(previsto) == (
+        60000,
+        40000,
+    )
+
+
+
+def test_cerrar_conciliacion_con_defecto(
+    session,
+    inmueble,
+) -> None:
+    """Acepta 995 € contra 1.000 €, conservando la diferencia."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler febrero",
+        100000,
+    )
+    bancario = _bancario_para_confirmar(
+        "diferencia-defecto",
+        99500,
+    )
+
+    session.add_all([previsto, bancario])
+    session.flush()
+
+    asociaciones = confirmar_grupo_conciliacion(
+        [(bancario, previsto, 99500)],
+        cerrar_diferencia=True,
+    )
+
+    session.add_all(asociaciones)
+    session.commit()
+
+    assert len(asociaciones) == 1
+    assert asociaciones[0].importe_asociado == 99500
+
+    assert bancario.estado == "CONCILIADO"
+    assert previsto.estado == "CONCILIADO"
+
+    # Los saldos aritméticos permanecen intactos.
+    assert saldo_movimiento_bancario(bancario) == (
+        99500,
+        0,
+    )
+    assert saldo_movimiento_previsto(previsto) == (
+        99500,
+        500,
+    )
+
+    assert bancario.importe == 99500
+    assert previsto.importe_esperado == 100000
+
+    # El cierre debe sobrevivir a una nueva carga
+    # y al recálculo posterior de estados.
+    session.expire_all()
+
+    actualizar_estado_movimiento_previsto(previsto)
+    actualizar_estado_movimiento_bancario(bancario)
+
+    assert previsto.estado == "CONCILIADO"
+    assert bancario.estado == "CONCILIADO"
+
+
+
+def test_cerrar_conciliacion_con_exceso(
+    session,
+    inmueble,
+) -> None:
+    """Acepta 1.005 € contra 1.000 €, conservando el exceso."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler marzo",
+        100000,
+    )
+    bancario = _bancario_para_confirmar(
+        "diferencia-exceso",
+        100500,
+    )
+
+    session.add_all([previsto, bancario])
+    session.flush()
+
+    asociaciones = confirmar_grupo_conciliacion(
+        [(bancario, previsto, 100000)],
+        cerrar_diferencia=True,
+    )
+
+    session.add_all(asociaciones)
+    session.commit()
+
+    assert len(asociaciones) == 1
+    assert asociaciones[0].importe_asociado == 100000
+
+    assert previsto.estado == "CONCILIADO"
+    assert bancario.estado == "CONCILIADO"
+
+    assert saldo_movimiento_previsto(previsto) == (
+        100000,
+        0,
+    )
+    assert saldo_movimiento_bancario(bancario) == (
+        100000,
+        500,
+    )
+
+    assert previsto.importe_esperado == 100000
+    assert bancario.importe == 100500
+
+    session.expire_all()
+
+    actualizar_estado_movimiento_previsto(previsto)
+    actualizar_estado_movimiento_bancario(bancario)
+
+    assert previsto.estado == "CONCILIADO"
+    assert bancario.estado == "CONCILIADO"
+
+
+
+def test_cerrar_diferencia_tras_conciliacion_parcial(
+    session,
+    inmueble,
+) -> None:
+    """Permite cerrar una factura tras varios ingresos."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler abril",
+        100000,
+    )
+
+    primero = _bancario_para_confirmar(
+        "parcial-primero-600",
+        60000,
+    )
+    segundo = _bancario_para_confirmar(
+        "parcial-segundo-395",
+        39500,
+    )
+
+    session.add_all([previsto, primero, segundo])
+    session.flush()
+
+    # Primera operación: se concilian 600 €,
+    # dejando 400 € pendientes.
+    primera = confirmar_grupo_conciliacion([
+        (primero, previsto, 60000),
+    ])
+
+    session.add_all(primera)
+    session.commit()
+
+    assert primero.estado == "CONCILIADO"
+    assert previsto.estado == "PARCIAL"
+    assert saldo_movimiento_previsto(previsto) == (
+        60000,
+        40000,
+    )
+
+    # Segunda operación: llegan 395 €.
+    # El usuario acepta cerrar los 5 € restantes.
+    segunda = confirmar_grupo_conciliacion(
+        [(segundo, previsto, 39500)],
+        cerrar_diferencia=True,
+    )
+
+    session.add_all(segunda)
+    session.commit()
+
+    assert primero.estado == "CONCILIADO"
+    assert segundo.estado == "CONCILIADO"
+    assert previsto.estado == "CONCILIADO"
+
+    # Deben conservarse ambas asociaciones.
+    assert len(previsto.conciliaciones) == 2
+
+    assert saldo_movimiento_previsto(previsto) == (
+        99500,
+        500,
+    )
+
+    session.expire_all()
+
+    actualizar_estado_movimiento_previsto(previsto)
+
+    assert previsto.estado == "CONCILIADO"
+
+
+
+def test_deshacer_cierre_con_diferencia_conserva_asociaciones(
+    session,
+    inmueble,
+) -> None:
+    """Deshacer el último cierre conserva las asociaciones anteriores."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler mayo",
+        100000,
+    )
+
+    primero = _bancario_para_confirmar(
+        "deshacer-parcial-600",
+        60000,
+    )
+    segundo = _bancario_para_confirmar(
+        "deshacer-cierre-395",
+        39500,
+    )
+
+    session.add_all([previsto, primero, segundo])
+    session.flush()
+
+    primera = confirmar_grupo_conciliacion([
+        (primero, previsto, 60000),
+    ])
+
+    session.add_all(primera)
+    session.commit()
+
+    segunda = confirmar_grupo_conciliacion(
+        [(segundo, previsto, 39500)],
+        cerrar_diferencia=True,
+    )
+
+    session.add_all(segunda)
+    session.commit()
+
+    assert previsto.estado == "CONCILIADO"
+
+    # Se deshace únicamente la segunda asociación.
+    deshacer_asociacion_bancaria(segunda[0])
+    session.commit()
+
+    assert previsto.estado == "PARCIAL"
+    assert primero.estado == "CONCILIADO"
+    assert segundo.estado == "PENDIENTE"
+
+    assert saldo_movimiento_previsto(previsto) == (
+        60000,
+        40000,
+    )
+
+    assert saldo_movimiento_bancario(segundo) == (
+        0,
+        39500,
+    )
+
+    # Sólo debe permanecer la asociación de 600 €.
+    asociaciones = session.scalars(
+        select(Conciliacion)
+    ).all()
+
+    assert len(asociaciones) == 1
+
+    assert asociaciones[0].movimiento_bancario_id == primero.id
+    assert asociaciones[0].movimiento_previsto_id == previsto.id
+    assert asociaciones[0].importe_asociado == 60000
+
+
+
+def test_deshacer_asociacion_anterior_conserva_cierre_posterior(
+    session,
+    inmueble,
+) -> None:
+    """Eliminar una asociación anterior no elimina el cierre posterior."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble, "Alquiler junio", 100000
+    )
+    primero = _bancario_para_confirmar(
+        "cierre-anterior-600", 60000
+    )
+    segundo = _bancario_para_confirmar(
+        "cierre-posterior-395", 39500
+    )
+
+    session.add_all([previsto, primero, segundo])
+    session.flush()
+
+    primera = confirmar_grupo_conciliacion([
+        (primero, previsto, 60000),
+    ])
+    session.add_all(primera)
+    session.commit()
+
+    segunda = confirmar_grupo_conciliacion(
+        [(segundo, previsto, 39500)],
+        cerrar_diferencia=True,
+    )
+    session.add_all(segunda)
+    session.commit()
+
+    assert segunda[0].cierra_previsto is True
+    assert previsto.estado == "CONCILIADO"
+
+    # Se retira la primera asociación, no la que cerró
+    # expresamente el saldo restante.
+    deshacer_asociacion_bancaria(primera[0])
+    session.commit()
+    session.expire_all()
+
+    assert previsto.estado == "CONCILIADO"
+    assert segundo.estado == "CONCILIADO"
+    assert primero.estado == "PENDIENTE"
+
+    assert saldo_movimiento_previsto(previsto) == (
+        39500, 60500
+    )
+
+    assert len(previsto.conciliaciones) == 1
+    assert previsto.conciliaciones[0].cierra_previsto is True
+
+
+
+def test_cierre_diferencia_exige_agotar_lado_menor(
+    session,
+    inmueble,
+) -> None:
+    """No permite cerrar importes elegidos arbitrariamente."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble, "Alquiler julio", 100000
+    )
+    bancario = _bancario_para_confirmar(
+        "cierre-arbitrario-600", 60000
+    )
+
+    session.add_all([previsto, bancario])
+    session.flush()
+
+    with pytest.raises(
+        ConciliacionError,
+        match="un único movimiento con saldo sin asociar",
+    ):
+        confirmar_grupo_conciliacion(
+            [(bancario, previsto, 10000)],
+            cerrar_diferencia=True,
+        )
+
+    assert previsto.estado == "PENDIENTE"
+    assert bancario.estado == "PENDIENTE"
+    assert previsto.conciliaciones == []
+    assert bancario.conciliaciones == []
+
+    assert saldo_movimiento_previsto(previsto) == (
+        0, 100000
+    )
+    assert saldo_movimiento_bancario(bancario) == (
+        0, 60000
+    )
+
+
+
+def test_confirmar_grupo_invalido_no_modifica_movimientos(
+    session,
+    inmueble,
+) -> None:
+    """El grupo completo se valida antes de crear asociaciones."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble, "Alquiler agosto", 100000
+    )
+    primero = _bancario_para_confirmar(
+        "grupo-atomico-600", 60000
+    )
+    segundo = _bancario_para_confirmar(
+        "grupo-atomico-500", 50000
+    )
+
+    session.add_all([previsto, primero, segundo])
+    session.flush()
+
+    # Aunque cada pareja sea individualmente válida,
+    # el conjunto intenta asociar 1.100 € a una factura de 1.000 €.
+    with pytest.raises(
+        ConciliacionError,
+        match="supera el saldo disponible",
+    ):
+        confirmar_grupo_conciliacion([
+            (primero, previsto, 60000),
+            (segundo, previsto, 50000),
+        ])
+
+    assert previsto.estado == "PENDIENTE"
+    assert primero.estado == "PENDIENTE"
+    assert segundo.estado == "PENDIENTE"
+
+    assert previsto.conciliaciones == []
+    assert primero.conciliaciones == []
+    assert segundo.conciliaciones == []
+
+    assert session.scalars(
+        select(Conciliacion)
+    ).all() == []
+
+
+@pytest.mark.parametrize(
+    "cardinalidad",
+    ["uno_a_varios", "varios_a_uno"],
+)
+def test_conciliacion_agrupada_parcial_con_diferencia(
+    session,
+    inmueble,
+    cardinalidad,
+) -> None:
+    """Una diferencia puede mantenerse disponible para otro día."""
+
+    if cardinalidad == "uno_a_varios":
+        previsto = _previsto_para_confirmar(
+            inmueble, "Alquiler junio", 120000
+        )
+        primero = _bancario_para_confirmar(
+            "agrupada-parcial-1n-1", 60000
+        )
+        segundo = _bancario_para_confirmar(
+            "agrupada-parcial-1n-2", 59962
+        )
+
+        movimientos = [previsto, primero, segundo]
+        asociaciones = [
+            (primero, previsto, 60000),
+            (segundo, previsto, 59962),
+        ]
+
+        movimiento_parcial = previsto
+        movimientos_conciliados = [primero, segundo]
+
+    else:
+        primero = _previsto_para_confirmar(
+            inmueble, "Alquiler junio", 100000
+        )
+        segundo = _previsto_para_confirmar(
+            inmueble, "Recibo agua", 20000
+        )
+        bancario = _bancario_para_confirmar(
+            "agrupada-parcial-n1", 119962
+        )
+
+        movimientos = [primero, segundo, bancario]
+        asociaciones = [
+            (bancario, primero, 100000),
+            (bancario, segundo, 19962),
+        ]
+
+        movimiento_parcial = segundo
+        movimientos_conciliados = [primero, bancario]
+
+    session.add_all(movimientos)
+    session.flush()
+
+    conciliaciones = confirmar_grupo_conciliacion(
+        asociaciones,
+        cerrar_diferencia=False,
+    )
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert len(conciliaciones) == 2
+    assert movimiento_parcial.estado == "PARCIAL"
+
+    for movimiento in movimientos_conciliados:
+        assert movimiento.estado == "CONCILIADO"
+
+    assert sum(
+        conciliacion.importe_asociado
+        for conciliacion in conciliaciones
+    ) == 119962
+
+    assert all(
+        not conciliacion.cierra_bancario
+        and not conciliacion.cierra_previsto
+        for conciliacion in conciliaciones
+    )
+
+    if cardinalidad == "uno_a_varios":
+        assert saldo_movimiento_previsto(
+            movimiento_parcial
+        ) == (119962, 38)
+    else:
+        assert saldo_movimiento_previsto(
+            movimiento_parcial
+        ) == (19962, 38)
+
+
+
+@pytest.mark.parametrize(
+    ("cardinalidad", "importe_bancario", "cierre_esperado"),
+    [
+        ("uno_a_varios", 119962, "previsto"),
+        ("uno_a_varios", 120038, "bancario"),
+        ("varios_a_uno", 119962, "previsto"),
+        ("varios_a_uno", 120038, "bancario"),
+    ],
+)
+def test_cierre_diferencia_agrupada(
+    session,
+    inmueble,
+    cardinalidad,
+    importe_bancario,
+    cierre_esperado,
+) -> None:
+    """Cierra una diferencia agrupada sin alterar importes reales."""
+
+    if cardinalidad == "uno_a_varios":
+        previsto = _previsto_para_confirmar(
+            inmueble, "Alquiler agrupado", 120000
+        )
+
+        primero = _bancario_para_confirmar(
+            f"agrupada-1n-{importe_bancario}-1",
+            60000,
+        )
+        segundo = _bancario_para_confirmar(
+            f"agrupada-1n-{importe_bancario}-2",
+            importe_bancario - 60000,
+        )
+
+        movimientos = [previsto, primero, segundo]
+
+        asociaciones = [
+            (primero, previsto, 60000),
+            (
+                segundo,
+                previsto,
+                min(60000, importe_bancario - 60000),
+            ),
+        ]
+
+        movimiento_con_cierre = (
+            previsto
+            if cierre_esperado == "previsto"
+            else segundo
+        )
+
+    else:
+        primero = _previsto_para_confirmar(
+            inmueble, "Alquiler agrupado", 100000
+        )
+        segundo = _previsto_para_confirmar(
+            inmueble, "Agua agrupada", 20000
+        )
+        bancario = _bancario_para_confirmar(
+            f"agrupada-n1-{importe_bancario}",
+            importe_bancario,
+        )
+
+        movimientos = [primero, segundo, bancario]
+
+        asociaciones = [
+            (bancario, primero, 100000),
+            (
+                bancario,
+                segundo,
+                min(20000, importe_bancario - 100000),
+            ),
+        ]
+
+        movimiento_con_cierre = (
+            segundo
+            if cierre_esperado == "previsto"
+            else bancario
+        )
+
+    session.add_all(movimientos)
+    session.flush()
+
+    conciliaciones = confirmar_grupo_conciliacion(
+        asociaciones,
+        cerrar_diferencia=True,
+    )
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert len(conciliaciones) == 2
+
+    assert sum(
+        conciliacion.importe_asociado
+        for conciliacion in conciliaciones
+    ) == min(120000, importe_bancario)
+
+    assert all(
+        movimiento.estado == "CONCILIADO"
+        for movimiento in movimientos
+    )
+
+    # El cierre sólo se registra donde realmente
+    # existe saldo aritmético sin asociar.
+    cierres_previstos = [
+        conciliacion
+        for conciliacion in conciliaciones
+        if conciliacion.cierra_previsto
+    ]
+
+    cierres_bancarios = [
+        conciliacion
+        for conciliacion in conciliaciones
+        if conciliacion.cierra_bancario
+    ]
+
+    if cierre_esperado == "previsto":
+        assert len(cierres_previstos) == 1
+        assert cierres_bancarios == []
+    else:
+        assert len(cierres_bancarios) == 1
+        assert cierres_previstos == []
+
+    # La decisión de cierre debe seguir vigente
+    # al recuperar y recalcular los estados.
+    session.expire_all()
+
+    if isinstance(movimiento_con_cierre, MovimientoPrevisto):
+        actualizar_estado_movimiento_previsto(
+            movimiento_con_cierre
+        )
+    else:
+        actualizar_estado_movimiento_bancario(
+            movimiento_con_cierre
+        )
+
+    assert movimiento_con_cierre.estado == "CONCILIADO"
+
+
+def test_cierre_agrupado_no_asocia_dinero_inexistente(
+    session,
+    inmueble,
+) -> None:
+    """Aceptar una diferencia no permite asociar más de lo ingresado."""
+
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler julio", 100000
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Agua julio", 20000
+    )
+    bancario = _bancario_para_confirmar(
+        "agrupado-supera-banco", 119962
+    )
+
+    session.add_all([alquiler, agua, bancario])
+    session.flush()
+
+    with pytest.raises(ConciliacionError):
+        confirmar_grupo_conciliacion(
+            [
+                (bancario, alquiler, 100000),
+                (bancario, agua, 20000),
+            ],
+            cerrar_diferencia=True,
+        )
+
+    assert alquiler.estado == "PENDIENTE"
+    assert agua.estado == "PENDIENTE"
+    assert bancario.estado == "PENDIENTE"
+
+    assert alquiler.conciliaciones == []
+    assert agua.conciliaciones == []
+    assert bancario.conciliaciones == []
+
+
+
+def test_distribucion_cronologica_varios_previstos_un_bancario(
+    session,
+    inmueble,
+) -> None:
+    """Los cobros se aplican primero al previsto más antiguo."""
+
+    antiguo = _previsto_para_confirmar(
+        inmueble, "Alquiler septiembre", 100000
+    )
+    reciente = _previsto_para_confirmar(
+        inmueble, "Agua octubre", 20000
+    )
+
+    antiguo.fecha_prevista_desde = date(2026, 9, 1)
+    reciente.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        "distribucion-cronologica-n1", 119962
+    )
+
+    session.add_all([antiguo, reciente, bancario])
+    session.flush()
+
+    # Se entregan en orden inverso deliberadamente.
+    asociaciones = preparar_asociaciones_cronologicas(
+        [bancario],
+        [reciente, antiguo],
+    )
+
+    assert asociaciones == [
+        (bancario, antiguo, 100000),
+        (bancario, reciente, 19962),
+    ]
+
+    # Preparar no confirma nada.
+    assert antiguo.estado == "PENDIENTE"
+    assert reciente.estado == "PENDIENTE"
+    assert bancario.estado == "PENDIENTE"
+    assert antiguo.conciliaciones == []
+    assert reciente.conciliaciones == []
+
+
+
+def test_distribucion_cronologica_un_previsto_varios_bancarios(
+    session,
+    inmueble,
+) -> None:
+    """Los ingresos se aplican por fecha y no por orden de selección."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble, "Alquiler octubre", 120000
+    )
+
+    antiguo = _bancario_para_confirmar(
+        "distribucion-cronologica-1n-antiguo",
+        60000,
+    )
+    reciente = _bancario_para_confirmar(
+        "distribucion-cronologica-1n-reciente",
+        59962,
+    )
+
+    antiguo.fecha = date(2026, 10, 3)
+    reciente.fecha = date(2026, 10, 9)
+
+    session.add_all([previsto, antiguo, reciente])
+    session.flush()
+
+    asociaciones = preparar_asociaciones_cronologicas(
+        [reciente, antiguo],
+        [previsto],
+    )
+
+    assert asociaciones == [
+        (antiguo, previsto, 60000),
+        (reciente, previsto, 59962),
+    ]
+
+    assert sum(
+        importe for _, _, importe in asociaciones
+    ) == 119962
+
+
+
+def test_distribucion_cronologica_desempata_por_id(
+    session,
+    inmueble,
+) -> None:
+    """La distribución es reproducible aunque coincidan las fechas."""
+
+    primero = _previsto_para_confirmar(
+        inmueble, "Recibo A", 10000
+    )
+    segundo = _previsto_para_confirmar(
+        inmueble, "Recibo B", 10000
+    )
+
+    primero.fecha_prevista_desde = date(2026, 10, 1)
+    segundo.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        "distribucion-misma-fecha", 19962
+    )
+
+    session.add_all([primero, segundo, bancario])
+    session.flush()
+
+    assert primero.id < segundo.id
+
+    asociaciones = preparar_asociaciones_cronologicas(
+        [bancario],
+        [segundo, primero],
+    )
+
+    assert asociaciones == [
+        (bancario, primero, 10000),
+        (bancario, segundo, 9962),
+    ]
+
+
+def test_distribucion_cronologica_respeta_saldos_parciales(
+    session,
+    inmueble,
+) -> None:
+    """Utiliza únicamente el saldo todavía disponible."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble, "Alquiler noviembre", 100000
+    )
+
+    anterior = _bancario_para_confirmar(
+        "distribucion-pago-anterior", 60000
+    )
+    nuevo = _bancario_para_confirmar(
+        "distribucion-pago-nuevo", 39500
+    )
+
+    session.add_all([previsto, anterior, nuevo])
+    session.flush()
+
+    primera = confirmar_grupo_conciliacion([
+        (anterior, previsto, 60000),
+    ])
+
+    session.add_all(primera)
+    session.commit()
+
+    assert previsto.estado == "PARCIAL"
+    assert saldo_movimiento_previsto(previsto) == (
+        60000, 40000
+    )
+
+    asociaciones = preparar_asociaciones_cronologicas(
+        [nuevo],
+        [previsto],
+    )
+
+    assert asociaciones == [
+        (nuevo, previsto, 39500),
+    ]
+
+    # Los 600 € ya conciliados siguen intactos.
+    assert saldo_movimiento_previsto(previsto) == (
+        60000, 40000
+    )
+
+
+def test_distribucion_rechaza_movimientos_sin_asociacion(
+    session,
+    inmueble,
+) -> None:
+    """No confirma una selección que deja un previsto sin aplicar."""
+
+    enero = _previsto_para_confirmar(
+        inmueble, "Alquiler enero", 100000
+    )
+    febrero = _previsto_para_confirmar(
+        inmueble, "Alquiler febrero", 20000
+    )
+
+    enero.fecha_prevista_desde = date(2026, 1, 1)
+    febrero.fecha_prevista_desde = date(2026, 2, 1)
+
+    ingreso = _bancario_para_confirmar(
+        "ingreso-insuficiente-seleccion", 60000
+    )
+
+    session.add_all([enero, febrero, ingreso])
+    session.flush()
+
+    # Los 600 € sólo alcanzan parcialmente enero.
+    # Febrero no puede considerarse revisado.
+    with pytest.raises(
+        ConciliacionError,
+        match="sin asociación",
+    ):
+        preparar_asociaciones_cronologicas(
+            [ingreso],
+            [febrero, enero],
+        )
+
+    assert enero.estado == "PENDIENTE"
+    assert febrero.estado == "PENDIENTE"
+    assert ingreso.estado == "PENDIENTE"
+
+    assert enero.conciliaciones == []
+    assert febrero.conciliaciones == []
+    assert ingreso.conciliaciones == []
+
+
+def test_cierre_agrupado_respeta_orden_y_se_puede_deshacer(
+    session,
+    inmueble,
+) -> None:
+    """La diferencia queda en el previsto más reciente y es reversible."""
+
+    antiguo = _previsto_para_confirmar(
+        inmueble, "Alquiler septiembre", 100000
+    )
+    reciente = _previsto_para_confirmar(
+        inmueble, "Agua octubre", 20000
+    )
+
+    antiguo.fecha_prevista_desde = date(2026, 9, 1)
+    reciente.fecha_prevista_desde = date(2026, 10, 1)
+
+    ingreso = _bancario_para_confirmar(
+        "cierre-cronologico-reversible", 119962
+    )
+
+    session.add_all([antiguo, reciente, ingreso])
+    session.flush()
+
+    # La selección llega en orden inverso.
+    asociaciones_preparadas = preparar_asociaciones_cronologicas(
+        [ingreso],
+        [reciente, antiguo],
+    )
+
+    assert asociaciones_preparadas == [
+        (ingreso, antiguo, 100000),
+        (ingreso, reciente, 19962),
+    ]
+
+    conciliaciones = confirmar_grupo_conciliacion(
+        asociaciones_preparadas,
+        cerrar_diferencia=True,
+    )
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    primera, segunda = conciliaciones
+
+    assert primera.cierra_previsto is False
+    assert segunda.cierra_previsto is True
+    assert primera.cierra_bancario is False
+    assert segunda.cierra_bancario is False
+
+    assert antiguo.estado == "CONCILIADO"
+    assert reciente.estado == "CONCILIADO"
+    assert ingreso.estado == "CONCILIADO"
+
+    assert saldo_movimiento_previsto(reciente) == (
+        19962, 38
+    )
+
+    # Deshacer la asociación que cerró los 38 céntimos.
+    deshacer_asociacion_bancaria(segunda)
+    session.commit()
+    session.expire_all()
+
+    assert antiguo.estado == "CONCILIADO"
+    assert reciente.estado == "PENDIENTE"
+    assert ingreso.estado == "PARCIAL"
+
+    assert saldo_movimiento_previsto(reciente) == (
+        0, 20000
+    )
+    assert saldo_movimiento_bancario(ingreso) == (
+        100000, 19962
+    )
+
+    asociaciones_restantes = session.scalars(
+        select(Conciliacion)
+    ).all()
+
+    assert len(asociaciones_restantes) == 1
+    assert asociaciones_restantes[0].id == primera.id
+    assert asociaciones_restantes[0].cierra_previsto is False
 

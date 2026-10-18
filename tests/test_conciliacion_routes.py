@@ -303,11 +303,11 @@ def crear_escenario_rechazo_agrupado():
 
 
 
-def crear_escenario_manual_incompatible(
+def crear_escenario_seleccion_manual(
     previstos_datos,
     bancarios_datos,
 ):
-    """Crea movimientos para probar selecciones manuales inválidas."""
+    """Prepara movimientos para probar la selección manual."""
 
     app = crear_app_test()
     session_factory = app.extensions[
@@ -316,9 +316,9 @@ def crear_escenario_manual_incompatible(
 
     with session_factory() as session:
         inmueble = Inmueble(
-            referencia="LOCAL-MANUAL-INVALIDO",
+            referencia="LOCAL-SELECCION-MANUAL",
             tipo="L",
-            codigo_facturacion="LMI",
+            codigo_facturacion="LSM",
             descripcion="Local de prueba",
             direccion="Calle de prueba",
             poblacion="Madrid",
@@ -331,7 +331,7 @@ def crear_escenario_manual_incompatible(
                 fecha_prevista_desde=date(2026, 10, 1),
                 fecha_prevista_hasta=date(2026, 10, 10),
                 naturaleza=naturaleza,
-                concepto=f"Previsto inválido {indice}",
+                concepto=f"Previsto manual {indice}",
                 importe_esperado=importe,
                 contraparte="CONTRAPARTE PRUEBA",
                 estado="PENDIENTE",
@@ -348,9 +348,9 @@ def crear_escenario_manual_incompatible(
                 naturaleza=naturaleza,
                 importe=importe,
                 tipo_original="TRANSFERENCIA",
-                descripcion_original=f"Bancario inválido {indice}",
+                descripcion_original=f"Bancario manual {indice}",
                 referencia_bancaria="",
-                huella_importacion=f"manual-invalido-{indice}",
+                huella_importacion=f"seleccion-manual-{indice}",
                 estado="PENDIENTE",
             )
             for indice, (importe, naturaleza) in enumerate(
@@ -2001,7 +2001,6 @@ def test_deshacer_conciliacion_manual_desde_interfaz() -> None:
         assert movimiento.conciliaciones == []
 
 
-
 def test_descartar_pendiente_desde_revision() -> None:
     """Descarta un movimiento y permanece en la revisión."""
 
@@ -2201,7 +2200,6 @@ def test_descartar_inexistente_desde_revision() -> None:
     assert response.status_code == 404
 
 
-
 def test_deshacer_asociacion_bancaria_desde_interfaz() -> None:
     """El usuario deshace una conciliación bancaria individual."""
 
@@ -2280,7 +2278,6 @@ def test_deshacer_asociacion_bancaria_desde_interfaz() -> None:
         assert previsto.estado == "PENDIENTE"
         assert previsto.metodo_conciliacion is None
         assert bancario.estado == "PENDIENTE"
-
 
 
 def test_deshacer_asociacion_bancaria_conserva_las_otras() -> None:
@@ -2391,7 +2388,6 @@ def test_deshacer_asociacion_bancaria_conserva_las_otras() -> None:
         assert segundo.estado == "PENDIENTE"
 
 
-
 def test_deshacer_asociacion_bancaria_inexistente_devuelve_404() -> None:
     """No permite deshacer una asociación inexistente."""
 
@@ -2406,7 +2402,6 @@ def test_deshacer_asociacion_bancaria_inexistente_devuelve_404() -> None:
     )
 
     assert response.status_code == 404
-
 
 
 def test_deshacer_asociacion_bancaria_rechaza_previsto_ajeno() -> None:
@@ -2485,7 +2480,6 @@ def test_deshacer_asociacion_bancaria_rechaza_previsto_ajeno() -> None:
 
         assert previsto.estado == "CONCILIADO"
         assert bancario.estado == "CONCILIADO"
-
 
 
 @pytest.mark.parametrize(
@@ -2636,7 +2630,6 @@ def test_revisar_conciliacion_presenta_propuestas_agrupadas(
 
     # Debe existir separación entre ambos bloques.
     assert "revision-celda--bancario-inicio" in grupo
-
 
 
 @pytest.mark.parametrize(
@@ -2827,7 +2820,6 @@ def test_aceptar_propuesta_agrupada_desde_revision(
     assert "Gasto independiente" in response.text
 
 
-
 def test_rechazar_propuesta_agrupada_libera_movimientos() -> None:
     """Traslada una propuesta 1:2 a manual sin conciliarla."""
 
@@ -2904,7 +2896,6 @@ def test_rechazar_propuesta_agrupada_libera_movimientos() -> None:
             assert movimiento.estado == "PENDIENTE"
 
 
-
 def test_rechazo_propuesta_persiste_en_sesion() -> None:
     """Conserva los movimientos liberados al recargar."""
 
@@ -2947,7 +2938,6 @@ def test_rechazo_propuesta_persiste_en_sesion() -> None:
         assert "Alquiler para rechazo" not in propuestas_html
         assert "PAGADOR RECHAZO 1" not in propuestas_html
         assert "PAGADOR RECHAZO 2" not in propuestas_html
-
 
 
 def test_rechazar_propuesta_no_impide_aceptar_otra() -> None:
@@ -3047,7 +3037,6 @@ def test_rechazar_propuesta_no_impide_aceptar_otra() -> None:
     assert "Comunidad independiente" not in response.text
 
 
-
 def test_revision_manual_muestra_casillas_y_totales() -> None:
     """Permite seleccionar movimientos de ambos lados."""
 
@@ -3109,7 +3098,6 @@ def test_revision_manual_muestra_casillas_y_totales() -> None:
     assert "Conciliar seleccionados" in manual
 
 
-
 def test_revision_manual_no_preselecciona_movimientos_rechazados() -> None:
     """Rechazar una propuesta no selecciona sus movimientos."""
 
@@ -3149,7 +3137,6 @@ def test_revision_manual_no_preselecciona_movimientos_rechazados() -> None:
         "checked" not in casilla
         for casilla in casillas
     )
-
 
 
 def test_confirmar_seleccion_manual_uno_a_dos() -> None:
@@ -3257,7 +3244,6 @@ def test_confirmar_seleccion_manual_uno_a_dos() -> None:
     assert "PAGADOR RECHAZO 2" not in response.text
 
     assert "Comunidad independiente" in response.text
-
 
 
 @pytest.mark.parametrize(
@@ -3428,7 +3414,6 @@ def test_confirmar_seleccion_manual_cardinalidades(
         assert f"Banco manual {indice}" not in response.text
 
 
-
 @pytest.mark.parametrize(
     ("previstos_datos", "bancarios_datos", "mensaje_esperado"),
     [
@@ -3467,7 +3452,7 @@ def test_confirmar_seleccion_manual_rechaza_incompatibles(
         session_factory,
         previsto_ids,
         bancario_ids,
-    ) = crear_escenario_manual_incompatible(
+    ) = crear_escenario_seleccion_manual(
         previstos_datos,
         bancarios_datos,
     )
@@ -3525,7 +3510,6 @@ def test_confirmar_seleccion_manual_rechaza_incompatibles(
             assert movimiento.estado == "PENDIENTE"
 
 
-
 def test_manual_rechaza_movimiento_reservado_en_propuesta() -> None:
     """No permite conciliar manualmente una propuesta no rechazada."""
 
@@ -3574,7 +3558,6 @@ def test_manual_rechaza_movimiento_reservado_en_propuesta() -> None:
         ).estado == "PENDIENTE"
 
 
-
 def test_manual_rechaza_movimientos_ya_conciliados(
     monkeypatch,
 ) -> None:
@@ -3585,7 +3568,7 @@ def test_manual_rechaza_movimientos_ya_conciliados(
         session_factory,
         previsto_ids,
         bancario_ids,
-    ) = crear_escenario_manual_incompatible(
+    ) = crear_escenario_seleccion_manual(
         [(10000, "INGRESO")],
         [(10000, "INGRESO")],
     )
@@ -3632,7 +3615,6 @@ def test_manual_rechaza_movimientos_ya_conciliados(
             MovimientoBancario,
             bancario_ids[0],
         ).estado == "CONCILIADO"
-
 
 
 @pytest.mark.parametrize(
@@ -3707,7 +3689,7 @@ def test_manual_rechaza_identificadores_invalidos(
         session_factory,
         previsto_ids,
         bancario_ids,
-    ) = crear_escenario_manual_incompatible(
+    ) = crear_escenario_seleccion_manual(
         [(10000, "INGRESO")],
         [(10000, "INGRESO")],
     )
@@ -3746,7 +3728,6 @@ def test_manual_rechaza_identificadores_invalidos(
         ).estado == "PENDIENTE"
 
 
-
 def test_revision_propone_movimientos_parciales_por_saldo() -> None:
     """Incluye movimientos PARCIAL en las propuestas automáticas."""
 
@@ -3777,7 +3758,6 @@ def test_revision_propone_movimientos_parciales_por_saldo() -> None:
     # tienen un importe original distinto del pendiente.
     assert "920,00" in grupo
     assert "500,00" in grupo
-
 
 
 def test_revision_manual_muestra_saldos_parciales(
@@ -3837,7 +3817,6 @@ def test_revision_manual_muestra_saldos_parciales(
     assert "320,00" in manual
     assert "920,00" in manual
     assert "500,00" in manual
-
 
 
 def test_confirmar_manual_movimientos_parciales(
@@ -3918,7 +3897,6 @@ def test_confirmar_manual_movimientos_parciales(
 
     assert "Alquiler parcialmente cobrado" not in response.text
     assert "Transferencia parcialmente aplicada" not in response.text
-
 
 
 def test_no_aceptar_propuesta_rechazada_en_sesion() -> None:
@@ -4054,7 +4032,6 @@ def test_proponer_conciliacion_uno_a_uno_con_diferencia(
     assert previsto.conciliaciones == []
 
 
-
 def test_revision_muestra_propuesta_uno_a_uno_con_diferencia() -> None:
     """Muestra una correspondencia con diferencia sin permitir aceptarla."""
 
@@ -4092,11 +4069,21 @@ def test_revision_muestra_propuesta_uno_a_uno_con_diferencia() -> None:
     assert "10,00" in grupo_diferente
     assert "revision-propuesta--diferencia" in response.text
 
-    # Todavía no debe poder confirmarse como exacta.
-    assert not re.search(
-        r'<button\b[^>]*'
-        r'revision-propuesta__boton--aceptar\b',
-        grupo_diferente,
+    # Aparecen los botones para confirmar
+    assert "Conciliar parcialmente" in response.text
+    assert "Aceptar diferencia" in response.text
+    assert "Rechazar" in response.text
+
+    assert re.search(
+        r'<button\b[^>]*name="accion"[^>]*value="parcial"',
+        response.text,
+        re.S,
+    )
+
+    assert re.search(
+        r'<button\b[^>]*name="accion"[^>]*value="aceptar_diferencia"',
+        response.text,
+        re.S,
     )
 
     # Sí puede rechazarse para trasladarla a manual.
@@ -4126,7 +4113,6 @@ def test_revision_muestra_propuesta_uno_a_uno_con_diferencia() -> None:
             MovimientoBancario,
             ids["b_diferente"],
         ).estado == "PENDIENTE"
-
 
 
 def test_aceptar_propuesta_exacta_rechaza_diferencia() -> None:
@@ -4191,4 +4177,552 @@ def test_aceptar_propuesta_exacta_rechaza_diferencia() -> None:
     assert "Seguro septiembre" in response.text
     assert "ASEGURADORA XYZ" in response.text
 
+
+def test_revision_permite_conciliar_previsto_sin_banco() -> None:
+    """La revisión ofrece conciliar sin banco y conserva el motivo."""
+
+    (
+        client,
+        session_factory,
+        previsto_ids,
+        _,
+    ) = crear_escenario_seleccion_manual(
+        previstos_datos=[(25000, "GASTO")],
+        bancarios_datos=[],
+    )
+
+    previsto_id = previsto_ids[0]
+    ruta_manual = (
+        f"/conciliacion/previstos/{previsto_id}"
+        "/conciliar-manualmente"
+    )
+
+    # La nueva pantalla debe ofrecer la operación
+    # sin exigir seleccionar un bancario.
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+    assert "Previsto manual 1" in response.text
+    assert ruta_manual in response.text
+
+    # Se utiliza la ruta de conciliación manual
+    # sin banco que ya existe en Contab.
+    response = client.post(
+        ruta_manual,
+        data={"notas": "Pago efectuado en metálico"},
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as db_session:
+        previsto = db_session.get(
+            MovimientoPrevisto,
+            previsto_id,
+        )
+
+        assert previsto.estado == "CONCILIADO"
+        assert previsto.metodo_conciliacion == "MANUAL"
+        assert previsto.notas == "Pago efectuado en metálico"
+
+        asociaciones = db_session.scalars(
+            select(Conciliacion)
+        ).all()
+
+        # No se crea un movimiento bancario ficticio
+        # ni una asociación inexistente.
+        assert asociaciones == []
+
+    # El previsto conciliado deja de aparecer
+    # entre los pendientes de revisión.
+    response = client.get("/conciliacion/revisar")
+
+    assert "Previsto manual 1" not in response.text
+
+
+@pytest.mark.parametrize(
+    (
+        "importe_previsto",
+        "importe_bancario",
+        "accion",
+        "estado_previsto",
+        "estado_bancario",
+        "cierra_previsto",
+        "cierra_bancario",
+    ),
+    [
+        (
+            100000, 60000, "parcial",
+            "PARCIAL", "CONCILIADO",
+            False, False,
+        ),
+        (
+            100000, 99500, "aceptar_diferencia",
+            "CONCILIADO", "CONCILIADO",
+            True, False,
+        ),
+        (
+            100000, 100500, "aceptar_diferencia",
+            "CONCILIADO", "CONCILIADO",
+            False, True,
+        ),
+    ],
+)
+def test_revision_manual_con_diferencias(
+    monkeypatch,
+    importe_previsto,
+    importe_bancario,
+    accion,
+    estado_previsto,
+    estado_bancario,
+    cierra_previsto,
+    cierra_bancario,
+) -> None:
+    """La acción elegida determina si se conserva el saldo disponible."""
+
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[(importe_previsto, "INGRESO")],
+            bancarios_datos=[(importe_bancario, "INGRESO")],
+        )
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/manual/confirmar",
+        data={
+            "previsto_ids": [str(previstos[0])],
+            "bancario_ids": [str(bancarios[0])],
+            "accion": accion,
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.location.endswith("/conciliacion/revisar")
+
+    with session_factory() as db_session:
+        previsto = db_session.get(
+            MovimientoPrevisto, previstos[0]
+        )
+        bancario = db_session.get(
+            MovimientoBancario, bancarios[0]
+        )
+
+        asociaciones = db_session.scalars(
+            select(Conciliacion)
+        ).all()
+
+        assert len(asociaciones) == 1
+
+        conciliacion = asociaciones[0]
+
+        assert conciliacion.importe_asociado == min(
+            importe_previsto,
+            importe_bancario,
+        )
+
+        assert conciliacion.cierra_previsto is cierra_previsto
+        assert conciliacion.cierra_bancario is cierra_bancario
+
+        assert previsto.estado == estado_previsto
+        assert bancario.estado == estado_bancario
+        assert previsto.metodo_conciliacion == "INDIVIDUAL"
+
+        # Ningún importe original se altera.
+        assert previsto.importe_esperado == importe_previsto
+        assert bancario.importe == importe_bancario
+
+    # La revisión sólo debe mostrar los movimientos
+    # cuyos saldos sigan disponibles para conciliar.
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+
+    if estado_previsto == "PARCIAL":
+        assert "Previsto manual 1" in response.text
+    else:
+        assert "Previsto manual 1" not in response.text
+
+    assert "Bancario manual 1" not in response.text
+
+
+def test_revision_rechaza_accion_desconocida(
+    monkeypatch,
+) -> None:
+    """No se interpreta una acción inválida como una confirmación."""
+
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[(100000, "INGRESO")],
+            bancarios_datos=[(100000, "INGRESO")],
+        )
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/manual/confirmar",
+        data={
+            "previsto_ids": [str(previstos[0])],
+            "bancario_ids": [str(bancarios[0])],
+            "accion": "accion_inexistente",
+        },
+    )
+
+    assert response.status_code == 400
+
+    with session_factory() as db_session:
+        assert db_session.scalars(
+            select(Conciliacion)
+        ).all() == []
+
+        assert db_session.get(
+            MovimientoPrevisto,
+            previstos[0],
+        ).estado == "PENDIENTE"
+
+        assert db_session.get(
+            MovimientoBancario,
+            bancarios[0],
+        ).estado == "PENDIENTE"
+
+
+def test_revision_manual_ofrece_acciones_de_conciliacion(
+    monkeypatch,
+) -> None:
+    """La pantalla permite distinguir una aplicación parcial de un cierre."""
+
+    client, _, _, _ = crear_escenario_seleccion_manual(
+        previstos_datos=[(100000, "INGRESO")],
+        bancarios_datos=[(99500, "INGRESO")],
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+
+    assert 'name="accion"' in response.text
+    assert 'value="parcial"' in response.text
+    assert 'value="aceptar_diferencia"' in response.text
+
+    assert "Conciliar parcialmente" in response.text
+    assert "Aceptar diferencia" in response.text
+
+    # Conservamos la confirmación exacta existente.
+    assert 'value="exacta"' in response.text
+
+
+@pytest.mark.parametrize(
+    ("accion", "estado_ultimo", "cierra_ultimo"),
+    [
+        ("parcial", "PARCIAL", False),
+        ("aceptar_diferencia", "CONCILIADO", True),
+    ],
+)
+def test_revision_agrupada_varios_previstos_un_bancario(
+    monkeypatch,
+    accion,
+    estado_ultimo,
+    cierra_ultimo,
+) -> None:
+    """Concilia dos previstos con un ingreso de 1.199,62 €."""
+
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[
+                (100000, "INGRESO"),
+                (20000, "INGRESO"),
+            ],
+            bancarios_datos=[
+                (119962, "INGRESO"),
+            ],
+        )
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/manual/confirmar",
+        data={
+            "previsto_ids": [str(i) for i in previstos],
+            "bancario_ids": [str(i) for i in bancarios],
+            "accion": accion,
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as db_session:
+        asociaciones = db_session.scalars(
+            select(Conciliacion).order_by(Conciliacion.id)
+        ).all()
+
+        assert len(asociaciones) == 2
+
+        assert [
+            (
+                c.movimiento_previsto_id,
+                c.importe_asociado,
+                c.cierra_previsto,
+            )
+            for c in asociaciones
+        ] == [
+            (previstos[0], 100000, False),
+            (previstos[1], 19962, cierra_ultimo),
+        ]
+
+        assert db_session.get(
+            MovimientoPrevisto, previstos[0]
+        ).estado == "CONCILIADO"
+
+        assert db_session.get(
+            MovimientoPrevisto, previstos[1]
+        ).estado == estado_ultimo
+
+        assert db_session.get(
+            MovimientoBancario, bancarios[0]
+        ).estado == "CONCILIADO"
+
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+    assert "Previsto manual 1" not in response.text
+
+    if accion == "parcial":
+        assert "Previsto manual 2" in response.text
+        assert "0,38" in response.text
+    else:
+        assert "Previsto manual 2" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("accion", "estado_previsto", "cierra_previsto"),
+    [
+        ("parcial", "PARCIAL", False),
+        ("aceptar_diferencia", "CONCILIADO", True),
+    ],
+)
+def test_revision_agrupada_un_previsto_varios_bancarios(
+    monkeypatch,
+    accion,
+    estado_previsto,
+    cierra_previsto,
+) -> None:
+    """Concilia una factura con dos ingresos insuficientes."""
+
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[
+                (120000, "INGRESO"),
+            ],
+            bancarios_datos=[
+                (60000, "INGRESO"),
+                (59962, "INGRESO"),
+            ],
+        )
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/manual/confirmar",
+        data={
+            "previsto_ids": [str(i) for i in previstos],
+            "bancario_ids": [str(i) for i in bancarios],
+            "accion": accion,
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as db_session:
+        asociaciones = db_session.scalars(
+            select(Conciliacion).order_by(Conciliacion.id)
+        ).all()
+
+        assert len(asociaciones) == 2
+
+        assert [
+            (
+                c.movimiento_bancario_id,
+                c.importe_asociado,
+                c.cierra_previsto,
+            )
+            for c in asociaciones
+        ] == [
+            (bancarios[0], 60000, False),
+            (bancarios[1], 59962, cierra_previsto),
+        ]
+
+        assert db_session.get(
+            MovimientoPrevisto, previstos[0]
+        ).estado == estado_previsto
+
+        for bancario_id in bancarios:
+            assert db_session.get(
+                MovimientoBancario, bancario_id
+            ).estado == "CONCILIADO"
+
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+
+    if accion == "parcial":
+        assert "Previsto manual 1" in response.text
+        assert "0,38" in response.text
+    else:
+        assert "Previsto manual 1" not in response.text
+
+    assert "Bancario manual 1" not in response.text
+    assert "Bancario manual 2" not in response.text
+
+
+def test_revision_agrupada_rechaza_movimientos_sin_asociacion(
+    monkeypatch,
+) -> None:
+    """No confirma una selección donde una factura no recibe importe."""
+
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[
+                (100000, "INGRESO"),
+                (20000, "INGRESO"),
+            ],
+            bancarios_datos=[
+                (60000, "INGRESO"),
+            ],
+        )
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/manual/confirmar",
+        data={
+            "previsto_ids": [str(i) for i in previstos],
+            "bancario_ids": [str(i) for i in bancarios],
+            "accion": "parcial",
+        },
+    )
+
+    assert response.status_code == 400
+
+    with session_factory() as db_session:
+        asociaciones = db_session.scalars(
+            select(Conciliacion)
+        ).all()
+
+        assert asociaciones == []
+
+        for previsto_id in previstos:
+            assert db_session.get(
+                MovimientoPrevisto, previsto_id
+            ).estado == "PENDIENTE"
+
+        assert db_session.get(
+            MovimientoBancario, bancarios[0]
+        ).estado == "PENDIENTE"
+
+
+@pytest.mark.parametrize(
+    ("accion", "estado_previsto", "cierra_previsto"),
+    [
+        ("parcial", "PARCIAL", False),
+        ("aceptar_diferencia", "CONCILIADO", True),
+    ],
+)
+def test_propuesta_automatica_con_diferencia_se_puede_confirmar(
+    monkeypatch,
+    accion,
+    estado_previsto,
+    cierra_previsto,
+) -> None:
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[(120000, "INGRESO")],
+            bancarios_datos=[(119962, "INGRESO")],
+        )
+    )
+
+    # Garantiza una propuesta automática identificable.
+    def propuestas_controladas(
+        bancarios_disponibles,
+        previstos_disponibles,
+        aliases_configurados=None,
+    ):
+        return [
+            PropuestaConciliacion(
+                bancarios=[bancarios_disponibles[0]],
+                previstos=[previstos_disponibles[0]],
+                puntuacion=100,
+                motivos=["Correspondencia con diferencia."],
+            )
+        ]
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        propuestas_controladas,
+    )
+
+    client.application.config["TESTING"] = True
+    client.application.config["PROPAGATE_EXCEPTIONS"] = True
+
+    pagina = client.get("/conciliacion/revisar")
+    assert pagina.status_code == 200
+    assert "Conciliar parcialmente" in pagina.text
+    assert "Aceptar diferencia" in pagina.text
+
+    respuesta = client.post(
+        "/conciliacion/revisar/propuestas/aceptar",
+        data={
+            "previsto_ids": [str(previstos[0])],
+            "bancario_ids": [str(bancarios[0])],
+            "accion": accion,
+        },
+    )
+
+    assert respuesta.status_code == 302
+
+    with session_factory() as db_session:
+        asociacion = db_session.scalar(select(Conciliacion))
+
+        assert asociacion is not None
+        assert asociacion.importe_asociado == 119962
+        assert asociacion.cierra_previsto is cierra_previsto
+        assert asociacion.cierra_bancario is False
+
+        assert db_session.get(
+            MovimientoPrevisto, previstos[0]
+        ).estado == estado_previsto
+
+        assert db_session.get(
+            MovimientoBancario, bancarios[0]
+        ).estado == "CONCILIADO"
 

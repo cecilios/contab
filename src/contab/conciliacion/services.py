@@ -949,30 +949,33 @@ def asociar_movimientos(
     )
 
 
-
 def actualizar_estado_movimiento_bancario(
     movimiento: MovimientoBancario,
 ) -> None:
-    """Actualiza el estado según el importe bancario asociado."""
+    """Actualiza el estado según asociaciones y cierres confirmados."""
 
     asociado, pendiente = saldo_movimiento_bancario(
         movimiento
     )
 
-    if asociado == 0:
-        movimiento.estado = "PENDIENTE"
-    elif pendiente == 0:
+    cierre_confirmado = any(
+        conciliacion.cierra_bancario
+        for conciliacion in movimiento.conciliaciones
+    )
+
+    if pendiente == 0 or cierre_confirmado:
         movimiento.estado = "CONCILIADO"
-    else:
+    elif asociado > 0:
         movimiento.estado = "PARCIAL"
+    else:
+        movimiento.estado = "PENDIENTE"
 
 
 def actualizar_estado_movimiento_previsto(
     movimiento: MovimientoPrevisto,
 ) -> None:
-    """Actualiza el estado según el importe previsto asociado."""
+    """Actualiza el estado sin perder una decisión de cierre."""
 
-    # Una conciliación manual no tiene asociaciones bancarias.
     if movimiento.metodo_conciliacion == "MANUAL":
         return
 
@@ -980,35 +983,214 @@ def actualizar_estado_movimiento_previsto(
         movimiento
     )
 
-    if asociado == 0:
-        movimiento.estado = "PENDIENTE"
-        movimiento.metodo_conciliacion = None
-    elif pendiente == 0:
+    cierre_confirmado = any(
+        conciliacion.cierra_previsto
+        for conciliacion in movimiento.conciliaciones
+    )
+
+    if pendiente == 0 or cierre_confirmado:
         movimiento.estado = "CONCILIADO"
         movimiento.metodo_conciliacion = "INDIVIDUAL"
-    else:
+    elif asociado > 0:
         movimiento.estado = "PARCIAL"
         movimiento.metodo_conciliacion = "INDIVIDUAL"
+    else:
+        movimiento.estado = "PENDIENTE"
+        movimiento.metodo_conciliacion = None
 
+
+def preparar_asociaciones_cronologicas(
+    bancarios: list[MovimientoBancario],
+    previstos: list[MovimientoPrevisto],
+) -> list[
+    tuple[MovimientoBancario, MovimientoPrevisto, int]
+]:
+    """Distribuye saldos disponibles por orden cronológico.
+
+    Admite 1:1, 1:n y m:1, pero no m:n.
+    No crea asociaciones ni modifica movimientos.
+    """
+
+    if not bancarios or not previstos:
+        raise ConciliacionError(
+            "Debe seleccionarse al menos un movimiento de cada lado."
+        )
+
+    if len(bancarios) > 1 and len(previstos) > 1:
+        raise ConciliacionError(
+            "La conciliación m:n no está admitida."
+        )
+
+    if (
+        len(set(bancarios)) != len(bancarios)
+        or len(set(previstos)) != len(previstos)
+    ):
+        raise ConciliacionError(
+            "La selección contiene movimientos repetidos."
+        )
+
+    if any(
+        bancario.estado not in {"PENDIENTE", "PARCIAL"}
+        for bancario in bancarios
+    ):
+        raise ConciliacionError(
+            "Hay movimientos bancarios no disponibles."
+        )
+
+    if any(
+        previsto.estado not in {"PENDIENTE", "PARCIAL"}
+        for previsto in previstos
+    ):
+        raise ConciliacionError(
+            "Hay movimientos previstos no disponibles."
+        )
+
+    naturalezas = {
+        movimiento.naturaleza
+        for movimiento in [*bancarios, *previstos]
+    }
+
+    if len(naturalezas) != 1:
+        raise ConciliacionError(
+            "Los movimientos deben tener la misma naturaleza."
+        )
+
+    # Los movimientos sin fecha prevista se sitúan al final.
+    # El ID resuelve los empates de forma reproducible.
+    previstos_ordenados = sorted(
+        previstos,
+        key=lambda previsto: (
+            previsto.fecha_prevista_desde is None,
+            previsto.fecha_prevista_desde or date.max,
+            previsto.id or 0,
+        ),
+    )
+
+    bancarios_ordenados = sorted(
+        bancarios,
+        key=lambda bancario: (
+            bancario.fecha,
+            bancario.id or 0,
+        ),
+    )
+
+    saldos_bancarios = {
+        bancario: saldo_movimiento_bancario(bancario)[1]
+        for bancario in bancarios_ordenados
+    }
+
+    saldos_previstos = {
+        previsto: saldo_movimiento_previsto(previsto)[1]
+        for previsto in previstos_ordenados
+    }
+
+    if (
+        any(saldo <= 0 for saldo in saldos_bancarios.values())
+        or any(saldo <= 0 for saldo in saldos_previstos.values())
+    ):
+        raise ConciliacionError(
+            "Todos los movimientos deben tener saldo disponible."
+        )
+
+    asociaciones = []
+
+    indice_bancario = 0
+    indice_previsto = 0
+
+    while (
+        indice_bancario < len(bancarios_ordenados)
+        and indice_previsto < len(previstos_ordenados)
+    ):
+        bancario = bancarios_ordenados[indice_bancario]
+        previsto = previstos_ordenados[indice_previsto]
+
+        importe = min(
+            saldos_bancarios[bancario],
+            saldos_previstos[previsto],
+        )
+
+        # Validar la pareja utilizando las reglas existentes.
+        validar_asociacion(
+            bancario,
+            previsto,
+            importe,
+        )
+
+        asociaciones.append(
+            (bancario, previsto, importe)
+        )
+
+        saldos_bancarios[bancario] -= importe
+        saldos_previstos[previsto] -= importe
+
+        if saldos_bancarios[bancario] == 0:
+            indice_bancario += 1
+
+        if saldos_previstos[previsto] == 0:
+            indice_previsto += 1
+
+    # Todos los movimientos seleccionados deben participar
+    # en al menos una asociación. De lo contrario,
+    # el usuario estaría confirmando una selección incompleta.
+    bancarios_asociados = {
+        bancario
+        for bancario, _, _ in asociaciones
+    }
+
+    previstos_asociados = {
+        previsto
+        for _, previsto, _ in asociaciones
+    }
+
+    if (
+        len(bancarios_asociados) != len(bancarios)
+        or len(previstos_asociados) != len(previstos)
+    ):
+        raise ConciliacionError(
+            "La selección contiene movimientos sin asociación. "
+            "Selecciona únicamente los movimientos a conciliar."
+        )
+
+    return asociaciones
 
 
 def confirmar_grupo_conciliacion(
     asociaciones: list[
         tuple[MovimientoBancario, MovimientoPrevisto, int]
     ],
+    *,
+    cerrar_diferencia: bool = False,
 ) -> list[Conciliacion]:
-    """Confirma un grupo de asociaciones sin guardar la transacción."""
+    """Confirma asociaciones, opcionalmente cerrando una diferencia 1:1."""
 
     if not asociaciones:
         raise ConciliacionError(
             "El grupo de conciliación no puede estar vacío."
         )
 
+    if cerrar_diferencia:
+        bancarios_grupo = {
+            bancario
+            for bancario, _, _ in asociaciones
+        }
+        previstos_grupo = {
+            previsto
+            for _, previsto, _ in asociaciones
+        }
+
+        if (
+            len(bancarios_grupo) > 1
+            and len(previstos_grupo) > 1
+        ):
+            raise ConciliacionError(
+                "No se admite cerrar diferencias m:n."
+            )
+
     importes_bancarios = {}
     importes_previstos = {}
     parejas = set()
 
-    # Primera fase: comprobar todas las asociaciones sin modificar nada.
+    # Validar primero, sin modificar ningún movimiento.
     for bancario, previsto, importe in asociaciones:
         validar_asociacion(
             bancario,
@@ -1029,17 +1211,13 @@ def confirmar_grupo_conciliacion(
             importes_bancarios.get(bancario, 0)
             + importe
         )
-
         importes_previstos[previsto] = (
             importes_previstos.get(previsto, 0)
             + importe
         )
 
-    # La suma del grupo tampoco puede superar los saldos disponibles.
     for bancario, importe in importes_bancarios.items():
-        _, pendiente = saldo_movimiento_bancario(
-            bancario
-        )
+        _, pendiente = saldo_movimiento_bancario(bancario)
 
         if importe > pendiente:
             raise ConciliacionError(
@@ -1048,9 +1226,7 @@ def confirmar_grupo_conciliacion(
             )
 
     for previsto, importe in importes_previstos.items():
-        _, pendiente = saldo_movimiento_previsto(
-            previsto
-        )
+        _, pendiente = saldo_movimiento_previsto(previsto)
 
         if importe > pendiente:
             raise ConciliacionError(
@@ -1058,25 +1234,95 @@ def confirmar_grupo_conciliacion(
                 "de un movimiento previsto."
             )
 
-    # Segunda fase: crear las asociaciones, ya validadas.
+    movimiento_a_cerrar = None
+
+    if cerrar_diferencia:
+        residuos_bancarios = {
+            bancario: (
+                saldo_movimiento_bancario(bancario)[1]
+                - importe
+            )
+            for bancario, importe in importes_bancarios.items()
+        }
+
+        residuos_previstos = {
+            previsto: (
+                saldo_movimiento_previsto(previsto)[1]
+                - importe
+            )
+            for previsto, importe in importes_previstos.items()
+        }
+
+        bancarios_con_residuo = [
+            bancario
+            for bancario, residuo in residuos_bancarios.items()
+            if residuo > 0
+        ]
+
+        previstos_con_residuo = [
+            previsto
+            for previsto, residuo in residuos_previstos.items()
+            if residuo > 0
+        ]
+
+        # Aceptar una diferencia sólo debe cerrar
+        # un saldo restante en uno de los lados.
+        if (
+            len(bancarios_con_residuo)
+            + len(previstos_con_residuo)
+            != 1
+        ):
+            raise ConciliacionError(
+                "Para aceptar la diferencia debe quedar "
+                "un único movimiento con saldo sin asociar."
+            )
+
+        if bancarios_con_residuo:
+            movimiento_a_cerrar = bancarios_con_residuo[0]
+        else:
+            movimiento_a_cerrar = previstos_con_residuo[0]
+
+    # Crear asociaciones después de completar la validación.
     conciliaciones = [
         asociar_movimientos(bancario, previsto, importe)
         for bancario, previsto, importe in asociaciones
     ]
 
-    # Los estados se calculan una sola vez por movimiento afectado.
+    if cerrar_diferencia:
+        if isinstance(
+            movimiento_a_cerrar,
+            MovimientoBancario,
+        ):
+            candidatas = [
+                conciliacion
+                for conciliacion in conciliaciones
+                if (
+                    conciliacion.movimiento_bancario
+                    is movimiento_a_cerrar
+                )
+            ]
+
+            candidatas[-1].cierra_bancario = True
+
+        else:
+            candidatas = [
+                conciliacion
+                for conciliacion in conciliaciones
+                if (
+                    conciliacion.movimiento_previsto
+                    is movimiento_a_cerrar
+                )
+            ]
+
+            candidatas[-1].cierra_previsto = True
+
     for bancario in importes_bancarios:
-        actualizar_estado_movimiento_bancario(
-            bancario
-        )
+        actualizar_estado_movimiento_bancario(bancario)
 
     for previsto in importes_previstos:
-        actualizar_estado_movimiento_previsto(
-            previsto
-        )
+        actualizar_estado_movimiento_previsto(previsto)
 
     return conciliaciones
-
 
 
 def deshacer_asociacion_bancaria(
@@ -1468,6 +1714,15 @@ def buscar_propuestas_conciliacion(
                 continue
 
             if pendiente_bancario == pendiente_previsto:
+                continue
+
+            # Las diferencias superiores al 5 % del saldo previsto no se sugieren
+            # automáticamente. Se calculan en céntimos, sin redondeos.
+            diferencia = abs(
+                pendiente_bancario - pendiente_previsto
+            )
+
+            if diferencia * 100 > pendiente_previsto * 5:
                 continue
 
             if bancario.naturaleza != previsto.naturaleza:

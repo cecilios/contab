@@ -167,7 +167,6 @@
                                 </small>
                             {% endif %}
                             <div class="revision-propuesta__acciones">
-                                {% if not es_diferente %}
                                 <form
                                     class="revision-propuesta__formulario revision-propuesta__formulario--aceptar"
                                     method="post"
@@ -193,14 +192,35 @@
                                         >
                                     {% endfor %}
 
-                                    <button
-                                        class="revision-propuesta__boton revision-propuesta__boton--aceptar"
-                                        type="submit"
-                                    >
-                                        Aceptar
-                                    </button>
+                                    {% if es_diferente %}
+                                        <button
+                                            class="revision-propuesta__boton revision-propuesta__boton--aceptar"
+                                            type="submit"
+                                            name="accion"
+                                            value="parcial"
+                                        >
+                                            Conciliar parcialmente
+                                        </button>
+
+                                        <button
+                                            class="revision-propuesta__boton revision-propuesta__boton--aceptar"
+                                            type="submit"
+                                            name="accion"
+                                            value="aceptar_diferencia"
+                                        >
+                                            Aceptar diferencia
+                                        </button>
+                                    {% else %}
+                                        <button
+                                            class="revision-propuesta__boton revision-propuesta__boton--aceptar"
+                                            type="submit"
+                                            name="accion"
+                                            value="exacta"
+                                        >
+                                            Aceptar
+                                        </button>
+                                    {% endif %}
                                 </form>
-                                {% endif %}
 
                                 <form
                                     class="revision-propuesta__formulario revision-propuesta__formulario--rechazar"
@@ -287,6 +307,9 @@
                                 <th class="revision-tabla__columna revision-tabla__columna--importe">
                                     Importe
                                 </th>
+                                <th class="revision-tabla__columna revision-tabla__columna--acciones">
+                                    Acción
+                                </th>
                             </tr>
                         </thead>
 
@@ -332,10 +355,22 @@
                                     {% endif %}
                                 </td>
 
+                                <td class="revision-celda revision-celda--acciones">
+                                    <a
+                                        class="revision-manual__enlace-sin-banco"
+                                        href="{{ url_for(
+                                            'conciliacion.conciliar_movimiento_previsto_manualmente_desde_interfaz',
+                                            movimiento_id=previsto.id
+                                        ) }}"
+                                    >
+                                        Conciliar sin banco
+                                    </a>
+                                </td>
+
                             </tr>
                             {% else %}
                             <tr class="revision-manual__fila revision-manual__fila--vacia">
-                                <td class="revision-celda revision-celda--vacia" colspan="4">
+                                <td class="revision-celda revision-celda--vacia" colspan="5">
                                     No hay previstos disponibles.
                                 </td>
                             </tr>
@@ -464,13 +499,40 @@
                     </strong>
                 </div>
 
-                <button
-                    class="revision-manual__boton-confirmar"
-                    type="submit"
-                    disabled
-                >
-                    Conciliar seleccionados
-                </button>
+                <div class="revision-manual__acciones">
+                    <button
+                        class="revision-manual__boton-confirmar"
+                        type="submit"
+                        name="accion"
+                        value="exacta"
+                        disabled
+                    >
+                        Conciliar seleccionados
+                    </button>
+
+                    <button
+                        class="revision-manual__boton-parcial"
+                        type="submit"
+                        name="accion"
+                        value="parcial"
+                        disabled
+                        hidden
+                    >
+                        Conciliar parcialmente
+                    </button>
+
+                    <button
+                        class="revision-manual__boton-diferencia"
+                        type="submit"
+                        name="accion"
+                        value="aceptar_diferencia"
+                        disabled
+                        hidden
+                    >
+                        Aceptar diferencia
+                    </button>
+                </div>
+
             </div>
         </form>
 

@@ -706,6 +706,15 @@ input[type="checkbox"] {
     font-weight: 600;
 }
 
+/* Revisar conciliación: Conciliación manual sin movimiento bancario */
+
+.revision-manual__enlace-sin-banco {
+    display: inline-block;
+    white-space: nowrap;
+    font-size: 0.85rem;
+    text-decoration: underline;
+}
+
 
 @media (max-width: 900px) {
     .revision-manual {
