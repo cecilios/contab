@@ -910,11 +910,15 @@ def test_confirmar_solicitud_reembolso_prepara_todos_los_efectos(
     assert movimiento.contrato is contrato
     assert movimiento.inmueble is inmueble
     assert movimiento.naturaleza == "INGRESO"
-    assert movimiento.concepto == "Reembolso de gastos"
+    assert movimiento.concepto == "Reembolso. Comunidad octubre"
     assert movimiento.importe_esperado == 10000
     assert movimiento.estado == "PENDIENTE"
     assert movimiento.fecha_prevista_desde is None
     assert movimiento.fecha_prevista_hasta is None
+
+    assert apunte.naturaleza == "GASTO"
+    assert apunte.concepto == "Comunidad octubre"
+    assert apunte.tratamiento == "REPERCUTIR"
 
     # comprobar la persistencia
     session.add_all([
@@ -934,6 +938,99 @@ def test_confirmar_solicitud_reembolso_prepara_todos_los_efectos(
     )
 
     assert pendientes == []
+
+
+@pytest.mark.parametrize(
+    ("conceptos", "concepto_esperado"),
+    [
+        (
+            ["Agua", "Comunidad"],
+            "Reembolso. Agua, Comunidad",
+        ),
+        (
+            ["Agua", "Comunidad", "Basuras"],
+            "Reembolso. 3 gastos",
+        ),
+    ],
+)
+def test_confirmar_reembolso_genera_concepto_descriptivo(
+    session,
+    conceptos,
+    concepto_esperado,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-REEMBOLSO-CONCEPTO",
+        tipo="L",
+        codigo_facturacion="LRC",
+        descripcion="Local de prueba",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+
+    apuntes = [
+        crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=_categorias_gastos(),
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto=concepto,
+            base=1000,
+            tratamiento="REPERCUTIR",
+        )
+        for concepto in conceptos
+    ]
+
+    session.add_all([
+        inmueble,
+        contrato,
+        *apuntes,
+    ])
+    session.commit()
+
+    gastos = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    # Fijamos expresamente el orden de la solicitud.
+    gastos_por_concepto = {
+        gasto.apunte.concepto: gasto
+        for gasto in gastos
+    }
+
+    gastos_ordenados = [
+        gastos_por_concepto[concepto]
+        for concepto in conceptos
+    ]
+
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=gastos_ordenados,
+    )
+
+    confirmacion = confirmar_solicitud_reembolso(
+        preparada=preparada,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    movimiento = confirmacion.movimiento
+
+    assert movimiento.concepto == concepto_esperado
+    assert movimiento.naturaleza == "INGRESO"
+    assert movimiento.importe_esperado == 1000 * len(conceptos)
+    assert movimiento.contrato is contrato
+
+    # El detalle permanece íntegro en la solicitud.
+    assert [
+        linea.concepto
+        for linea in confirmacion.solicitud.lineas
+    ] == conceptos
+
+    assert len(confirmacion.imputaciones) == len(conceptos)
 
 
 def test_preparar_eliminacion_solicitud_reembolso(
@@ -1283,4 +1380,91 @@ def test_eliminar_solicitud_hace_que_el_gasto_vuelva_a_estar_pendiente(
     assert pendientes[0].apunte is apunte
     assert pendientes[0].imputacion.importe == 10000
 
+
+@pytest.mark.parametrize(
+    ("desde", "hasta", "concepto_esperado"),
+    [
+        (
+            date(2026, 8, 23),
+            date(2026, 9, 27),
+            "Reembolso. Agua 23/08/2026 a 27/09/2026",
+        ),
+        (
+            date(2026, 9, 1),
+            date(2026, 9, 30),
+            "Reembolso. Agua 01/09/2026 a 30/09/2026",
+        ),
+    ],
+)
+def test_confirmar_reembolso_un_gasto_incluye_periodo(
+    session,
+    desde,
+    hasta,
+    concepto_esperado,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-REEMBOLSO-PERIODO",
+        tipo="L",
+        codigo_facturacion="LRP",
+        descripcion="Local de prueba",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto=f"Agua {desde:%d/%m/%Y} a {hasta:%d/%m/%Y}",
+        base=2045,
+        tratamiento="REPERCUTIR",
+        periodo_desde=desde,
+        periodo_hasta=hasta,
+        criterio_periodo="INCLUIR_AMBOS",
+    )
+
+    session.add_all([inmueble, contrato, apunte])
+    session.commit()
+
+    gastos = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=gastos,
+    )
+
+    confirmacion = confirmar_solicitud_reembolso(
+        preparada=preparada,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    movimiento = confirmacion.movimiento
+
+    concepto_esperado = (
+        f"Reembolso. Agua {desde:%d/%m/%Y} "
+        f"a {hasta:%d/%m/%Y}"
+    )
+
+    assert movimiento.concepto == concepto_esperado
+    assert movimiento.naturaleza == "INGRESO"
+    assert movimiento.importe_esperado == 2045
+    assert movimiento.contrato is contrato
+
+    # El gasto original no se transforma en ingreso.
+    assert apunte.naturaleza == "GASTO"
+    assert apunte.concepto == f"Agua {desde:%d/%m/%Y} a {hasta:%d/%m/%Y}"
+    assert apunte.periodo_desde == desde
+    assert apunte.periodo_hasta == hasta
+
+    # La solicitud sigue conservando el detalle original.
+    assert len(confirmacion.solicitud.lineas) == 1
+    assert confirmacion.solicitud.lineas[0].concepto == f"Agua {desde:%d/%m/%Y} a {hasta:%d/%m/%Y}"
 

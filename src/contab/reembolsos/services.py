@@ -304,7 +304,17 @@ def confirmar_solicitud_reembolso(
         inmueble=contrato.inmueble,
         contrato=contrato,
         naturaleza="INGRESO",
-        concepto="Reembolso de gastos",
+        concepto=(
+            f"Reembolso. {preparada.lineas[0].concepto}"
+            if len(preparada.lineas) == 1
+            else (
+                "Reembolso. " + ", ".join(
+                    linea.concepto for linea in preparada.lineas
+                )
+                if len(preparada.lineas) == 2
+                else f"Reembolso. {len(preparada.lineas)} gastos"
+            )
+        ),
         importe_esperado=preparada.total,
         contraparte=contraparte,
     )
