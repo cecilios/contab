@@ -3086,16 +3086,24 @@ def test_revision_manual_muestra_casillas_y_totales() -> None:
         in manual
     )
 
-    # Hay una única zona de confirmación manual.
-    assert 'id="revision-manual-formulario"' in manual
+    assert 'id="revision-manual-formulario-ingresos"' in manual
+    assert 'id="revision-manual-formulario-gastos"' in manual
 
-    # Los totales tendrán identificadores para que
-    # JavaScript pueda actualizarlos al seleccionar.
-    assert 'id="revision-manual-total-previstos"' in manual
-    assert 'id="revision-manual-total-bancarios"' in manual
-    assert 'id="revision-manual-diferencia"' in manual
+    assert manual.count(
+        'class="revision-manual__formulario"'
+    ) == 2
 
-    assert "Conciliar seleccionados" in manual
+    assert manual.count(
+        "revision-manual__total-previstos"
+    ) == 2
+
+    assert manual.count(
+        "revision-manual__total-bancarios"
+    ) == 2
+
+    assert manual.count(
+        "revision-manual__diferencia"
+    ) == 2
 
 
 def test_revision_manual_no_preselecciona_movimientos_rechazados() -> None:
@@ -4725,4 +4733,227 @@ def test_propuesta_automatica_con_diferencia_se_puede_confirmar(
         assert db_session.get(
             MovimientoBancario, bancarios[0]
         ).estado == "CONCILIADO"
+
+
+@pytest.mark.parametrize(
+    ("naturaleza", "otra_naturaleza"),
+    [
+        ("INGRESO", "GASTO"),
+        ("GASTO", "INGRESO"),
+    ],
+)
+def test_revision_manual_separa_movimientos_por_naturaleza(
+    monkeypatch,
+    naturaleza,
+    otra_naturaleza,
+) -> None:
+    client, _, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[
+                (100000, naturaleza),
+                (20000, otra_naturaleza),
+            ],
+            bancarios_datos=[
+                (100000, naturaleza),
+                (20000, otra_naturaleza),
+            ],
+        )
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.get("/conciliacion/revisar")
+    assert response.status_code == 200
+
+    manual = response.text.split(
+        'class="revision__seccion revision__seccion--manual"',
+        1,
+    )[1]
+
+    formularios = re.findall(
+        r'<form\b[^>]*class="revision-manual__formulario"'
+        r'[^>]*>.*?</form>',
+        manual,
+        re.S,
+    )
+
+    assert len(formularios) == 2
+
+    formulario_ingresos = next(
+        formulario
+        for formulario in formularios
+        if 'id="revision-manual-formulario-ingresos"' in formulario
+    )
+
+    formulario_gastos = next(
+        formulario
+        for formulario in formularios
+        if 'id="revision-manual-formulario-gastos"' in formulario
+    )
+
+    formularios_por_naturaleza = {
+        "INGRESO": formulario_ingresos,
+        "GASTO": formulario_gastos,
+    }
+
+    formulario = formularios_por_naturaleza[naturaleza]
+    otro = formularios_por_naturaleza[otra_naturaleza]
+
+    for nombre, id_movimiento in (
+        ("previsto_ids", previstos[0]),
+        ("bancario_ids", bancarios[0]),
+    ):
+        casilla = (
+            rf'<input\b(?=[^>]*name="{nombre}")'
+            rf'(?=[^>]*value="{id_movimiento}")[^>]*>'
+        )
+
+        assert re.search(casilla, formulario, re.S)
+        assert not re.search(casilla, otro, re.S)
+
+    for nombre, id_movimiento in (
+        ("previsto_ids", previstos[1]),
+        ("bancario_ids", bancarios[1]),
+    ):
+        casilla = (
+            rf'<input\b(?=[^>]*name="{nombre}")'
+            rf'(?=[^>]*value="{id_movimiento}")[^>]*>'
+        )
+
+        assert re.search(casilla, otro, re.S)
+        assert not re.search(casilla, formulario, re.S)
+
+
+def test_revision_manual_cada_formulario_tiene_totales_y_acciones(
+    monkeypatch,
+) -> None:
+    client, _, _, _ = crear_escenario_seleccion_manual(
+        previstos_datos=[
+            (100000, "INGRESO"),
+            (30000, "GASTO"),
+        ],
+        bancarios_datos=[
+            (99500, "INGRESO"),
+            (30000, "GASTO"),
+        ],
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.get("/conciliacion/revisar")
+    assert response.status_code == 200
+
+    manual = response.text.split(
+        'class="revision__seccion revision__seccion--manual"',
+        1,
+    )[1]
+
+    formularios = re.findall(
+        r'<form\b[^>]*class="revision-manual__formulario"'
+        r'[^>]*>.*?</form>',
+        manual,
+        re.S,
+    )
+
+    assert len(formularios) == 2
+
+    for formulario in formularios:
+        assert (
+            'action="/conciliacion/revisar/manual/confirmar"'
+            in formulario
+        )
+
+        for clase in (
+            "revision-manual__total-previstos",
+            "revision-manual__total-bancarios",
+            "revision-manual__diferencia",
+        ):
+            assert re.search(
+                rf'<strong\b[^>]*class="[^"]*\b{re.escape(clase)}\b[^"]*"',
+                formulario,
+                re.S,
+            )
+
+        for accion in (
+            "exacta",
+            "parcial",
+            "aceptar_diferencia",
+        ):
+            assert re.search(
+                rf'<button\b(?=[^>]*name="accion")'
+                rf'(?=[^>]*value="{accion}")[^>]*>',
+                formulario,
+                re.S,
+            )
+
+        # Ninguna casilla comienza seleccionada.
+        casillas = re.findall(
+            r'<input\b[^>]*type="checkbox"[^>]*>',
+            formulario,
+            re.S,
+        )
+
+        assert casillas
+        assert all(
+            not re.search(r'\bchecked(?:\s|=|>)', casilla)
+            for casilla in casillas
+        )
+
+
+def test_revision_manual_rechaza_naturalezas_mezcladas(
+    monkeypatch,
+) -> None:
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[
+                (100000, "INGRESO"),
+                (20000, "GASTO"),
+            ],
+            bancarios_datos=[
+                (120000, "INGRESO"),
+            ],
+        )
+    )
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/manual/confirmar",
+        data={
+            "previsto_ids": [
+                str(previstos[0]),
+                str(previstos[1]),
+            ],
+            "bancario_ids": [str(bancarios[0])],
+            "accion": "exacta",
+        },
+    )
+
+    assert response.status_code == 400
+
+    with session_factory() as db_session:
+        assert db_session.scalars(
+            select(Conciliacion)
+        ).all() == []
+
+        for previsto_id in previstos:
+            assert db_session.get(
+                MovimientoPrevisto, previsto_id
+            ).estado == "PENDIENTE"
+
+        assert db_session.get(
+            MovimientoBancario, bancarios[0]
+        ).estado == "PENDIENTE"
 

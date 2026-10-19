@@ -274,12 +274,33 @@
         <h2 class="revision__subtitulo">Conciliación manual</h2>
 
         <p class="revision__descripcion">
-            Selecciona movimientos previstos y bancarios.
-            Los importes deben coincidir para poder conciliarlos.
+            Selecciona movimientos previstos y bancarios
+            de la misma naturaleza. Puedes conciliarlos
+            exactamente, parcialmente o aceptar una diferencia.
         </p>
 
+        {% for naturaleza, nombre_grupo, sufijo in [
+            ("INGRESO", "Ingresos", "ingresos"),
+            ("GASTO", "Gastos", "gastos")
+        ] %}
+            {% set previstos_grupo = (
+                previstos_sin_propuesta
+                | selectattr("naturaleza", "equalto", naturaleza)
+                | list
+            ) %}
+
+            {% set bancarios_grupo = (
+                bancarios_sin_propuesta
+                | selectattr("naturaleza", "equalto", naturaleza)
+                | list
+            ) %}
+
+            <h3 class="revision__subtitulo">
+                Conciliación manual: {{ nombre_grupo }}
+            </h3>
+
         <form
-            id="revision-manual-formulario"
+            id="revision-manual-formulario-{{ sufijo }}"
             class="revision-manual__formulario"
             method="post"
             action="{{ url_for(
@@ -314,7 +335,7 @@
                         </thead>
 
                         <tbody class="revision-manual__cuerpo">
-                            {% for previsto in previstos_sin_propuesta %}
+                            {% for previsto in previstos_grupo %}
                             {% set pendiente = saldo_movimiento_previsto(previsto)[1] %}
                             <tr class="revision-manual__fila">
                                 <td class="revision-celda revision-celda--seleccion">
@@ -406,7 +427,7 @@
                         </thead>
 
                         <tbody class="revision-manual__cuerpo">
-                            {% for bancario in bancarios_sin_propuesta %}
+                            {% for bancario in bancarios_grupo %}
                             {% set pendiente = saldo_movimiento_bancario(bancario)[1] %}
                             <tr class="revision-manual__fila">
                                 <td class="revision-celda revision-celda--seleccion">
@@ -468,8 +489,7 @@
                         Total previsto:
                     </span>
                     <strong
-                        id="revision-manual-total-previstos"
-                        class="revision-manual__valor"
+                        class="revision-manual__valor revision-manual__total-previstos"
                     >
                         0,00 €
                     </strong>
@@ -480,8 +500,7 @@
                         Total bancario:
                     </span>
                     <strong
-                        id="revision-manual-total-bancarios"
-                        class="revision-manual__valor"
+                        class="revision-manual__valor revision-manual__total-bancarios"
                     >
                         0,00 €
                     </strong>
@@ -492,8 +511,7 @@
                         Diferencia:
                     </span>
                     <strong
-                        id="revision-manual-diferencia"
-                        class="revision-manual__valor revision-manual__valor--diferencia"
+                        class="revision-manual__valor revision-manual__valor--diferencia revision-manual__diferencia"
                     >
                         0,00 €
                     </strong>
@@ -535,6 +553,7 @@
 
             </div>
         </form>
+        {% endfor %}
 
         {% for bancario in bancarios_sin_propuesta %}
         <form
