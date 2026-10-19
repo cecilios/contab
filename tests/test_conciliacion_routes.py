@@ -14,6 +14,7 @@ from contab.conciliacion.services import (
 from contab.database import Base
 from contab.models import (
     Conciliacion,
+    Contrato,
     Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
@@ -4466,6 +4467,33 @@ def test_revision_agrupada_varios_previstos_un_bancario(
         "buscar_propuestas_conciliacion",
         lambda *args, **kwargs: [],
     )
+
+    with session_factory() as db_session:
+        with db_session.begin():
+            primero = db_session.get(
+                MovimientoPrevisto, previstos[0]
+            )
+            segundo = db_session.get(
+                MovimientoPrevisto, previstos[1]
+            )
+
+            contrato = Contrato(
+                inmueble=primero.inmueble,
+                fecha_inicio=date(2026, 1, 1),
+                fecha_vencimiento=date(2035, 12, 31),
+                genera_factura=True,
+                fecha_inicio_facturacion=date(2026, 1, 1),
+                fianza=0,
+                direccion_facturacion="Dirección de prueba",
+                poblacion_facturacion="Madrid",
+                provincia_facturacion="Madrid",
+                concepto_factura="Alquiler",
+            )
+
+            db_session.add(contrato)
+
+            primero.contrato = contrato
+            segundo.contrato = contrato
 
     response = client.post(
         "/conciliacion/revisar/manual/confirmar",

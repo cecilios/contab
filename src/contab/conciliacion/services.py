@@ -1178,6 +1178,26 @@ def confirmar_grupo_conciliacion(
             for _, previsto, _ in asociaciones
         }
 
+        # No atribuir una diferencia agrupada entre contratos
+        # diferentes. Un mismo inmueble puede tener varios contratos.
+        if len(previstos_grupo) > 1:
+            contratos = {
+                previsto.contrato_id
+                for previsto in previstos_grupo
+            }
+
+            if None in contratos:
+                raise ConciliacionError(
+                    "No se puede aceptar una diferencia agrupada "
+                    "con movimientos sin contrato identificado."
+                )
+
+            if len(contratos) != 1:
+                raise ConciliacionError(
+                    "No se puede aceptar una diferencia agrupada "
+                    "entre movimientos de contratos distintos."
+                )
+
         if (
             len(bancarios_grupo) > 1
             and len(previstos_grupo) > 1

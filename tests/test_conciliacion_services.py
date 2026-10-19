@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from contab.config import CategoriaContable
 from contab.models import (
     Conciliacion,
+    Contrato,
     Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
@@ -139,6 +140,21 @@ def _movimiento_bancario_para_diferencias(
         referencia_bancaria="",
         huella_importacion=referencia,
         estado="PENDIENTE",
+    )
+
+
+def _contrato_para_cierre_agrupado(inmueble):
+    return Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2035, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="Dirección de prueba",
+        poblacion_facturacion="Madrid",
+        provincia_facturacion="Madrid",
+        concepto_factura="Alquiler",
     )
 
 
@@ -6124,12 +6140,18 @@ def test_cierre_diferencia_agrupada(
         segundo = _previsto_para_confirmar(
             inmueble, "Agua agrupada", 20000
         )
+
+        contrato = _contrato_para_cierre_agrupado(inmueble)
+        primero.contrato = contrato
+        segundo.contrato = contrato
+
         bancario = _bancario_para_confirmar(
             f"agrupada-n1-{importe_bancario}",
             importe_bancario,
         )
 
         movimientos = [primero, segundo, bancario]
+        session.add(contrato)
 
         asociaciones = [
             (bancario, primero, 100000),
@@ -6470,10 +6492,15 @@ def test_cierre_agrupado_respeta_orden_y_se_puede_deshacer(
     antiguo.fecha_prevista_desde = date(2026, 9, 1)
     reciente.fecha_prevista_desde = date(2026, 10, 1)
 
+    contrato = _contrato_para_cierre_agrupado(inmueble)
+    antiguo.contrato = contrato
+    reciente.contrato = contrato
+
     ingreso = _bancario_para_confirmar(
         "cierre-cronologico-reversible", 119962
     )
 
+    session.add(contrato)
     session.add_all([antiguo, reciente, ingreso])
     session.flush()
 
@@ -6534,4 +6561,335 @@ def test_cierre_agrupado_respeta_orden_y_se_puede_deshacer(
     assert len(asociaciones_restantes) == 1
     assert asociaciones_restantes[0].id == primera.id
     assert asociaciones_restantes[0].cierra_previsto is False
+
+
+@pytest.mark.parametrize(
+    "importe_bancario",
+    [119962, 120038],
+)
+def test_cierre_diferencia_agrupada_rechaza_contratos_distintos(
+    session,
+    inmueble,
+    importe_bancario,
+) -> None:
+    """No atribuye diferencias entre contratos diferentes."""
+
+    contrato_a = _contrato_para_cierre_agrupado(inmueble)
+    contrato_b = _contrato_para_cierre_agrupado(inmueble)
+
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler contrato A", 100000
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Agua contrato B", 20000
+    )
+
+    alquiler.contrato = contrato_a
+    agua.contrato = contrato_b
+
+    alquiler.fecha_prevista_desde = date(2026, 9, 1)
+    agua.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        f"contratos-distintos-{importe_bancario}",
+        importe_bancario,
+    )
+
+    session.add_all([
+        contrato_a,
+        contrato_b,
+        alquiler,
+        agua,
+        bancario,
+    ])
+    session.flush()
+
+    asociaciones = preparar_asociaciones_cronologicas(
+        [bancario],
+        [alquiler, agua],
+    )
+
+    assert len(asociaciones) == 2
+
+    with pytest.raises(
+        ConciliacionError,
+        match="contratos distintos",
+    ):
+        confirmar_grupo_conciliacion(
+            asociaciones,
+            cerrar_diferencia=True,
+        )
+
+    # El rechazo no debe modificar ningún movimiento.
+    assert alquiler.estado == "PENDIENTE"
+    assert agua.estado == "PENDIENTE"
+    assert bancario.estado == "PENDIENTE"
+
+    assert alquiler.conciliaciones == []
+    assert agua.conciliaciones == []
+    assert bancario.conciliaciones == []
+
+
+def test_cierre_diferencia_agrupada_permite_mismo_contrato(
+    session,
+    inmueble,
+) -> None:
+    """Permite cerrar la diferencia si hay un contrato inequívoco."""
+
+    contrato = _contrato_para_cierre_agrupado(inmueble)
+
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler", 167214
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Reembolso. Agua", 2045
+    )
+
+    alquiler.contrato = contrato
+    agua.contrato = contrato
+
+    alquiler.fecha_prevista_desde = date(2026, 9, 1)
+    agua.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        "mismo-contrato-169290",
+        169290,
+    )
+
+    session.add_all([
+        contrato,
+        alquiler,
+        agua,
+        bancario,
+    ])
+    session.flush()
+
+    asociaciones = preparar_asociaciones_cronologicas(
+        [bancario],
+        [agua, alquiler],
+    )
+
+    assert asociaciones == [
+        (bancario, alquiler, 167214),
+        (bancario, agua, 2045),
+    ]
+
+    conciliaciones = confirmar_grupo_conciliacion(
+        asociaciones,
+        cerrar_diferencia=True,
+    )
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert alquiler.estado == "CONCILIADO"
+    assert agua.estado == "CONCILIADO"
+    assert bancario.estado == "CONCILIADO"
+
+    assert sum(
+        c.importe_asociado for c in conciliaciones
+    ) == 169259
+
+    assert sum(
+        c.cierra_bancario for c in conciliaciones
+    ) == 1
+
+    assert not any(
+        c.cierra_previsto for c in conciliaciones
+    )
+
+
+def test_conciliacion_agrupada_parcial_permite_contratos_distintos(
+    session,
+    inmueble,
+) -> None:
+    """La imputación explícita no supone aceptar una diferencia."""
+
+    contrato_a = _contrato_para_cierre_agrupado(inmueble)
+    contrato_b = _contrato_para_cierre_agrupado(inmueble)
+
+    primero = _previsto_para_confirmar(
+        inmueble, "Previsto contrato A", 100000
+    )
+    segundo = _previsto_para_confirmar(
+        inmueble, "Previsto contrato B", 20000
+    )
+
+    primero.contrato = contrato_a
+    segundo.contrato = contrato_b
+
+    primero.fecha_prevista_desde = date(2026, 9, 1)
+    segundo.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        "parcial-distintos-119962", 119962
+    )
+
+    session.add_all([
+        contrato_a,
+        contrato_b,
+        primero,
+        segundo,
+        bancario,
+    ])
+    session.flush()
+
+    asociaciones = preparar_asociaciones_cronologicas(
+        [bancario],
+        [primero, segundo],
+    )
+
+    conciliaciones = confirmar_grupo_conciliacion(
+        asociaciones,
+        cerrar_diferencia=False,
+    )
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert primero.estado == "CONCILIADO"
+    assert segundo.estado == "PARCIAL"
+    assert bancario.estado == "CONCILIADO"
+
+    assert saldo_movimiento_previsto(segundo) == (
+        19962, 38
+    )
+
+    assert not any(
+        c.cierra_previsto or c.cierra_bancario
+        for c in conciliaciones
+    )
+
+
+@pytest.mark.parametrize(
+    ("contratos_asignados", "importe_bancario"),
+    [
+        ("uno_identificado", 119962),
+        ("uno_identificado", 120038),
+        ("ninguno_identificado", 119962),
+        ("ninguno_identificado", 120038),
+    ],
+)
+def test_cierre_diferencia_agrupada_exige_contrato_identificado(
+    session,
+    inmueble,
+    contratos_asignados,
+    importe_bancario,
+) -> None:
+    """No cierra diferencias con contratos desconocidos."""
+
+    contrato = _contrato_para_cierre_agrupado(inmueble)
+
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler", 100000
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Agua", 20000
+    )
+
+    if contratos_asignados == "uno_identificado":
+        alquiler.contrato = contrato
+
+    alquiler.fecha_prevista_desde = date(2026, 9, 1)
+    agua.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        f"contrato-desconocido-"
+        f"{contratos_asignados}-{importe_bancario}",
+        importe_bancario,
+    )
+
+    session.add_all([
+        contrato,
+        alquiler,
+        agua,
+        bancario,
+    ])
+    session.flush()
+
+    asociaciones = preparar_asociaciones_cronologicas(
+        [bancario],
+        [agua, alquiler],
+    )
+
+    assert len(asociaciones) == 2
+
+    with pytest.raises(
+        ConciliacionError,
+        match="contrato",
+    ):
+        confirmar_grupo_conciliacion(
+            asociaciones,
+            cerrar_diferencia=True,
+        )
+
+    # El rechazo no modifica movimientos ni crea relaciones.
+    assert alquiler.estado == "PENDIENTE"
+    assert agua.estado == "PENDIENTE"
+    assert bancario.estado == "PENDIENTE"
+
+    assert alquiler.conciliaciones == []
+    assert agua.conciliaciones == []
+    assert bancario.conciliaciones == []
+
+
+def test_conciliacion_parcial_agrupada_permite_contrato_desconocido(
+    session,
+    inmueble,
+) -> None:
+    """La conciliación progresiva no exige cerrar deuda."""
+
+    contrato = _contrato_para_cierre_agrupado(inmueble)
+
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler", 100000
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Agua", 20000
+    )
+
+    alquiler.contrato = contrato
+    # El segundo previsto todavía no tiene contrato.
+    assert agua.contrato is None
+
+    alquiler.fecha_prevista_desde = date(2026, 9, 1)
+    agua.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        "parcial-contrato-desconocido", 119962
+    )
+
+    session.add_all([
+        contrato,
+        alquiler,
+        agua,
+        bancario,
+    ])
+    session.flush()
+
+    asociaciones = preparar_asociaciones_cronologicas(
+        [bancario],
+        [alquiler, agua],
+    )
+
+    conciliaciones = confirmar_grupo_conciliacion(
+        asociaciones,
+        cerrar_diferencia=False,
+    )
+
+    session.add_all(conciliaciones)
+    session.commit()
+
+    assert alquiler.estado == "CONCILIADO"
+    assert agua.estado == "PARCIAL"
+    assert bancario.estado == "CONCILIADO"
+
+    assert saldo_movimiento_previsto(agua) == (
+        19962, 38
+    )
+
+    assert not any(
+        c.cierra_previsto or c.cierra_bancario
+        for c in conciliaciones
+    )
 
