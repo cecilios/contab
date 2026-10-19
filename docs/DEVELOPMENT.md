@@ -975,58 +975,252 @@ REPERCUTIR
 
 This also ensures that historical activity from an inactive child property can still appear for the relevant year.
 
-## Bank import and reconciliation: current implementation and agreed target
 
-This section supersedes the former `## Bank import`, `## Automatic reconciliation`, and `## Manual reconciliation` sections. See also `docs/Conciliacion.md` for the end-user description.
+## Bank import and reconciliation
+
+See `docs/Conciliacion.md` for the end-user behavior.
 
 ### Import and state model
 
-Bank imports are implemented in `src/contab/conciliacion/importacion.py`; original bank text, amount in cents, nature, date and fingerprint are retained. Current supported banks: IBERCAJA and CAIXABANK. Bank movements may be `PENDIENTE`, `PARCIAL`, `CONCILIADO` or `DESCARTADO`; expected movements may be `PENDIENTE`, `PARCIAL`, `CONCILIADO` or `CANCELADO`. `PARCIAL` is **part of the intended future model**, not legacy behavior, and must not be removed or treated as deprecated.
+Bank import is implemented in
+`src/contab/conciliacion/importacion.py`.
 
-`Conciliacion` relates one bank movement to one expected movement with a positive `importe_asociado`; the pair is unique. `saldo_movimiento_bancario()` and `saldo_movimiento_previsto()` return `(asociado, pendiente)` based on existing associations. `validar_asociacion()`, `asociar_movimientos()`, `confirmar_grupo_conciliacion()` and `confirmar_propuesta_conciliacion()` implement atomic domain behavior without committing. Routes own transactions. Preserve the integrity and undo semantics of partial associations.
+Original bank dates, descriptions, amounts in cents, nature,
+and import fingerprints are preserved. Supported banks:
+IBERCAJA and CAIXABANK.
 
-The target combines two compatible modes:
+Bank movement states:
 
-- **B — Exact matches:** 1:1, 1:n and m:1 with equal aggregate remaining balances. Implemented and tested in the review screen.
-- **A — Progressive reconciliation:** associate an amount smaller than one or both remaining balances; update `PARCIAL` and leave available remainder for later association. The service and model groundwork exists; UI for intentional manual partial applications remains to implement. One can progressively associate 1:n or m:1 across reviews; **there will be no separate m:n operation**.
+- `PENDIENTE`
+- `PARCIAL`
+- `CONCILIADO`
+- `DESCARTADO`
 
-There is a third, distinct user decision:
+Expected movement states:
 
-- **Accept a small discrepancy and close review:** bank-to-expected correspondence is confirmed even though original amounts differ; unlike a progressive allocation, the leftover amount must not keep the reviewed movement in the reconciliation queue. The economic difference is **not waived** and must persist in contract-level exigible-minus-collected totals. This is **not implemented** and its closure/undo data model must be specified by tests before any migration. Never equate `saldo_pendiente == 0` with all possible review-closure semantics. Do not invent groups or rewrite existing amounts.
+- `PENDIENTE`
+- `PARCIAL`
+- `CONCILIADO`
+- `CANCELADO`
 
-Example: expected rent 1,000 € and bank receipt 950 €. **Progressive** means associate 950 €, bank reconciled, expected `PARCIAL` with 50 € still available for later associations. **Accepted discrepancy** means user closes review of this correspondence; the contract nevertheless has 50 € economic debt. The UI for unmatched amounts should expose only two clear actions, e.g. `Conciliar parcialmente` and `Aceptar diferencia`; exact matches retain one `Aceptar` action. No condonation/reclaim question.
+`Conciliacion` associates one bank movement with one expected
+movement through a positive `importe_asociado`.
 
-### Review screen
+Associations are unique by bank/expected pair. There is no
+independent reconciliation-group entity.
 
-`GET /conciliacion/revisar` has automatic proposals and independent manual-selection tables. `_obtener_revision_conciliacion(db_session)` is the shared query/proposal calculation used by GET and POST routes, respecting session-only rejected proposals. Bank/expected movements in `PENDIENTE` and `PARCIAL` are considered; display and selection totals use *remaining balances*, with original amount as secondary information for partially reconciled movements.
+`saldo_movimiento_bancario()` and `saldo_movimiento_previsto()`
+return `(associated, pending)` calculated from recorded amounts.
 
-Current automatic proposals: exact 1:1 and group 1:2 / 2:1; plus visibly distinct 1:1 discrepancies, not yet confirmable. UI supports manually selected exact 1:1, 1:2, 2:1, 1:3, 3:1 and rejects m:n and unequal sums. Automatic discovery 1:3 and 3:1 is intentionally postponed.
+`PARCIAL` is an implemented and supported state.
 
-POST endpoints: `/conciliacion/revisar/propuestas/aceptar`, `/conciliacion/revisar/propuestas/rechazar`, `/conciliacion/revisar/manual/confirmar`. Rejection moves involved movements to manual selection *without database mutation*, scoped to the current Flask/database session. Acceptance recomputes currently available proposals and does not allow bypassing a rejection with stale POST forms. The bank discard action remains available. Legacy individual acceptance route exists for test/backward compatibility.
+### Exact, progressive, and accepted-difference reconciliation
 
-**Automatic selection correction pending:** exact amount matching has absolute priority; near matches may be suggested only within an agreed small relative deviation (candidate threshold: **5%**, subject to tests), same nature, compatible date, and reliably identified counterparty/alias. An absurd suggestion such as 1,256 € expected against 125 € bank must be ruled out. A 5% threshold, if adopted, applies to **automatic proposals only**, not to manual progressive reconciliation. Ambiguous matches are not chosen arbitrarily. The present discrepancy selector does not yet enforce this threshold.
+Supported cardinalities:
 
-### Manual without bank
+- 1:1
+- 1:n
+- m:1
 
-The distinct preexisting operation `conciliar_movimiento_previsto_manualmente(movimiento, notas)` marks an expected movement `CONCILIADO` with `metodo_conciliacion=MANUAL` and **nonblank explanation**, creating **no** bank association; `deshacer_conciliacion_manual()` reverses it. Use cases: cash settlement, payment from another account, other verified resolution. **The renewed review UI must restore/verify a way to invoke it.** Do not confuse it with manual selection of bank and expected movement checkboxes. For this operation, the income source and contract-level reporting must be treated without fabricating a bank receipt or double counting.
+An independent m:n operation is not supported.
+
+**Exact reconciliation** exhausts the available balances on both
+sides.
+
+**Progressive reconciliation** associates only the amount that
+can actually be applied. Any residual balance remains available
+for later associations, and the movement state reflects that.
+
+**Accepted differences** explicitly close review even when
+the original amount has not been fully associated.
+
+`Conciliacion.cierra_bancario` and
+`Conciliacion.cierra_previsto` record the side whose review
+was closed despite a remaining arithmetic balance.
+
+The state-update services derive `CONCILIADO` from either a fully
+applied balance or the corresponding explicit closure flag.
+
+These flags do not alter the original amount, create a fictional
+payment, or waive the economic difference.
+
+Removing an association removes its closure flags and recalculates
+the affected movement states. Other associations remain intact.
+
+Services do not commit transactions; routes own transaction
+boundaries.
+
+### Chronological allocation and grouped differences
+
+`preparar_asociaciones_cronologicas()` computes associations
+without persisting or changing movements.
+
+It uses available balances, including balances of movements
+already partially reconciled.
+
+Expected movements are processed by `fecha_prevista_desde`,
+oldest first, with ID as a stable tie-breaker.
+Movements without a planned date sort last.
+
+Bank movements are processed by date, oldest first, with ID
+as a stable tie-breaker.
+
+The function rejects:
+
+- Empty selections.
+- m:n selections.
+- Repeated movements.
+- Unavailable or fully exhausted movements.
+- Mixed bank/expected natures.
+- Selections that leave any selected movement without an association.
+
+`confirmar_grupo_conciliacion(..., cerrar_diferencia=True)`
+confirms associations and marks the movement retaining the
+arithmetic difference.
+
+It rejects a closure unless exactly one movement retains an
+unassociated balance after the proposed associations.
+
+For grouped m:1 accepted differences, all selected expected
+movements must have the same non-null `contrato_id`.
+
+Different contracts, mixed known/unknown contracts, and all-unknown
+contracts are rejected.
+
+This contract restriction applies specifically to accepted
+differences involving multiple expected movements. Progressive
+reconciliation without accepted closure remains possible between
+different contracts.
+
+Existing associations and balances must never be overwritten
+to make totals match.
+
+### Automatic proposals
+
+`buscar_propuestas_conciliacion()` prioritizes exact matches
+before considering discrepancies.
+
+Implemented automatic proposals:
+
+- Exact 1:1.
+- Exact grouped 1:2 and 2:1.
+- Unequal 1:1 with a clearly identified counterpart.
+
+Automatic 1:1 discrepancies are considered only when:
+
+- The difference does not exceed 5% of the expected remaining balance.
+- Bank and expected movements have the same nature.
+- Their dates are compatible.
+- The bank movement identifies the expected counterpart
+  through the available matching rules or configured aliases.
+- The match is unambiguous on both sides.
+
+The 5% threshold applies only to automatic suggestions.
+It does not restrict user-confirmed progressive associations
+or manual acceptance of differences.
+
+Automatic discovery of 1:3 and 3:1 remains postponed.
+
+### Review screen and routes
+
+`GET /conciliacion/revisar` shows automatic proposals and
+manual reconciliation forms.
+
+`_obtener_revision_conciliacion(db_session)` is shared by
+GET and POST handlers and recomputes current proposals.
+
+Manual reconciliation is divided into independent **Ingresos**
+and **Gastos** forms. Each has its own expected/bank selection,
+totals, difference, and action buttons.
+
+`revision_conciliacion.js` initializes each form independently
+and enables the appropriate action for the selected cardinality
+and balances.
+
+For equal amounts, the exact-confirmation button is available.
+
+For different amounts, the user can choose:
+
+- `parcial`: associate available amounts and preserve residuals.
+- `aceptar_diferencia`: associate available amounts and
+  explicitly close the remaining difference.
+
+`exacta` remains the action for exact reconciliation.
+
+The backend validates movement nature and supported cardinality
+independently of the browser.
+
+Relevant POST endpoints:
+
+- `/conciliacion/revisar/propuestas/aceptar`
+- `/conciliacion/revisar/propuestas/rechazar`
+- `/conciliacion/revisar/manual/confirmar`
+
+Automatic proposals are recomputed before acceptance.
+Rejecting a proposal releases its movements for manual selection
+within the current session without changing the database.
+
+The review screen also retains bank discard actions
+and access to manual reconciliation without a bank movement.
+
+### Manual reconciliation without bank
+
+`conciliar_movimiento_previsto_manualmente(movimiento, notas)`
+marks an expected movement `CONCILIADO` with
+`metodo_conciliacion="MANUAL"`.
+
+It requires a nonblank explanation and creates no
+`MovimientoBancario` or `Conciliacion` record.
+
+The action is accessible through **Conciliar sin banco**
+in the review screen.
+
+`deshacer_conciliacion_manual()` reverses the operation.
+
+Cash payments, settlements through another account, and
+other verified resolutions are possible use cases.
+
+Contract reporting must handle these operations explicitly,
+without treating their absence of a bank association as proof
+that no payment occurred.
 
 ### Contract economic balance (planned)
 
-Contract statement must show, at a selected date, obligations due and actual receipts attributable to that contract, and:
+The future contract statement must show, at a selected date:
 
-`saldo = exigible_total - cobrado_atribuido_total` (positive: debtor balance; negative: tenant credit).
+- Obligations due.
+- Actual receipts attributable to the contract.
+- Their difference.
 
-The arithmetic economic balance is independent of exact/progressive/accepted-difference review status and carries differences across months, down to cents. Distinguish ownership/contract attribution from pairing movements; do not count a bank receipt twice when multiple expected movements or contracts are involved. Confirm how to attribute payments on account not associated with a specific invoice and cash collections; design this before implementing the statement. No invoice or amount alteration, artificial accounting adjustments or automatic forgiveness.
+`balance = total_due - actual_receipts`
 
-### Next test-first increments
+A positive balance indicates tenant debt.
+A negative balance indicates tenant credit.
 
-1. Restore/verify no-bank manual reconciliation in the renewed UI; preserve obligatory notes and reversal.
-2. Protect automatic selection from large mismatches, prioritize exact matches and add relative-threshold tests.
-3. Define persistent review-closure semantics separately from partial allocated saldo, including undo, mixed previous partial associations, both shortfalls and excesses. Only then decide the smallest necessary migration.
-4. Implement manual progressive allocation and acceptance of small differences via the agreed simple actions.
-5. Implement contract-level exigible/actual-receipt statement with correct attribution and no double counting.
+This calculation must be independent of reconciliation review
+status, including accepted-difference closures.
 
-**Do not** replace `PARCIAL`, create reconciliation groups, or plan an independent m:n UI or operation.
+Differences accumulate across periods, including cents.
+
+Receipt attribution must avoid double counting bank movements
+associated with multiple expected movements.
+
+Cash collections, payments on account, and movements without
+a specific expected obligation require explicit attribution
+rules before implementing this statement.
+
+No invoice alteration, artificial accounting adjustment,
+or automatic forgiveness is implied by reconciliation.
+
+### Remaining work
+
+- Implement the contract economic statement and payment
+  attribution rules.
+- Optionally extend automatic grouped-proposal detection
+  to 1:3 and 3:1.
+
+Do not replace `PARCIAL`, introduce reconciliation groups,
+or implement an independent m:n reconciliation operation.
 
 ## Billing: current operational scope
 

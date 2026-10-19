@@ -1161,7 +1161,7 @@ def confirmar_grupo_conciliacion(
     *,
     cerrar_diferencia: bool = False,
 ) -> list[Conciliacion]:
-    """Confirma asociaciones, opcionalmente cerrando una diferencia 1:1."""
+    """Confirma asociaciones 1:1, 1:n o m:1, con cierre opcional de diferencia."""
 
     if not asociaciones:
         raise ConciliacionError(

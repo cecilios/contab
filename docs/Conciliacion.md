@@ -19,18 +19,41 @@ Los movimientos pueden estar **Pendiente**, **Parcial** o **Conciliado**. El ban
 
 **Parcial** significa que sólo se ha asociado parte del importe y que el saldo restante puede participar en conciliaciones posteriores.
 
+
 ## Revisar conciliación
 
-La pantalla **Revisar conciliación** tiene dos zonas:
+La pantalla **Revisar conciliación** distingue dos zonas:
 
-- **Propuestas automáticas.** Contab presenta correspondencias posibles. Se aceptan o rechazan individualmente. Rechazar una propuesta la traslada a la sección manual durante la sesión, sin modificar la base de datos.
-- **Selección manual de movimientos.** El usuario selecciona previstos y bancarios que reconoce y confirma la correspondencia. Se muestran los totales de ambos lados y la diferencia.
+- **Propuestas automáticas.** Contab identifica correspondencias
+  probables entre movimientos bancarios y previstos. El usuario puede
+  aceptarlas o rechazarlas. Rechazar una propuesta libera sus movimientos
+  para seleccionarlos manualmente durante la sesión, sin modificar la
+  base de datos.
+- **Conciliación manual.** Se divide en dos formularios independientes,
+  **Ingresos** y **Gastos**, cada uno con sus movimientos previstos,
+  bancarios, totales, diferencia y botones de confirmación. Así se evita
+  mezclar movimientos de distinta naturaleza.
 
-En la operativa actual pueden confirmarse correspondencias **1:1, 1:n y m:1 de importes coincidentes**, con saldos pendientes incluidos. Las propuestas 1:1 con importes distintos **se muestran, pero aún no pueden aceptarse**.
+Se admiten conciliaciones **1:1, 1:n y m:1**, exactas o parciales,
+y la aceptación explícita de diferencias. No se permite seleccionar
+simultáneamente varios previstos y varios bancarios (m:n).
 
-El algoritmo debe priorizar los importes exactos y proponer sólo diferencias pequeñas y bien identificadas. No debe sugerir pagos parciales muy desiguales como si fuesen pequeñas diferencias. La detección automática de 1:3 y 3:1 está aplazada, aunque la selección manual exacta permite esas cardinalidades.
+Las propuestas automáticas priorizan las correspondencias exactas.
+También pueden proponer diferencias 1:1 cuando son pequeñas
+(como máximo el 5 % del saldo previsto), las fechas son compatibles,
+la contraparte está identificada y no existen alternativas ambiguas.
 
-Los movimientos bancarios ajenos a Contab pueden **Descartarse** y restaurarse posteriormente.
+Las propuestas automáticas agrupadas abarcan actualmente 1:2 y 2:1.
+La detección automática de 1:3 y 3:1 queda aplazada, aunque esas
+cardinalidades pueden conciliarse mediante selección manual.
+
+Cuando los importes pendientes coinciden, se ofrece la confirmación
+exacta. Cuando difieren, se puede elegir entre **Conciliar parcialmente**
+y **Aceptar diferencia**.
+
+Los movimientos bancarios ajenos a Contab pueden **Descartarse**
+y restaurarse posteriormente.
+
 
 ## Conciliación manual sin banco
 
@@ -38,17 +61,57 @@ Es una función diferente de la selección manual de movimientos bancarios. Perm
 
 Es **obligatorio escribir el motivo** en las notas. No se inventa un movimiento bancario y la operación debe poder deshacerse.
 
-Esta función existía en Contab, pero **debemos recuperar o comprobar su acceso en la interfaz renovada**. No debe desaparecer ni confundirse con la selección manual de casillas.
+La acción **Conciliar sin banco** está disponible en la pantalla
+de revisión para los movimientos previstos. Requiere indicar un motivo
+en las notas, no crea un movimiento bancario ficticio y puede deshacerse.
+
 
 ## Conciliación exacta, progresiva y con diferencia
 
-- **Exacta:** coinciden los importes pendientes; se confirma la asociación y quedan conciliados los movimientos cuya parte disponible se ha agotado.
-- **Progresiva:** el usuario aplica sólo parte del importe disponible. Por ejemplo, una factura de 1.000 € y un ingreso de 600 €: el bancario queda conciliado y la factura parcial, con 400 € disponibles para asociar más adelante.
-- **Aceptar diferencia:** el usuario reconoce una correspondencia, por ejemplo 1.000 € previstos y 995 € ingresados, y cierra su revisión sin esperar otro cobro. La diferencia de 5 € permanece en el saldo económico. **Esta última operación está pendiente de implementar.**
+- **Exacta:** coinciden los importes pendientes. Se confirman las
+  asociaciones y los movimientos correspondientes quedan conciliados.
+- **Progresiva:** se asocia el importe realmente disponible, dejando
+  el resto pendiente para conciliaciones posteriores. Por ejemplo,
+  una factura de 1.000 € y un ingreso de 600 € producen una asociación
+  de 600 €; el bancario queda conciliado y el previsto queda parcial,
+  con 400 € disponibles.
+- **Aceptar diferencia:** el usuario reconoce una correspondencia
+  aunque los importes sean diferentes y cierra la revisión de los
+  movimientos afectados. Por ejemplo, frente a 1.000 € previstos,
+  un ingreso de 995 € se asocia por 995 €, pero el previsto queda
+  marcado como conciliado. Los 5 € no se consideran condonados.
 
-Cuando los importes sean iguales basta con **Aceptar**. Para importes distintos, la futura interfaz ofrecerá dos acciones sencillas: **Conciliar parcialmente** o **Aceptar diferencia**. No preguntará si hay que reclamar, condonar o compensar: eso no se decide al conciliar.
+El sistema conserva siempre los importes originales. Las asociaciones
+registran exclusivamente los importes efectivamente aplicados.
 
-La conciliación progresiva admite sucesivas asociaciones **1:n o m:1** durante meses; **no se implementará una operación m:n independiente**.
+La conciliación progresiva y el cierre con diferencias admiten
+selecciones **1:1, 1:n y m:1**. Los importes de una selección agrupada
+se distribuyen cronológicamente, de los movimientos más antiguos a
+los más recientes, utilizando el identificador para resolver empates.
+
+Todos los movimientos seleccionados deben participar en alguna
+asociación. La operación se rechaza si alguno queda completamente
+sin asociar.
+
+Al aceptar una diferencia agrupada entre varios movimientos previstos,
+todos deben pertenecer al **mismo contrato identificado**. No se permite
+atribuir automáticamente la diferencia entre contratos distintos ni
+entre movimientos cuyo contrato se desconoce.
+
+Esta exigencia de contrato común no se aplica a las conciliaciones
+progresivas sin cierre de diferencia.
+
+La aceptación de una diferencia se registra en la asociación,
+permitiendo distinguir un movimiento completamente aplicado de uno
+cuya revisión se ha cerrado expresamente. Ambas operaciones pueden
+deshacerse y los estados se recalculan.
+
+No se implementa una operación m:n independiente ni un sistema
+adicional de grupos de conciliación.
+
+Aceptar una diferencia no significa perdonarla, reclamarla ni
+compensarla. Esas decisiones no corresponden a la conciliación bancaria.
+
 
 ## Situación económica del contrato
 
