@@ -38,14 +38,15 @@ Se admiten conciliaciones **1:1, 1:n y m:1**, exactas o parciales,
 y la aceptación explícita de diferencias. No se permite seleccionar
 simultáneamente varios previstos y varios bancarios (m:n).
 
-Las propuestas automáticas priorizan las correspondencias exactas.
-También pueden proponer diferencias 1:1 cuando son pequeñas
-(como máximo el 5 % del saldo previsto), las fechas son compatibles,
-la contraparte está identificada y no existen alternativas ambiguas.
+Las propuestas automáticas priorizan las correspondencias **exactas**, tanto 1:1 como agrupadas. También admiten propuestas con diferencia de hasta el **5 % del total previsto pendiente**, calculada en céntimos y sin redondeos, para las cardinalidades 1:1, 1:2 y 2:1.
 
-Las propuestas automáticas agrupadas abarcan actualmente 1:2 y 2:1.
-La detección automática de 1:3 y 3:1 queda aplazada, aunque esas
-cardinalidades pueden conciliarse mediante selección manual.
+Las propuestas con diferencia requieren fechas y naturalezas compatibles e **identificación de contraparte en todas las parejas** de la propuesta. Las candidatas individuales y agrupadas compiten entre sí: se favorece la combinación que explica mejor los movimientos y deja menor diferencia, conservando las protecciones frente a alternativas ambiguas.
+
+Por ejemplo, ante un ingreso de 1.021,00 €, un alquiler previsto de 1.000,00 € y un reembolso de agua de 20,69 €, Contab puede preferir la agrupación de ambos previstos, cuya diferencia es de sólo **+0,31 €**, frente a conciliar exclusivamente el alquiler, que dejaría una diferencia de +21,00 €.
+
+Si varias agrupaciones alternativas presentan la misma puntuación de identificación y fechas, Contab evita decidir únicamente por una pequeña diferencia de importes y deja el caso para revisión manual.
+
+La detección automática de agrupaciones 1:3 y 3:1 queda aplazada, aunque esas cardinalidades pueden conciliarse mediante selección manual.
 
 Cuando los importes pendientes coinciden, se ofrece la confirmación
 exacta. Cuando difieren, se puede elegir entre **Conciliar parcialmente**
@@ -53,6 +54,54 @@ y **Aceptar diferencia**.
 
 Los movimientos bancarios ajenos a Contab pueden **Descartarse**
 y restaurarse posteriormente.
+
+
+## Identificación de contrapartes
+
+Para las propuestas automáticas con diferencia, Contab debe identificar la contraparte del movimiento bancario. La identificación se realiza comparando el texto bancario (tipo, descripción y referencia) con la contraparte informada en el movimiento previsto y con los alias configurados en `contab.ini`.
+
+Los alias se definen mediante secciones con esta estructura:
+
+```ini
+[conciliacion:<base_de_datos>:<tipo>:<referencia_inmueble>]
+```
+
+### Alias de inquilino
+
+Para identificar los ingresos de un inquilino se recomienda utilizar el tipo especial `inquilino`:
+
+```ini
+[conciliacion:demo:inquilino:AVLOGRO]
+alias =
+    FRUTERIAS EL
+    GERARDO LOPEZ
+```
+
+Estos alias se aplican a **todos los movimientos previstos de naturaleza INGRESO del inmueble indicado**, independientemente de su concepto: alquiler, reembolso de agua, repercusión de gastos u otros ingresos.
+
+Así, una única identificación del pagador permite proponer conciliaciones que agrupen varias obligaciones pendientes del mismo inmueble.
+
+El alias identifica al pagador y el inmueble, pero **no determina por sí solo qué previstos deben conciliarse ni identifica inequívocamente un contrato**. La selección automática sigue comprobando importes, fechas, naturaleza y posibles conflictos.
+
+### Alias específicos por concepto
+
+Las secciones anteriores continúan siendo válidas:
+
+```ini
+[conciliacion:demo:comunidad:AVLOGRO]
+alias =
+    C.P. AV. LOGROÑ
+    CP.AV.LOGROÑO
+    C.P. AVENIDA LO
+```
+
+En este caso, el alias sólo se aplica a movimientos previstos del inmueble cuyo concepto contenga el tipo `comunidad`.
+
+También siguen admitiéndose secciones específicas como `alquiler` o `reembolso`, aunque para identificar ingresos habituales del inquilino resulta preferible una única sección `inquilino`.
+
+Los alias están asociados a una base de datos concreta y a una referencia de inmueble. No se aplican automáticamente a otras bases de datos ni a otros inmuebles.
+
+**La conciliación manual no exige identificar la contraparte mediante estos mecanismos**, porque el usuario establece expresamente la correspondencia entre los movimientos.
 
 
 ## Conciliación manual sin banco
@@ -93,13 +142,9 @@ Todos los movimientos seleccionados deben participar en alguna
 asociación. La operación se rechaza si alguno queda completamente
 sin asociar.
 
-Al aceptar una diferencia agrupada entre varios movimientos previstos,
-todos deben pertenecer al **mismo contrato identificado**. No se permite
-atribuir automáticamente la diferencia entre contratos distintos ni
-entre movimientos cuyo contrato se desconoce.
+Al aceptar una diferencia agrupada entre varios movimientos previstos, todos deben pertenecer al **mismo contrato identificado** o, si ninguno tiene contrato asociado, al **mismo inmueble**. Se rechaza el cierre cuando los previstos pertenecen a contratos diferentes, corresponden a inmuebles distintos sin contrato o mezclan movimientos con contrato identificado y movimientos sin contrato.
 
-Esta exigencia de contrato común no se aplica a las conciliaciones
-progresivas sin cierre de diferencia.
+Estas restricciones de cierre no se aplican a las conciliaciones progresivas que dejan la diferencia pendiente. La conciliación manual tampoco requiere que se haya identificado automáticamente la contraparte.
 
 La aceptación de una diferencia se registra en la asociación,
 permitiendo distinguir un movimiento completamente aplicado de uno

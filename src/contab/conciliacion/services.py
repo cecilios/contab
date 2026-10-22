@@ -130,14 +130,26 @@ def _aliases_movimiento_previsto(
         movimiento.concepto
     )
 
-    return [
-        alias
-        for tipo, inmueble_ref, alias in aliases_configurados
-        if (
-            inmueble_ref.upper() == referencia
-            and _normalizar_texto_conciliacion(tipo) in concepto
-        )
-    ]
+    aliases = []
+
+    for tipo, inmueble_ref, alias in aliases_configurados:
+        if inmueble_ref.upper() != referencia:
+            continue
+
+        tipo_normalizado = _normalizar_texto_conciliacion(tipo)
+
+        if tipo_normalizado == "INQUILINO":
+            # El inquilino puede pagar cualquier ingreso
+            # previsto del inmueble, no sólo el alquiler.
+            if movimiento.naturaleza == "INGRESO":
+                aliases.append(alias)
+
+        elif tipo_normalizado in concepto:
+            # Conservar el comportamiento de los alias
+            # específicos de alquiler, comunidad, agua, etc.
+            aliases.append(alias)
+
+    return aliases
 
 
 def _identificar_contraparte_conciliacion(

@@ -8120,8 +8120,7 @@ def test_propuesta_aproximada_prefiere_grupo_con_menor_diferencia(
     session.flush()
 
     aliases = [
-        ("ALQUILER", inmueble.referencia, "GERARDO LOPEZ"),
-        ("REEMBOLSO", inmueble.referencia, "GERARDO LOPEZ"),
+        ("INQUILINO", inmueble.referencia, "GERARDO LOPEZ"),
     ]
 
     propuestas = buscar_propuestas_conciliacion(
@@ -8333,3 +8332,69 @@ def test_selecciona_agrupaciones_aproximadas_independientes(
         frozenset([alquiler_b, agua_b]),
     }
 
+
+@pytest.mark.parametrize(
+    ("naturaleza", "concepto", "debe_identificar"),
+    [
+        ("INGRESO", "Alquiler octubre", True),
+        ("INGRESO", "Reembolso de agua", True),
+        ("INGRESO", "Otros ingresos", True),
+        ("GASTO", "Agua octubre", False),
+    ],
+)
+def test_alias_inquilino_se_aplica_a_ingresos_del_inmueble(
+    inmueble,
+    naturaleza,
+    concepto,
+    debe_identificar,
+) -> None:
+    previsto = crear_movimiento_previsto(
+        inmueble=inmueble,
+        naturaleza=naturaleza,
+        concepto=concepto,
+        importe_esperado=10000,
+    )
+
+    bancario = _bancario_para_confirmar(
+        f"alias-inquilino-{naturaleza}-{concepto}",
+        10000,
+    )
+    bancario.naturaleza = naturaleza
+    bancario.descripcion_original = "PAGO GERARDO LOPEZ"
+
+    aliases = [
+        ("INQUILINO", inmueble.referencia, "GERARDO LOPEZ"),
+    ]
+
+    identificado = (
+        servicios_conciliacion._bancario_identifica_contraparte(
+            bancario,
+            previsto,
+            aliases,
+        )
+    )
+
+    assert identificado is debe_identificar
+
+
+def test_alias_inquilino_no_identifica_otro_inmueble(
+    inmueble,
+) -> None:
+    previsto = _previsto_para_confirmar(
+        inmueble, "Reembolso de agua", 2069
+    )
+
+    bancario = _bancario_para_confirmar(
+        "alias-inquilino-otro-inmueble", 2069
+    )
+    bancario.descripcion_original = "GERARDO LOPEZ"
+
+    aliases = [
+        ("INQUILINO", "OTRO-INMUEBLE", "GERARDO LOPEZ"),
+    ]
+
+    assert not servicios_conciliacion._bancario_identifica_contraparte(
+        bancario,
+        previsto,
+        aliases,
+    )
