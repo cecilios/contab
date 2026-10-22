@@ -280,6 +280,107 @@ def _seleccionar_propuestas_agrupadas(
     return seleccionadas
 
 
+def _seleccionar_propuestas_con_diferencia(
+    propuestas: list[PropuestaConciliacion],
+) -> list[PropuestaConciliacion]:
+    """Prefiere la menor diferencia y evita conflictos y empates."""
+
+    def incompatibles(primera, segunda):
+        return (
+            bool(set(primera.bancarios) & set(segunda.bancarios))
+            or bool(set(primera.previstos) & set(segunda.previstos))
+        )
+
+    def diferencia(propuesta):
+        total_bancario = sum(
+            saldo_movimiento_bancario(b)[1]
+            for b in propuesta.bancarios
+        )
+        total_previsto = sum(
+            saldo_movimiento_previsto(p)[1]
+            for p in propuesta.previstos
+        )
+        return abs(total_bancario - total_previsto)
+
+    pendientes = list(propuestas)
+    seleccionadas = []
+
+    while pendientes:
+        componente = [pendientes.pop(0)]
+
+        # Reunir todas las alternativas relacionadas.
+        indice = 0
+        while indice < len(componente):
+            actual = componente[indice]
+
+            relacionadas = [
+                propuesta
+                for propuesta in pendientes
+                if incompatibles(actual, propuesta)
+            ]
+
+            for propuesta in relacionadas:
+                pendientes.remove(propuesta)
+                componente.append(propuesta)
+
+            indice += 1
+
+        # Conservamos el límite existente de conflictos.
+        if len(componente) > MAX_PROPUESTAS_CONFLICTO:
+            continue
+
+        # No decidir por importe entre agrupaciones alternativas
+        # igualmente plausibles que comparten movimientos.
+        agrupadas = [
+            propuesta
+            for propuesta in componente
+            if (
+                len(propuesta.bancarios) > 1
+                or len(propuesta.previstos) > 1
+            )
+        ]
+
+        if any(
+            incompatibles(primera, segunda)
+            and primera.puntuacion == segunda.puntuacion
+            for primera, segunda in combinations(agrupadas, 2)
+        ):
+            continue
+
+        mejor_grupo = []
+        mejor_criterio = None
+        empate = False
+
+        for cantidad in range(1, len(componente) + 1):
+            for grupo in combinations(componente, cantidad):
+                if any(
+                    incompatibles(primera, segunda)
+                    for primera, segunda in combinations(grupo, 2)
+                ):
+                    continue
+
+                criterio = (
+                    -sum(diferencia(p) for p in grupo),
+                    sum(p.puntuacion for p in grupo),
+                )
+
+                if (
+                    mejor_criterio is None
+                    or criterio > mejor_criterio
+                ):
+                    mejor_criterio = criterio
+                    mejor_grupo = list(grupo)
+                    empate = False
+
+                elif criterio == mejor_criterio:
+                    empate = True
+
+        if not empate:
+            seleccionadas.extend(mejor_grupo)
+
+    return seleccionadas
+
+
 def _bancario_identifica_contraparte(
     bancario: MovimientoBancario,
     previsto: MovimientoPrevisto,
@@ -1943,22 +2044,19 @@ def buscar_propuestas_conciliacion(
         )
     ]
 
-    # Buscar sólo correspondencias 1:1 con diferencia
-    # y contraparte claramente identificada.
-    candidatos_diferentes = []
 
+    # Reunir todas las propuestas aproximadas admisibles.
+    propuestas_diferentes = []
+
+    # Candidatas 1:1 con contraparte identificada.
     for bancario in bancarios_libres:
-        _, pendiente_bancario = saldo_movimiento_bancario(
-            bancario
-        )
+        pendiente_bancario = saldo_movimiento_bancario(bancario)[1]
 
         if pendiente_bancario <= 0:
             continue
 
         for previsto in previstos_libres:
-            _, pendiente_previsto = saldo_movimiento_previsto(
-                previsto
-            )
+            pendiente_previsto = saldo_movimiento_previsto(previsto)[1]
 
             if pendiente_previsto <= 0:
                 continue
@@ -1966,21 +2064,17 @@ def buscar_propuestas_conciliacion(
             if pendiente_bancario == pendiente_previsto:
                 continue
 
-            # Las diferencias superiores al 5 % del saldo previsto no se sugieren
-            # automáticamente. Se calculan en céntimos, sin redondeos.
-            diferencia = abs(
-                pendiente_bancario - pendiente_previsto
-            )
-
-            if diferencia * 100 > pendiente_previsto * 5:
+            if not _importe_dentro_margen_conciliacion(
+                pendiente_bancario,
+                pendiente_previsto,
+            ):
                 continue
 
             if bancario.naturaleza != previsto.naturaleza:
                 continue
 
             if not _fecha_compatible_conciliacion(
-                bancario,
-                previsto,
+                bancario, previsto
             ):
                 continue
 
@@ -1991,65 +2085,22 @@ def buscar_propuestas_conciliacion(
             ):
                 continue
 
-            candidatos_diferentes.append(
-                (bancario, previsto)
-            )
-
-    # No sugerir correspondencias ambiguas:
-    # cada movimiento debe tener un único candidato.
-    for bancario, previsto in candidatos_diferentes:
-        alternativas_bancario = sum(
-            candidato_bancario.id == bancario.id
-            for candidato_bancario, _ in candidatos_diferentes
-        )
-
-        alternativas_previsto = sum(
-            candidato_previsto.id == previsto.id
-            for _, candidato_previsto in candidatos_diferentes
-        )
-
-        if (
-            alternativas_bancario != 1
-            or alternativas_previsto != 1
-        ):
-            continue
-
-        seleccionadas.append(
-            PropuestaConciliacion(
+            propuesta = PropuestaConciliacion(
                 bancarios=[bancario],
                 previstos=[previsto],
                 puntuacion=0,
                 motivos=["Correspondencia con diferencia."],
             )
-        )
 
-    # Las coincidencias exactas y las diferencias 1:1
-    # ya seleccionadas mantienen su prioridad.
-    bancarios_ocupados = {
-        bancario.id
-        for propuesta in seleccionadas
-        for bancario in propuesta.bancarios
-    }
+            propuesta.puntuacion = _puntuar_calidad_propuesta(
+                propuesta,
+                aliases_configurados,
+            )
 
-    previstos_ocupados = {
-        previsto.id
-        for propuesta in seleccionadas
-        for previsto in propuesta.previstos
-    }
+            propuestas_diferentes.append(propuesta)
 
-    bancarios_libres = [
-        bancario
-        for bancario in bancarios
-        if bancario.id not in bancarios_ocupados
-    ]
-
-    previstos_libres = [
-        previsto
-        for previsto in previstos
-        if previsto.id not in previstos_ocupados
-    ]
-
-    propuestas_agrupadas_diferentes = (
+    # Candidatas agrupadas 1:2 y 2:1 con diferencia.
+    propuestas_diferentes.extend(
         _buscar_propuestas_agrupadas_con_diferencia(
             bancarios_libres,
             previstos_libres,
@@ -2057,10 +2108,81 @@ def buscar_propuestas_conciliacion(
         )
     )
 
-    # Resolver conflictos y empates usando el selector existente.
+    # Conservar la protección frente a ambigüedades 1:1.
+    # Sólo permitimos resolverlas si hay una alternativa
+    # agrupada que explique conjuntamente los movimientos.
+    individuales = [
+        propuesta
+        for propuesta in propuestas_diferentes
+        if (
+            len(propuesta.bancarios) == 1
+            and len(propuesta.previstos) == 1
+        )
+    ]
+
+    agrupadas = [
+        propuesta
+        for propuesta in propuestas_diferentes
+        if (
+            len(propuesta.bancarios) > 1
+            or len(propuesta.previstos) > 1
+        )
+    ]
+
+    bancarios_ambiguos = {
+        bancario
+        for bancario in bancarios_libres
+        if sum(
+            bancario in propuesta.bancarios
+            for propuesta in individuales
+        ) > 1
+    }
+
+    previstos_ambiguos = {
+        previsto
+        for previsto in previstos_libres
+        if sum(
+            previsto in propuesta.previstos
+            for propuesta in individuales
+        ) > 1
+    }
+
+    bancarios_explicados = {
+        bancario
+        for propuesta in agrupadas
+        for bancario in propuesta.bancarios
+    }
+
+    previstos_explicados = {
+        previsto
+        for propuesta in agrupadas
+        for previsto in propuesta.previstos
+    }
+
+    propuestas_diferentes = [
+        propuesta
+        for propuesta in propuestas_diferentes
+        if (
+            propuesta in agrupadas
+            or (
+                not any(
+                    bancario in bancarios_ambiguos
+                    and bancario not in bancarios_explicados
+                    for bancario in propuesta.bancarios
+                )
+                and not any(
+                    previsto in previstos_ambiguos
+                    and previsto not in previstos_explicados
+                    for previsto in propuesta.previstos
+                )
+            )
+        )
+    ]
+
+    # Las propuestas aproximadas compiten conjuntamente.
     seleccionadas.extend(
-        _seleccionar_propuestas_agrupadas(
-            propuestas_agrupadas_diferentes
+        _seleccionar_propuestas_con_diferencia(
+            propuestas_diferentes
         )
     )
 

@@ -63,19 +63,26 @@
             </thead>
 
             {% for propuesta in propuestas %}
-                {% set total_previsto = propuesta.previstos
-                    | map(attribute="importe_esperado")
-                    | sum %}
-                {% set total_bancario = propuesta.bancarios
-                    | map(attribute="importe")
-                    | sum %}
-
-                {% set es_diferente = (
-                    propuesta.previstos|length == 1
-                    and propuesta.bancarios|length == 1
-                    and saldo_movimiento_previsto(propuesta.previstos[0])[1]
-                        != saldo_movimiento_bancario(propuesta.bancarios[0])[1]
+                {% set calculo = namespace(
+                    total_previsto=0,
+                    total_bancario=0
                 ) %}
+
+                {% for previsto in propuesta.previstos %}
+                    {% set calculo.total_previsto =
+                        calculo.total_previsto
+                        + saldo_movimiento_previsto(previsto)[1] %}
+                {% endfor %}
+
+                {% for bancario in propuesta.bancarios %}
+                    {% set calculo.total_bancario =
+                        calculo.total_bancario
+                        + saldo_movimiento_bancario(bancario)[1] %}
+                {% endfor %}
+
+                {% set diferencia =
+                    calculo.total_bancario - calculo.total_previsto %}
+                {% set es_diferente = diferencia != 0 %}
 
             <tbody class="revision-propuesta{% if es_diferente %} revision-propuesta--diferencia{% endif %}">
                 {% set numero_filas = [
@@ -157,10 +164,6 @@
                     <td class="revision-celda revision-celda--acciones">
                         {% if loop.first %}
                             {% if es_diferente %}
-                                {% set diferencia = (
-                                    saldo_movimiento_bancario(propuesta.bancarios[0])[1]
-                                    - saldo_movimiento_previsto(propuesta.previstos[0])[1]
-                                ) %}
                                 <small class="revision-propuesta__diferencia">
                                     Diferencia:
                                     {{ importe_a_texto(diferencia) }}

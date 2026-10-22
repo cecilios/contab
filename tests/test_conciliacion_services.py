@@ -8083,3 +8083,253 @@ def test_diagnostico_grupo_aplica_margen_cinco_por_ciento(
         importe_bancario - 100000
     )
 
+
+def test_propuesta_aproximada_prefiere_grupo_con_menor_diferencia(
+    session,
+    inmueble,
+) -> None:
+    """AVLOGRO: 1.021 € debe cubrir alquiler y agua."""
+
+    alquiler = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler del local octubre",
+        100000,
+    )
+    agua = _previsto_para_confirmar(
+        inmueble,
+        "Reembolso de gastos de agua",
+        2069,
+    )
+
+    for previsto in (alquiler, agua):
+        previsto.naturaleza = "INGRESO"
+        previsto.fecha_prevista_desde = date(2026, 10, 1)
+        previsto.fecha_prevista_hasta = date(2026, 10, 31)
+
+    bancario = _bancario_para_confirmar(
+        "avlogro-alquiler-agua",
+        102100,
+    )
+    bancario.naturaleza = "INGRESO"
+    bancario.fecha = date(2026, 10, 5)
+    bancario.descripcion_original = (
+        "GERARDO LOPEZ ALQUILER DEL LOCAL OCTUBRE"
+    )
+
+    session.add_all([alquiler, agua, bancario])
+    session.flush()
+
+    aliases = [
+        ("ALQUILER", inmueble.referencia, "GERARDO LOPEZ"),
+        ("REEMBOLSO", inmueble.referencia, "GERARDO LOPEZ"),
+    ]
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario],
+        [alquiler, agua],
+        aliases_configurados=aliases,
+    )
+
+    assert len(propuestas) == 1
+    assert propuestas[0].bancarios == [bancario]
+    assert set(propuestas[0].previstos) == {alquiler, agua}
+
+
+def test_propuesta_exacta_prevalece_sobre_grupo_aproximado(
+    session,
+    inmueble,
+) -> None:
+    """Una coincidencia exacta no se desplaza por un grupo aproximado."""
+
+    exacto = _previsto_para_confirmar(
+        inmueble, "Alquiler completo", 102100
+    )
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler octubre", 100000
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Reembolso agua", 2069
+    )
+
+    for previsto in (exacto, alquiler, agua):
+        previsto.naturaleza = "INGRESO"
+        previsto.contraparte = "GERARDO LOPEZ"
+        previsto.fecha_prevista_desde = date(2026, 10, 1)
+        previsto.fecha_prevista_hasta = date(2026, 10, 31)
+
+    bancario = _bancario_para_confirmar(
+        "avlogro-prioridad-exacta", 102100
+    )
+    bancario.naturaleza = "INGRESO"
+    bancario.fecha = date(2026, 10, 5)
+    bancario.descripcion_original = "GERARDO LOPEZ"
+
+    session.add_all([exacto, alquiler, agua, bancario])
+    session.flush()
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario],
+        [exacto, alquiler, agua],
+        aliases_configurados=[],
+    )
+
+    assert len(propuestas) == 1
+    assert propuestas[0].bancarios == [bancario]
+    assert propuestas[0].previstos == [exacto]
+
+
+def test_no_elegir_entre_agrupaciones_aproximadas_ambiguas(
+    session,
+    inmueble,
+) -> None:
+    """No resolver dos grupos alternativos sólo por cercanía."""
+
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler octubre", 100000
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Reembolso agua", 2069
+    )
+    otro_gasto = _previsto_para_confirmar(
+        inmueble, "Reembolso otro gasto", 2100
+    )
+
+    for previsto in (alquiler, agua, otro_gasto):
+        previsto.fecha_prevista_desde = date(2026, 10, 1)
+        previsto.fecha_prevista_hasta = date(2026, 10, 31)
+        previsto.contraparte = "GERARDO LOPEZ"
+
+    bancario = _bancario_para_confirmar(
+        "grupo-ambiguo-102100", 102100
+    )
+    bancario.descripcion_original = "GERARDO LOPEZ"
+
+    session.add_all([
+        alquiler, agua, otro_gasto, bancario,
+    ])
+    session.flush()
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario],
+        [alquiler, agua, otro_gasto],
+        aliases_configurados=[],
+    )
+
+    # Alquiler + agua: diferencia de 31 céntimos.
+    # Alquiler + otro gasto: diferencia de 0 céntimos.
+    #
+    # La segunda es exacta y, por nuestra regla de prioridad,
+    # debe ganar. En este test NO hay ambigüedad aproximada.
+    assert len(propuestas) == 1
+    assert propuestas[0].previstos == [alquiler, otro_gasto]
+
+
+def test_no_elegir_grupos_aproximados_por_diferencia_sola(
+    session,
+    inmueble,
+) -> None:
+    """Dos agrupaciones alternativas requieren revisión manual."""
+
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler octubre", 100000
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Reembolso agua", 2069
+    )
+    otro_gasto = _previsto_para_confirmar(
+        inmueble, "Reembolso otro gasto", 2050
+    )
+
+    for previsto in (alquiler, agua, otro_gasto):
+        previsto.fecha_prevista_desde = date(2026, 10, 1)
+        previsto.fecha_prevista_hasta = date(2026, 10, 31)
+        previsto.contraparte = "GERARDO LOPEZ"
+
+    bancario = _bancario_para_confirmar(
+        "grupo-ambiguo-sin-exacta", 102100
+    )
+    bancario.descripcion_original = "GERARDO LOPEZ"
+
+    session.add_all([
+        alquiler, agua, otro_gasto, bancario,
+    ])
+    session.flush()
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario],
+        [alquiler, agua, otro_gasto],
+        aliases_configurados=[],
+    )
+
+    # Alquiler + agua: diferencia de 31 céntimos.
+    # Alquiler + otro gasto: diferencia de 50 céntimos.
+    #
+    # Ambos grupos son plausibles, con la misma contraparte
+    # y las mismas fechas. La cercanía no basta para elegir.
+    assert propuestas == []
+
+
+def test_selecciona_agrupaciones_aproximadas_independientes(
+    session,
+    inmueble,
+) -> None:
+    """Dos pagos distintos se proponen sin interferirse."""
+
+    alquiler_a = _previsto_para_confirmar(
+        inmueble, "Alquiler A", 100000
+    )
+    agua_a = _previsto_para_confirmar(
+        inmueble, "Agua A", 2069
+    )
+    alquiler_b = _previsto_para_confirmar(
+        inmueble, "Alquiler B", 80000
+    )
+    agua_b = _previsto_para_confirmar(
+        inmueble, "Agua B", 1500
+    )
+
+    for previsto in (alquiler_a, agua_a):
+        previsto.fecha_prevista_desde = date(2026, 10, 1)
+        previsto.fecha_prevista_hasta = date(2026, 10, 31)
+        previsto.contraparte = "PAGADOR A"
+
+    for previsto in (alquiler_b, agua_b):
+        previsto.fecha_prevista_desde = date(2026, 10, 1)
+        previsto.fecha_prevista_hasta = date(2026, 10, 31)
+        previsto.contraparte = "PAGADOR B"
+
+    bancario_a = _bancario_para_confirmar(
+        "independiente-a", 102100
+    )
+    bancario_a.descripcion_original = "PAGADOR A"
+
+    bancario_b = _bancario_para_confirmar(
+        "independiente-b", 81520
+    )
+    bancario_b.descripcion_original = "PAGADOR B"
+
+    session.add_all([
+        alquiler_a, agua_a,
+        alquiler_b, agua_b,
+        bancario_a, bancario_b,
+    ])
+    session.flush()
+
+    propuestas = buscar_propuestas_conciliacion(
+        [bancario_a, bancario_b],
+        [alquiler_a, agua_a, alquiler_b, agua_b],
+        aliases_configurados=[],
+    )
+
+    assert len(propuestas) == 2
+
+    grupos = {
+        frozenset(propuesta.previstos)
+        for propuesta in propuestas
+    }
+
+    assert grupos == {
+        frozenset([alquiler_a, agua_a]),
+        frozenset([alquiler_b, agua_b]),
+    }
+

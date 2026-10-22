@@ -2582,7 +2582,7 @@ def test_revisar_conciliacion_presenta_propuestas_agrupadas(
 
     assert "Previsto grupo 1" in response.text
     assert "Banco grupo 1" in response.text
-    assert 'class="revision-propuesta"' in response.text
+    assert 'class="revision-propuesta' in response.text
 
     # Cada propuesta debe tener su propio tbody.
     grupos = re.findall(
@@ -2619,15 +2619,28 @@ def test_revisar_conciliacion_presenta_propuestas_agrupadas(
         ) == 1
 
     # Las acciones pertenecen al grupo, no a cada fila.
-    assert len(re.findall(
+    botones_aceptacion = re.findall(
         r'<button\b[^>]*\brevision-propuesta__boton--aceptar\b[^>]*>',
         grupo,
-    )) == 1
+    )
 
-    assert len(re.findall(
-        r'<button\b[^>]*\brevision-propuesta__boton--rechazar\b[^>]*>',
-        grupo,
-    )) == 1
+    if numero_previstos == 1 and numero_bancarios == 3:
+        # Este escenario ahora produce una propuesta con diferencia.
+        assert len(botones_aceptacion) == 2
+        assert 'value="parcial"' in grupo
+        assert 'value="aceptar_diferencia"' in grupo
+        assert 'value="exacta"' not in grupo
+        assert "Diferencia:" in grupo
+    else:
+        # Las propuestas exactas conservan un único botón.
+        assert len(botones_aceptacion) == 1
+        assert 'value="exacta"' in grupo
+        assert 'value="parcial"' not in grupo
+        assert 'value="aceptar_diferencia"' not in grupo
+        assert len(re.findall(
+            r'<button\b[^>]*\brevision-propuesta__boton--rechazar\b[^>]*>',
+            grupo,
+        )) == 1
 
     # Debe existir separación entre ambos bloques.
     assert "revision-celda--bancario-inicio" in grupo
