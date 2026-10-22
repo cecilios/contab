@@ -1,0 +1,302 @@
+
+{% extends "base.html" %}
+
+{% block title %}Debug de conciliación - Contab{% endblock %}
+
+{% block content %}
+<div class="revision">
+    <h1>Diagnóstico de conciliación</h1>
+
+    <p>
+        <a href="{{ url_for('conciliacion.revisar_conciliacion') }}">
+            Volver a revisar conciliación
+        </a>
+    </p>
+
+    <h2>
+        {% if agrupado %}
+            {{ tipo_grupo }}
+        {% else %}
+            1 previsto / 1 bancario
+        {% endif %}
+    </h2>
+
+    <h3>Movimientos previstos</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Concepto / inmueble</th>
+                <th>Saldo pendiente</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for previsto in previstos %}
+            <tr>
+                <td>
+                    {{ previsto.concepto }}
+                    ({{ previsto.inmueble.referencia }})
+                </td>
+                <td>
+                    {{ importe_a_texto(
+                        saldo_movimiento_previsto(previsto)[1]
+                    ) }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h3>Movimientos bancarios</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Descripción</th>
+                <th>Saldo pendiente</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for bancario in bancarios %}
+            <tr>
+                <td>{{ bancario.descripcion_original }}</td>
+                <td>
+                    {{ importe_a_texto(
+                        saldo_movimiento_bancario(bancario)[1]
+                    ) }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>Resultado: {{ diagnostico.tipo }}</h2>
+
+    {% if agrupado %}
+        <h3>Importes del grupo</h3>
+
+        <table>
+            <tbody>
+                <tr>
+                    <th>Total previsto</th>
+                    <td>
+                        {{ importe_a_texto(
+                            diagnostico.total_previsto
+                        ) }}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Total bancario</th>
+                    <td>
+                        {{ importe_a_texto(
+                            diagnostico.total_bancario
+                        ) }}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Diferencia</th>
+                    <td>
+                        {{ importe_a_texto(
+                            diagnostico.diferencia
+                        ) }}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Importe agrupado</th>
+                    <td>
+                        {% if diagnostico.importe_exacto %}
+                            Suma exacta
+                        {% elif "IMPORTE_GRUPO" in diagnostico.motivos_descarte %}
+                            IMPORTE_GRUPO: diferencia superior al 5 %
+                        {% else %}
+                            Diferencia dentro del 5 %
+                        {% endif %}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+
+        <p>
+            Las propuestas automáticas agrupadas 1:2 y 2:1
+            admiten una diferencia máxima del 5 % respecto
+            al total previsto, calculada sobre los saldos pendientes.
+            Las propuestas exactas tienen prioridad.
+            Para proponer una agrupación con diferencia,
+            Contab debe identificar la contraparte en todas
+            las parejas del grupo.
+        </p>
+
+        <h3>Desglose por pareja</h3>
+
+        {% for pareja in diagnostico.parejas %}
+            <h4>Pareja {{ loop.index }}</h4>
+
+            <table>
+                <tbody>
+                    <tr>
+                        <th>Naturaleza</th>
+                        <td>
+                            {{ "Compatible" if pareja.naturaleza_compatible
+                               else "NATURALEZA incompatible" }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Fecha</th>
+                        <td>
+                            {{ "Compatible" if pareja.fecha_compatible
+                               else "FECHA incompatible" }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Contraparte</th>
+                        <td>
+                            {{ "Identificada" if pareja.contraparte_identificada
+                               else "No identificada" }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Alias aplicables</th>
+                        <td>
+                            {{ pareja.aliases_aplicables | join(", ")
+                               if pareja.aliases_aplicables
+                               else "Ninguno" }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Alias coincidentes</th>
+                        <td>
+                            {{ pareja.aliases_coincidentes | join(", ")
+                               if pareja.aliases_coincidentes
+                               else "Ninguno" }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Puntos fecha</th>
+                        <td>{{ pareja.puntos_fecha }}</td>
+                    </tr>
+                    <tr>
+                        <th>Puntos contraparte</th>
+                        <td>{{ pareja.puntos_contraparte }}</td>
+                    </tr>
+                    <tr>
+                        <th>Puntos alias</th>
+                        <td>{{ pareja.puntos_alias }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        {% endfor %}
+
+        <p>
+            <strong>
+                Puntuación total del grupo:
+                {{ diagnostico.puntuacion_total }}
+            </strong>
+        </p>
+
+    {% else %}
+        <h3>Filtros individuales</h3>
+
+        <table>
+            <tbody>
+                <tr>
+                    <th>Importe (margen del 5 %)</th>
+                    <td>
+                        {{ "Compatible" if diagnostico.importe_compatible
+                           else "IMPORTE no compatible" }}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Naturaleza</th>
+                    <td>
+                        {{ "Compatible" if diagnostico.naturaleza_compatible
+                           else "NATURALEZA incompatible" }}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Fecha</th>
+                    <td>
+                        {{ "Compatible" if diagnostico.fecha_compatible
+                           else "FECHA incompatible" }}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Contraparte</th>
+                    <td>
+                        {{ "Identificada" if
+                           diagnostico.contraparte_identificada
+                           else "CONTRAPARTE no identificada" }}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Alias aplicables</th>
+                    <td>
+                        {{ diagnostico.aliases_aplicables | join(", ")
+                           if diagnostico.aliases_aplicables
+                           else "Ninguno" }}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Alias coincidentes</th>
+                    <td>
+                        {{ diagnostico.aliases_coincidentes | join(", ")
+                           if diagnostico.aliases_coincidentes
+                           else "Ninguno" }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Puntuación</h3>
+
+        <table>
+            <tbody>
+                <tr>
+                    <th>Base</th>
+                    <td>{{ diagnostico.puntos_base }}</td>
+                </tr>
+                <tr>
+                    <th>Fecha</th>
+                    <td>{{ diagnostico.puntos_fecha }}</td>
+                </tr>
+                <tr>
+                    <th>Contraparte</th>
+                    <td>{{ diagnostico.puntos_contraparte }}</td>
+                </tr>
+                <tr>
+                    <th>Alias</th>
+                    <td>{{ diagnostico.puntos_alias }}</td>
+                </tr>
+                <tr>
+                    <th>Total</th>
+                    <td>{{ diagnostico.puntuacion_total }}</td>
+                </tr>
+            </tbody>
+        </table>
+    {% endif %}
+
+    <h2>Motivos de descarte</h2>
+
+    {% if diagnostico.motivos_descarte %}
+        <ul>
+            {% for motivo in diagnostico.motivos_descarte %}
+                <li>{{ motivo }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>Se superan los filtros individuales o del grupo.</p>
+    {% endif %}
+
+    <p>
+        El diagnóstico analiza los filtros de esta selección.
+        No garantiza que el algoritmo la proponga finalmente:
+        pueden intervenir prioridades, alternativas y empates.
+    </p>
+
+    <p>
+        <a href="{{ url_for('conciliacion.revisar_conciliacion') }}">
+            Volver a revisar conciliación
+        </a>
+    </p>
+</div>
+{% endblock %}

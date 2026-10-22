@@ -2,6 +2,7 @@
 
 from flask import (
     Blueprint,
+    abort,
     current_app,
     redirect,
     render_template,
@@ -40,6 +41,8 @@ from contab.conciliacion.services import (
     descartar_movimiento_bancario,
     deshacer_asociacion_bancaria,
     deshacer_conciliacion_manual,
+    diagnosticar_emparejamiento,
+    diagnosticar_grupo_conciliacion,
     preparar_asociaciones_cronologicas,
     restaurar_movimiento_bancario,
     restaurar_movimiento_previsto,
@@ -314,6 +317,7 @@ def revisar_conciliacion():
             saldo_movimiento_bancario=saldo_movimiento_bancario,
             saldo_movimiento_previsto=saldo_movimiento_previsto,
             database_name=database_name,
+            debug_conciliacion=current_app.config.get("CONTAB_DEBUG_CONCILIACION", False),
         )
 
 
@@ -1037,29 +1041,29 @@ def aceptar_propuesta_agrupada_revision():
                     asociaciones = confirmar_propuesta_conciliacion(
                         propuesta_elegida
                     )
+
                 else:
                     bancarios = propuesta_elegida.bancarios
                     previstos = propuesta_elegida.previstos
 
-                    if len(bancarios) != 1 or len(previstos) != 1:
-                        raise ConciliacionError(
-                            "Esta acción sólo admite propuestas "
-                            "automáticas 1:1."
-                        )
-
-                    pendiente_bancario = (
-                        saldo_movimiento_bancario(bancarios[0])[1]
-                    )
-                    pendiente_previsto = (
-                        saldo_movimiento_previsto(previstos[0])[1]
+                    total_bancario = sum(
+                        saldo_movimiento_bancario(movimiento)[1]
+                        for movimiento in bancarios
                     )
 
-                    if pendiente_bancario == pendiente_previsto:
+                    total_previsto = sum(
+                        saldo_movimiento_previsto(movimiento)[1]
+                        for movimiento in previstos
+                    )
+
+                    if total_bancario == total_previsto:
                         raise ConciliacionError(
                             "Los importes coinciden. "
                             "Utiliza la confirmación exacta."
                         )
 
+                    # Prepara el reparto cronológico sin modificar
+                    # todavía ninguno de los movimientos.
                     preparadas = preparar_asociaciones_cronologicas(
                         bancarios,
                         previstos,
@@ -1311,4 +1315,107 @@ def confirmar_seleccion_manual_revision():
         url_for("conciliacion.revisar_conciliacion")
     )
 
+
+@bp.post("/revisar/debug")
+def debug_revision():
+    """Explica una pareja 1:1 sin modificar la conciliación."""
+
+    if not current_app.config.get(
+        "CONTAB_DEBUG_CONCILIACION",
+        False,
+    ):
+        abort(404)
+
+    valores_bancarios = request.form.getlist("bancario_ids")
+    valores_previstos = request.form.getlist("previsto_ids")
+
+    cardinalidad = (
+        len(valores_bancarios),
+        len(valores_previstos),
+    )
+
+    if cardinalidad not in {
+        (1, 1),
+        (1, 2),
+        (2, 1),
+    }:
+        return (
+            "Debug admite selecciones 1:1, 1:2 y 2:1.",
+            400,
+        )
+
+
+    try:
+        bancario_ids = [
+            int(valor) for valor in valores_bancarios
+        ]
+        previsto_ids = [
+            int(valor) for valor in valores_previstos
+        ]
+    except ValueError:
+        return "Identificadores no válidos.", 400
+
+    if (
+        any(valor <= 0 for valor in bancario_ids + previsto_ids)
+        or len(set(bancario_ids)) != len(bancario_ids)
+        or len(set(previsto_ids)) != len(previsto_ids)
+    ):
+        return "Identificadores no válidos.", 400
+
+    database_name = get_database_name()
+
+    aliases_por_base = current_app.extensions.get(
+        "contab_alias_conciliacion",
+        {},
+    )
+    aliases = aliases_por_base.get(database_name, [])
+
+    session_factory = get_session_factory()
+
+    with session_factory() as db_session:
+        bancarios = [
+            db_session.get(MovimientoBancario, identificador)
+            for identificador in bancario_ids
+        ]
+        previstos = [
+            db_session.get(MovimientoPrevisto, identificador)
+            for identificador in previsto_ids
+        ]
+
+        if any(m is None for m in bancarios + previstos):
+            abort(404)
+
+        if cardinalidad == (1, 1):
+            diagnostico = diagnosticar_emparejamiento(
+                bancarios[0],
+                previstos[0],
+                aliases,
+            )
+            agrupado = False
+        else:
+            diagnostico = diagnosticar_grupo_conciliacion(
+                bancarios,
+                previstos,
+                aliases,
+            )
+            agrupado = True
+
+        return render_template(
+            "conciliacion/debug.html",
+            bancarios=bancarios,
+            previstos=previstos,
+            diagnostico=diagnostico,
+            agrupado=agrupado,
+            tipo_grupo=(
+                f"{len(previstos)} "
+                f"{'previsto' if len(previstos) == 1 else 'previstos'}"
+                " / "
+                f"{len(bancarios)} "
+                f"{'bancario' if len(bancarios) == 1 else 'bancarios'}"
+            ),
+            importe_a_texto=importe_a_texto,
+            saldo_movimiento_bancario=saldo_movimiento_bancario,
+            saldo_movimiento_previsto=saldo_movimiento_previsto,
+            database_name=database_name,
+        )
 

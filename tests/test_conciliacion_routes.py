@@ -4985,3 +4985,498 @@ def test_revision_manual_rechaza_naturalezas_mezcladas(
             MovimientoBancario, bancarios[0]
         ).estado == "PENDIENTE"
 
+
+@pytest.mark.parametrize(
+    "debug_activado",
+    [False, True],
+)
+def test_revision_muestra_debug_segun_configuracion(
+    monkeypatch,
+    debug_activado,
+) -> None:
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[(100000, "INGRESO")],
+            bancarios_datos=[(97000, "INGRESO")],
+        )
+    )
+
+    app = client.application
+    app.config["CONTAB_DEBUG_CONCILIACION"] = debug_activado
+
+    # Dejamos los movimientos en selección manual.
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+
+    if debug_activado:
+        assert 'value="debug"' in response.text
+    else:
+        assert 'value="debug"' not in response.text
+
+
+def test_debug_emparejamiento_muestra_motivos_sin_modificar_datos(
+    monkeypatch,
+) -> None:
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[(100000, "INGRESO")],
+            bancarios_datos=[(97000, "INGRESO")],
+        )
+    )
+
+    client.application.config[
+        "CONTAB_DEBUG_CONCILIACION"
+    ] = True
+
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/debug",
+        data={
+            "previsto_ids": [str(previstos[0])],
+            "bancario_ids": [str(bancarios[0])],
+        },
+    )
+
+    assert response.status_code == 200
+
+    assert "Diagnóstico de conciliación" in response.text
+    assert "Contraparte" in response.text
+    assert "Importe" in response.text
+    assert "Puntuación" in response.text
+    assert "Alias" in response.text
+
+    # Diagnosticar no crea asociaciones ni modifica estados.
+    with session_factory() as db_session:
+        assert db_session.scalars(
+            select(Conciliacion)
+        ).all() == []
+
+        assert db_session.get(
+            MovimientoPrevisto,
+            previstos[0],
+        ).estado == "PENDIENTE"
+
+        assert db_session.get(
+            MovimientoBancario,
+            bancarios[0],
+        ).estado == "PENDIENTE"
+
+
+def test_debug_conciliacion_desactivado_rechaza_peticion() -> None:
+    client, _, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[(100000, "INGRESO")],
+            bancarios_datos=[(97000, "INGRESO")],
+        )
+    )
+
+    client.application.config[
+        "CONTAB_DEBUG_CONCILIACION"
+    ] = False
+
+    response = client.post(
+        "/conciliacion/revisar/debug",
+        data={
+            "previsto_ids": [str(previstos[0])],
+            "bancario_ids": [str(bancarios[0])],
+        },
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    (
+        "previstos_datos",
+        "bancarios_datos",
+        "tipo",
+    ),
+    [
+        (
+            [(100000, "INGRESO"), (20000, "INGRESO")],
+            [(120000, "INGRESO")],
+            "2 previstos / 1 bancario",
+        ),
+        (
+            [(120000, "INGRESO")],
+            [(100000, "INGRESO"), (20000, "INGRESO")],
+            "1 previsto / 2 bancarios",
+        ),
+        (
+            [(100000, "INGRESO"), (20000, "INGRESO")],
+            [(119962, "INGRESO")],
+            "2 previstos / 1 bancario",
+        ),
+    ],
+)
+def test_debug_conciliacion_agrupada(
+    monkeypatch,
+    previstos_datos,
+    bancarios_datos,
+    tipo,
+) -> None:
+    """Diagnostica grupos exactos y con diferencia sin confirmarlos."""
+
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=previstos_datos,
+            bancarios_datos=bancarios_datos,
+        )
+    )
+
+    client.application.config[
+        "CONTAB_DEBUG_CONCILIACION"
+    ] = True
+
+    # Dejamos todos los movimientos en selección manual.
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/debug",
+        data={
+            "previsto_ids": [str(i) for i in previstos],
+            "bancario_ids": [str(i) for i in bancarios],
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Diagnóstico de conciliación" in response.text
+    assert tipo in response.text
+
+    with session_factory() as db_session:
+        assert db_session.scalars(
+            select(Conciliacion)
+        ).all() == []
+
+        for identificador in previstos:
+            assert db_session.get(
+                MovimientoPrevisto,
+                identificador,
+            ).estado == "PENDIENTE"
+
+        for identificador in bancarios:
+            assert db_session.get(
+                MovimientoBancario,
+                identificador,
+            ).estado == "PENDIENTE"
+
+
+@pytest.mark.parametrize(
+    ("previstos", "bancarios", "estado_esperado"),
+    [
+        ([], ["1"], 400),
+        (["1"], [], 400),
+        (["1", "2"], ["1"], 404),
+        (["abc"], ["1"], 400),
+        (["1"], ["0"], 400),
+        (["1", "2"], ["1", "2"], 400),
+        (["1", "1"], ["1"], 400),
+    ],
+)
+def test_debug_conciliacion_exige_una_pareja_valida(
+    previstos,
+    bancarios,
+    estado_esperado,
+) -> None:
+    client, _, _, _ = crear_escenario_seleccion_manual(
+        previstos_datos=[(100000, "INGRESO")],
+        bancarios_datos=[(97000, "INGRESO")],
+    )
+
+    client.application.config[
+        "CONTAB_DEBUG_CONCILIACION"
+    ] = True
+
+    response = client.post(
+        "/conciliacion/revisar/debug",
+        data={
+            "previsto_ids": previstos,
+            "bancario_ids": bancarios,
+        },
+    )
+
+    assert response.status_code == estado_esperado
+
+
+@pytest.mark.parametrize(
+    "cardinalidad",
+    ["uno_a_dos", "dos_a_uno"],
+)
+@pytest.mark.parametrize(
+    "importe_bancario",
+    [119962, 120038],
+)
+@pytest.mark.parametrize(
+    "accion",
+    ["parcial", "aceptar_diferencia"],
+)
+def test_aceptar_propuesta_automatica_agrupada_con_diferencia(
+    cardinalidad,
+    importe_bancario,
+    accion,
+) -> None:
+    """Confirma una propuesta aproximada 1:2 o 2:1."""
+
+    if cardinalidad == "uno_a_dos":
+        previstos_datos = [(120000, "INGRESO")]
+        bancarios_datos = [
+            (60000, "INGRESO"),
+            (importe_bancario - 60000, "INGRESO"),
+        ]
+    else:
+        previstos_datos = [
+            (100000, "INGRESO"),
+            (20000, "INGRESO"),
+        ]
+        bancarios_datos = [
+            (importe_bancario, "INGRESO"),
+        ]
+
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=previstos_datos,
+            bancarios_datos=bancarios_datos,
+        )
+    )
+
+    # El buscador automático de diferencias exige identificar
+    # todas las contrapartes de la agrupación.
+    with session_factory() as db_session:
+        with db_session.begin():
+            for identificador in bancarios:
+                bancario = db_session.get(
+                    MovimientoBancario,
+                    identificador,
+                )
+                bancario.descripcion_original = (
+                    "PAGO CONTRAPARTE PRUEBA"
+                )
+
+            # Aceptar una diferencia m:1 exige que todos los
+            # previstos pertenezcan al mismo contrato.
+            if cardinalidad == "dos_a_uno":
+                movimientos = [
+                    db_session.get(
+                        MovimientoPrevisto,
+                        identificador,
+                    )
+                    for identificador in previstos
+                ]
+
+                contrato = Contrato(
+                    inmueble=movimientos[0].inmueble,
+                    fecha_inicio=date(2026, 1, 1),
+                    fecha_vencimiento=date(2035, 12, 31),
+                    genera_factura=True,
+                    fecha_inicio_facturacion=date(2026, 1, 1),
+                    fianza=0,
+                    direccion_facturacion="Dirección de prueba",
+                    poblacion_facturacion="Madrid",
+                    provincia_facturacion="Madrid",
+                    concepto_factura="Alquiler",
+                )
+
+                db_session.add(contrato)
+
+                for movimiento in movimientos:
+                    movimiento.contrato = contrato
+
+    # El algoritmo real debe ofrecer la propuesta.
+    response = client.get("/conciliacion/revisar")
+
+    assert response.status_code == 200
+    assert "Propuestas automáticas" in response.text
+    assert "Aceptar diferencia" in response.text
+    assert "Conciliar parcialmente" in response.text
+
+    # Confirmamos desde la ruta de propuestas automáticas,
+    # no desde la conciliación manual.
+    response = client.post(
+        "/conciliacion/revisar/propuestas/aceptar",
+        data={
+            "previsto_ids": [str(i) for i in previstos],
+            "bancario_ids": [str(i) for i in bancarios],
+            "accion": accion,
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as db_session:
+        asociaciones = db_session.scalars(
+            select(Conciliacion)
+        ).all()
+
+        assert len(asociaciones) == 2
+
+        assert sum(
+            asociacion.importe_asociado
+            for asociacion in asociaciones
+        ) == min(120000, importe_bancario)
+
+        cierres = [
+            asociacion
+            for asociacion in asociaciones
+            if (
+                asociacion.cierra_bancario
+                or asociacion.cierra_previsto
+            )
+        ]
+
+        if accion == "aceptar_diferencia":
+            assert len(cierres) == 1
+        else:
+            assert cierres == []
+
+        todos_previstos = [
+            db_session.get(
+                MovimientoPrevisto, identificador
+            )
+            for identificador in previstos
+        ]
+
+        todos_bancarios = [
+            db_session.get(
+                MovimientoBancario, identificador
+            )
+            for identificador in bancarios
+        ]
+
+        if accion == "aceptar_diferencia":
+            assert all(
+                movimiento.estado == "CONCILIADO"
+                for movimiento in [
+                    *todos_previstos,
+                    *todos_bancarios,
+                ]
+            )
+
+        elif importe_bancario < 120000:
+            assert any(
+                movimiento.estado == "PARCIAL"
+                for movimiento in todos_previstos
+            )
+
+            assert all(
+                movimiento.estado == "CONCILIADO"
+                for movimiento in todos_bancarios
+            )
+
+        else:
+            assert all(
+                movimiento.estado == "CONCILIADO"
+                for movimiento in todos_previstos
+            )
+
+            assert any(
+                movimiento.estado == "PARCIAL"
+                for movimiento in todos_bancarios
+            )
+
+
+def test_conciliacion_manual_no_exige_identificar_contraparte() -> None:
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[(10000, "INGRESO")],
+            bancarios_datos=[(8000, "INGRESO")],
+        )
+    )
+
+    # La contraparte del previsto es CONTRAPARTE PRUEBA,
+    # mientras que el texto bancario es Bancario manual 1.
+    # No coinciden y no hay alias que los relacionen.
+    #
+    # La diferencia supera el 5 %, por lo que el algoritmo
+    # automático no debe reservar esta pareja.
+
+    response = client.post(
+        "/conciliacion/revisar/manual/confirmar",
+        data={
+            "previsto_ids": [str(previstos[0])],
+            "bancario_ids": [str(bancarios[0])],
+            "accion": "parcial",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as db_session:
+        asociaciones = db_session.scalars(
+            select(Conciliacion)
+        ).all()
+
+        assert len(asociaciones) == 1
+        assert asociaciones[0].importe_asociado == 8000
+
+        assert db_session.get(
+            MovimientoBancario, bancarios[0]
+        ).estado == "CONCILIADO"
+
+        assert db_session.get(
+            MovimientoPrevisto, previstos[0]
+        ).estado == "PARCIAL"
+
+
+def test_manual_acepta_diferencia_gastos_sin_contrato_mismo_inmueble():
+    client, session_factory, previstos, bancarios = (
+        crear_escenario_seleccion_manual(
+            previstos_datos=[
+                (6911, "GASTO"),
+                (2530, "GASTO"),
+            ],
+            bancarios_datos=[
+                (9341, "GASTO"),
+            ],
+        )
+    )
+
+    response = client.post(
+        "/conciliacion/revisar/manual/confirmar",
+        data={
+            "previsto_ids": [str(i) for i in previstos],
+            "bancario_ids": [str(i) for i in bancarios],
+            "accion": "aceptar_diferencia",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as db_session:
+        asociaciones = db_session.scalars(
+            select(Conciliacion)
+        ).all()
+
+        assert len(asociaciones) == 2
+        assert sum(
+            asociacion.importe_asociado
+            for asociacion in asociaciones
+        ) == 9341
+
+        assert sum(
+            bool(asociacion.cierra_previsto)
+            for asociacion in asociaciones
+        ) == 1
+
+        assert all(
+            db_session.get(
+                MovimientoPrevisto, identificador
+            ).estado == "CONCILIADO"
+            for identificador in previstos
+        )
+

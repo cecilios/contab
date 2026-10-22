@@ -66,12 +66,25 @@ document.addEventListener("DOMContentLoaded", () => {
             ".revision-manual__boton-diferencia"
         );
 
+        const botonDebug = formulario.querySelector(
+            ".revision-manual__boton-debug"
+        );
+
         function actualizarTotales() {
             const importePrevistos = totalSeleccionado(previstos);
             const importeBancarios = totalSeleccionado(bancarios);
 
             const cantidadPrevistos = contarSeleccionados(previstos);
             const cantidadBancarios = contarSeleccionados(bancarios);
+
+            if (botonDebug) {
+                const seleccionAdmitida =
+                    (cantidadPrevistos === 1 && cantidadBancarios === 1)
+                    || (cantidadPrevistos === 2 && cantidadBancarios === 1)
+                    || (cantidadPrevistos === 1 && cantidadBancarios === 2);
+
+                botonDebug.disabled = !seleccionAdmitida;
+            }
 
             const diferenciaCentimos =
                 importeBancarios - importePrevistos;

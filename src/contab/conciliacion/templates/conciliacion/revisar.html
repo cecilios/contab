@@ -220,6 +220,22 @@
                                             Aceptar
                                         </button>
                                     {% endif %}
+
+                                    {% if debug_conciliacion
+                                          and propuesta.bancarios | length == 1
+                                          and propuesta.previstos | length == 1 %}
+                                        <button
+                                            class="revision-propuesta__boton"
+                                            type="submit"
+                                            formaction="{{ url_for('conciliacion.debug_revision') }}"
+                                            formmethod="post"
+                                            name="accion"
+                                            value="debug"
+                                        >
+                                            Debug
+                                        </button>
+                                    {% endif %}
+
                                 </form>
 
                                 <form
@@ -549,6 +565,21 @@
                     >
                         Aceptar diferencia
                     </button>
+
+                    {% if debug_conciliacion %}
+                        <button
+                            class="revision-manual__boton-debug"
+                            type="submit"
+                            formaction="{{ url_for('conciliacion.debug_revision') }}"
+                            formmethod="post"
+                            name="accion"
+                            value="debug"
+                            disabled
+                        >
+                            Debug
+                        </button>
+                    {% endif %}
+
                 </div>
 
             </div>

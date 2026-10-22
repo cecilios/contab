@@ -16,6 +16,7 @@ from contab.config import (
     cargar_alias_conciliacion,
     cargar_bancos,
     cargar_bases_datos,
+    cargar_debug_conciliacion,
     cargar_secret_key,
 )
 
@@ -27,6 +28,7 @@ def create_app(
     aliases_conciliacion: (
         dict[str, list[tuple[str, str, str]]] | None
     ) = None,
+    debug_conciliacion: bool | None = None,
 ) -> Flask:
     """Crea la aplicación Flask y configura las bases de datos disponibles."""
     app = Flask(__name__)
@@ -36,6 +38,17 @@ def create_app(
         secret_key = cargar_secret_key()
 
     app.secret_key = secret_key
+
+    if debug_conciliacion is None:
+        debug_conciliacion = (
+            cargar_debug_conciliacion()
+            if databases is None
+            else False
+        )
+
+    app.config["CONTAB_DEBUG_CONCILIACION"] = (
+        debug_conciliacion
+    )
 
     cargar_configuracion_bases = databases is None
 

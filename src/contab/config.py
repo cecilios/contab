@@ -530,3 +530,29 @@ def cargar_alias_conciliacion(
     return resultado
 
 
+def cargar_debug_conciliacion(
+    ruta: str | Path | None = None,
+) -> bool:
+    """Indica si está habilitado el diagnóstico de conciliación."""
+
+    if ruta is None:
+        ruta = ruta_configuracion()
+
+    config = ConfigParser(interpolation=None)
+
+    if not config.read(ruta, encoding="utf-8"):
+        raise ConfigError(
+            f"No se pudo leer el archivo de configuración: {ruta}"
+        )
+
+    try:
+        return config.getboolean(
+            "app",
+            "debug_conciliacion",
+            fallback=False,
+        )
+    except ValueError as exc:
+        raise ConfigError(
+            "debug_conciliacion debe ser true o false."
+        ) from exc
+

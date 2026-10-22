@@ -38,6 +38,7 @@ from contab.conciliacion.services import (
     descartar_movimiento_bancario,
     deshacer_asociacion_bancaria,
     deshacer_conciliacion_manual,
+    diagnosticar_emparejamiento,
     preparar_asociaciones_cronologicas,
     proponer_conciliacion,
     puntuar_candidato_conciliacion,
@@ -6766,8 +6767,6 @@ def test_conciliacion_agrupada_parcial_permite_contratos_distintos(
     [
         ("uno_identificado", 119962),
         ("uno_identificado", 120038),
-        ("ninguno_identificado", 119962),
-        ("ninguno_identificado", 120038),
     ],
 )
 def test_cierre_diferencia_agrupada_exige_contrato_identificado(
@@ -6833,6 +6832,71 @@ def test_cierre_diferencia_agrupada_exige_contrato_identificado(
     assert bancario.conciliaciones == []
 
 
+@pytest.mark.parametrize(
+    "importe_bancario",
+    [119962, 120038],
+)
+def test_cierre_diferencia_agrupada_sin_contrato_mismo_inmueble(
+    session,
+    inmueble,
+    importe_bancario,
+) -> None:
+    """Permite cerrar diferencias sin contrato en un mismo inmueble."""
+
+    alquiler = _previsto_para_confirmar(
+        inmueble, "Alquiler", 100000
+    )
+    agua = _previsto_para_confirmar(
+        inmueble, "Agua", 20000
+    )
+
+    # Ninguno de los previstos tiene contrato.
+    assert alquiler.contrato_id is None
+    assert agua.contrato_id is None
+
+    alquiler.fecha_prevista_desde = date(2026, 9, 1)
+    agua.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        f"sin-contrato-mismo-inmueble-{importe_bancario}",
+        importe_bancario,
+    )
+
+    session.add_all([alquiler, agua, bancario])
+    session.flush()
+
+    asociaciones_preparadas = preparar_asociaciones_cronologicas(
+        [bancario],
+        [agua, alquiler],
+    )
+
+    assert len(asociaciones_preparadas) == 2
+
+    asociaciones = confirmar_grupo_conciliacion(
+        asociaciones_preparadas,
+        cerrar_diferencia=True,
+    )
+
+    assert len(asociaciones) == 2
+
+    assert sum(
+        asociacion.importe_asociado
+        for asociacion in asociaciones
+    ) == min(120000, importe_bancario)
+
+    assert sum(
+        bool(
+            asociacion.cierra_bancario
+            or asociacion.cierra_previsto
+        )
+        for asociacion in asociaciones
+    ) == 1
+
+    assert alquiler.estado == "CONCILIADO"
+    assert agua.estado == "CONCILIADO"
+    assert bancario.estado == "CONCILIADO"
+
+
 def test_conciliacion_parcial_agrupada_permite_contrato_desconocido(
     session,
     inmueble,
@@ -6891,5 +6955,1131 @@ def test_conciliacion_parcial_agrupada_permite_contrato_desconocido(
     assert not any(
         c.cierra_previsto or c.cierra_bancario
         for c in conciliaciones
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "importe_bancario",
+        "naturaleza_bancario",
+        "fecha_bancaria",
+        "descripcion",
+        "tipo_esperado",
+        "motivos_esperados",
+    ),
+    [
+        # Importe exacto: no exige identificar contraparte.
+        (
+            100000,
+            "INGRESO",
+            date(2026, 10, 5),
+            "TRANSFERENCIA DESCONOCIDA",
+            "EXACTA",
+            [],
+        ),
+        # Diferencia del 3 %, contraparte reconocida.
+        (
+            97000,
+            "INGRESO",
+            date(2026, 10, 5),
+            "PAGO JUAN PEREZ",
+            "DIFERENCIA",
+            [],
+        ),
+        # Diferencia superior al 5 %.
+        (
+            94000,
+            "INGRESO",
+            date(2026, 10, 5),
+            "PAGO JUAN PEREZ",
+            "DESCARTADA",
+            ["IMPORTE"],
+        ),
+        # Naturaleza incompatible.
+        (
+            97000,
+            "GASTO",
+            date(2026, 10, 5),
+            "PAGO JUAN PEREZ",
+            "DESCARTADA",
+            ["NATURALEZA"],
+        ),
+        # Más de siete días antes de la fecha prevista.
+        (
+            97000,
+            "INGRESO",
+            date(2026, 9, 20),
+            "PAGO JUAN PEREZ",
+            "DESCARTADA",
+            ["FECHA"],
+        ),
+        # Diferencia pequeña, pero contraparte desconocida.
+        (
+            97000,
+            "INGRESO",
+            date(2026, 10, 5),
+            "TRANSFERENCIA DESCONOCIDA",
+            "DESCARTADA",
+            ["CONTRAPARTE"],
+        ),
+    ],
+)
+def test_diagnosticar_emparejamiento_examina_filtros(
+    inmueble,
+    importe_bancario,
+    naturaleza_bancario,
+    fecha_bancaria,
+    descripcion,
+    tipo_esperado,
+    motivos_esperados,
+) -> None:
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+    previsto.contraparte = "Juan Pérez"
+
+    bancario = _bancario_para_confirmar(
+        "debug-filtros",
+        importe_bancario,
+    )
+    bancario.naturaleza = naturaleza_bancario
+    bancario.fecha = fecha_bancaria
+    bancario.descripcion_original = descripcion
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_emparejamiento(
+            bancario,
+            previsto,
+            aliases_configurados=[],
+        )
+    )
+
+    assert diagnostico.tipo == tipo_esperado
+    assert diagnostico.motivos_descarte == motivos_esperados
+
+    assert diagnostico.importe_compatible is (
+        "IMPORTE" not in motivos_esperados
+    )
+    assert diagnostico.naturaleza_compatible is (
+        "NATURALEZA" not in motivos_esperados
+    )
+    assert diagnostico.fecha_compatible is (
+        "FECHA" not in motivos_esperados
+    )
+
+    # La coincidencia exacta no exige contraparte,
+    # pero el diagnóstico igualmente informa sobre ella.
+    assert diagnostico.contraparte_identificada is (
+        "JUAN PEREZ" in descripcion
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "aliases",
+        "descripcion",
+        "aplicables",
+        "coincidentes",
+        "tipo_esperado",
+    ),
+    [
+        (
+            [
+                ("ALQUILER", "LOCAL-DEBUG", "PAGO LOCAL 17"),
+            ],
+            "TRANSFERENCIA PAGO LOCAL 17",
+            ["PAGO LOCAL 17"],
+            ["PAGO LOCAL 17"],
+            "DIFERENCIA",
+        ),
+        (
+            [
+                ("ALQUILER", "LOCAL-DEBUG", "PAGO LOCAL 17"),
+            ],
+            "TRANSFERENCIA SIN REFERENCIA",
+            ["PAGO LOCAL 17"],
+            [],
+            "DESCARTADA",
+        ),
+        (
+            [
+                ("AGUA", "LOCAL-DEBUG", "PAGO LOCAL 17"),
+            ],
+            "TRANSFERENCIA PAGO LOCAL 17",
+            [],
+            [],
+            "DESCARTADA",
+        ),
+        (
+            [
+                ("ALQUILER", "OTRO-LOCAL", "PAGO LOCAL 17"),
+            ],
+            "TRANSFERENCIA PAGO LOCAL 17",
+            [],
+            [],
+            "DESCARTADA",
+        ),
+    ],
+)
+def test_diagnosticar_emparejamiento_explica_aliases(
+    inmueble,
+    aliases,
+    descripcion,
+    aplicables,
+    coincidentes,
+    tipo_esperado,
+) -> None:
+    inmueble.referencia = "LOCAL-DEBUG"
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+    previsto.contraparte = "Juan Pérez"
+
+    bancario = _bancario_para_confirmar(
+        "debug-aliases",
+        99500,
+    )
+    bancario.descripcion_original = descripcion
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_emparejamiento(
+            bancario,
+            previsto,
+            aliases_configurados=aliases,
+        )
+    )
+
+    assert diagnostico.tipo == tipo_esperado
+    assert diagnostico.aliases_aplicables == aplicables
+    assert diagnostico.aliases_coincidentes == coincidentes
+
+    assert diagnostico.contraparte_identificada is bool(
+        coincidentes
+    )
+
+    if tipo_esperado == "DESCARTADA":
+        assert "CONTRAPARTE" in diagnostico.motivos_descarte
+    else:
+        assert diagnostico.motivos_descarte == []
+
+
+@pytest.mark.parametrize(
+    ("importe_bancario", "tipo_esperado"),
+    [
+        (95000, "DIFERENCIA"),
+        (105000, "DIFERENCIA"),
+        (94999, "DESCARTADA"),
+        (105001, "DESCARTADA"),
+    ],
+)
+def test_diagnosticar_emparejamiento_limite_cinco_por_ciento(
+    inmueble,
+    importe_bancario,
+    tipo_esperado,
+) -> None:
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+    previsto.contraparte = "Juan Pérez"
+
+    bancario = _bancario_para_confirmar(
+        f"debug-limite-{importe_bancario}",
+        importe_bancario,
+    )
+    bancario.descripcion_original = "PAGO JUAN PEREZ"
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_emparejamiento(
+            bancario,
+            previsto,
+            aliases_configurados=[],
+        )
+    )
+
+    assert diagnostico.tipo == tipo_esperado
+
+    if tipo_esperado == "DESCARTADA":
+        assert diagnostico.motivos_descarte == ["IMPORTE"]
+    else:
+        assert diagnostico.motivos_descarte == []
+
+
+@pytest.mark.parametrize(
+    ("estado_bancario", "estado_previsto", "motivos"),
+    [
+        ("PENDIENTE", "PENDIENTE", []),
+        ("PARCIAL", "PARCIAL", []),
+        ("CONCILIADO", "PENDIENTE", ["ESTADO_BANCARIO"]),
+        ("DESCARTADO", "PENDIENTE", ["ESTADO_BANCARIO"]),
+        ("PENDIENTE", "CONCILIADO", ["ESTADO_PREVISTO"]),
+        ("PENDIENTE", "CANCELADO", ["ESTADO_PREVISTO"]),
+        (
+            "DESCARTADO",
+            "CANCELADO",
+            ["ESTADO_BANCARIO", "ESTADO_PREVISTO"],
+        ),
+    ],
+)
+def test_diagnosticar_emparejamiento_comprueba_estados(
+    inmueble,
+    estado_bancario,
+    estado_previsto,
+    motivos,
+) -> None:
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+    previsto.contraparte = "Juan Pérez"
+    previsto.estado = estado_previsto
+
+    bancario = _bancario_para_confirmar(
+        "debug-estados",
+        100000,
+    )
+    bancario.fecha = date(2026, 10, 1)
+    bancario.descripcion_original = "PAGO JUAN PEREZ"
+    bancario.estado = estado_bancario
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_emparejamiento(
+            bancario,
+            previsto,
+            aliases_configurados=[],
+        )
+    )
+
+    assert diagnostico.estado_bancario_valido is (
+        estado_bancario in {"PENDIENTE", "PARCIAL"}
+    )
+    assert diagnostico.estado_previsto_valido is (
+        estado_previsto in {"PENDIENTE", "PARCIAL"}
+    )
+
+    assert diagnostico.motivos_descarte == motivos
+
+    if motivos:
+        assert diagnostico.tipo == "DESCARTADA"
+    else:
+        assert diagnostico.tipo == "EXACTA"
+
+
+@pytest.mark.parametrize(
+    (
+        "fecha_bancaria",
+        "fecha_hasta",
+        "descripcion",
+        "aliases",
+        "puntos_fecha",
+        "puntos_contraparte",
+        "puntos_alias",
+    ),
+    [
+        # Fecha exacta y contraparte reconocida.
+        (
+            date(2026, 10, 1),
+            None,
+            "PAGO JUAN PEREZ",
+            [],
+            20,
+            50,
+            0,
+        ),
+        # Fecha compatible, pero sin puntos por fecha.
+        (
+            date(2026, 10, 5),
+            None,
+            "TRANSFERENCIA DESCONOCIDA",
+            [],
+            0,
+            0,
+            0,
+        ),
+        # Fecha dentro de un intervalo previsto.
+        (
+            date(2026, 10, 5),
+            date(2026, 10, 10),
+            "PAGO JUAN PEREZ",
+            [],
+            20,
+            50,
+            0,
+        ),
+        # Sólo se reconoce un alias.
+        (
+            date(2026, 10, 1),
+            None,
+            "TRANSFERENCIA REF LOCAL 17",
+            ["REF LOCAL 17"],
+            20,
+            0,
+            40,
+        ),
+        # Se reconoce la contraparte y un alias distinto.
+        (
+            date(2026, 10, 1),
+            None,
+            "JUAN PEREZ REF LOCAL 17",
+            ["REF LOCAL 17"],
+            20,
+            50,
+            40,
+        ),
+        # Alias idéntico a la contraparte: no duplica puntos.
+        (
+            date(2026, 10, 1),
+            None,
+            "JUAN PEREZ",
+            ["Juan Pérez"],
+            20,
+            50,
+            0,
+        ),
+    ],
+)
+def test_diagnosticar_emparejamiento_desglosa_puntuacion(
+    inmueble,
+    fecha_bancaria,
+    fecha_hasta,
+    descripcion,
+    aliases,
+    puntos_fecha,
+    puntos_contraparte,
+    puntos_alias,
+) -> None:
+    inmueble.referencia = "LOCAL-DEBUG"
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+    previsto.fecha_prevista_hasta = fecha_hasta
+    previsto.contraparte = "Juan Pérez"
+
+    bancario = _bancario_para_confirmar(
+        "debug-puntuacion",
+        100000,
+    )
+    bancario.fecha = fecha_bancaria
+    bancario.descripcion_original = descripcion
+
+    aliases_configurados = [
+        ("ALQUILER", "LOCAL-DEBUG", alias)
+        for alias in aliases
+    ]
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_emparejamiento(
+            bancario,
+            previsto,
+            aliases_configurados=aliases_configurados,
+        )
+    )
+
+    assert diagnostico.tipo == "EXACTA"
+    assert diagnostico.puntos_base == 100
+    assert diagnostico.puntos_fecha == puntos_fecha
+    assert diagnostico.puntos_contraparte == puntos_contraparte
+    assert diagnostico.puntos_alias == puntos_alias
+
+    assert diagnostico.puntuacion_total == (
+        100
+        + puntos_fecha
+        + puntos_contraparte
+        + puntos_alias
+    )
+
+    # Comparamos contra el algoritmo real de scoring,
+    # para que ambos resultados no puedan divergir.
+    propuesta = servicios_conciliacion.PropuestaConciliacion(
+        bancarios=[bancario],
+        previstos=[previsto],
+        puntuacion=0,
+    )
+
+    puntuacion_real = (
+        servicios_conciliacion._puntuar_calidad_propuesta(
+            propuesta,
+            aliases_configurados,
+        )
+    )
+
+    assert diagnostico.puntuacion_total == puntuacion_real
+
+
+@pytest.mark.parametrize(
+    ("importe_bancario", "importe_previsto"),
+    [
+        (0, 100000),
+        (100000, 0),
+        (0, 0),
+    ],
+)
+def test_diagnosticar_emparejamiento_rechaza_saldo_agotado(
+    inmueble,
+    monkeypatch,
+    importe_bancario,
+    importe_previsto,
+) -> None:
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+    previsto.contraparte = "Juan Pérez"
+
+    bancario = _bancario_para_confirmar(
+        "debug-saldo-agotado",
+        100000,
+    )
+    bancario.fecha = date(2026, 10, 1)
+    bancario.descripcion_original = "PAGO JUAN PEREZ"
+
+    saldo_original_bancario = (
+        servicios_conciliacion.saldo_movimiento_bancario
+    )
+    saldo_original_previsto = (
+        servicios_conciliacion.saldo_movimiento_previsto
+    )
+
+    def saldo_bancario(movimiento):
+        if movimiento is bancario:
+            return (
+                100000 - importe_bancario,
+                importe_bancario,
+            )
+        return saldo_original_bancario(movimiento)
+
+    def saldo_previsto(movimiento):
+        if movimiento is previsto:
+            return (
+                100000 - importe_previsto,
+                importe_previsto,
+            )
+        return saldo_original_previsto(movimiento)
+
+    monkeypatch.setattr(
+        servicios_conciliacion,
+        "saldo_movimiento_bancario",
+        saldo_bancario,
+    )
+    monkeypatch.setattr(
+        servicios_conciliacion,
+        "saldo_movimiento_previsto",
+        saldo_previsto,
+    )
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_emparejamiento(
+            bancario,
+            previsto,
+            aliases_configurados=[],
+        )
+    )
+
+    assert diagnostico.tipo == "DESCARTADA"
+    assert "SALDO_AGOTADO" in diagnostico.motivos_descarte
+
+
+def test_puntuacion_agrupada_usa_media_de_parejas(
+    inmueble,
+) -> None:
+    """El grupo no recibe puntos adicionales por su tamaño."""
+
+    primero = _previsto_para_confirmar(
+        inmueble, "Alquiler", 60000
+    )
+    segundo = _previsto_para_confirmar(
+        inmueble, "Agua", 40000
+    )
+
+    primero.fecha_prevista_desde = date(2026, 10, 1)
+    segundo.fecha_prevista_desde = date(2026, 10, 1)
+
+    primero.contraparte = "Juan Pérez"
+    segundo.contraparte = "Otra persona"
+
+    bancario = _bancario_para_confirmar(
+        "debug-puntuacion-grupo", 100000
+    )
+    bancario.fecha = date(2026, 10, 1)
+    bancario.descripcion_original = "PAGO JUAN PEREZ"
+
+    propuesta = PropuestaConciliacion(
+        bancarios=[bancario],
+        previstos=[primero, segundo],
+        puntuacion=0,
+    )
+
+    puntuacion = (
+        servicios_conciliacion._puntuar_calidad_propuesta(
+            propuesta,
+            [],
+        )
+    )
+
+    # Pareja 1: fecha 20 + contraparte 50 = 70.
+    # Pareja 2: fecha 20 + contraparte 0 = 20.
+    # Grupo: 100 + (70 + 20) // 2 = 145.
+    assert puntuacion == 145
+
+
+@pytest.mark.parametrize(
+    (
+        "contraparte",
+        "descripcion",
+        "aliases",
+        "identificada",
+        "aplicables",
+        "coincidentes",
+    ),
+    [
+        (
+            "Juan Pérez",
+            "TRANSFERENCIA JUAN PEREZ",
+            [],
+            True,
+            [],
+            [],
+        ),
+        (
+            "Juan Pérez",
+            "TRANSFERENCIA J. PEREZ",
+            [("ALQUILER", "LOCAL-DEBUG", "J. PEREZ")],
+            True,
+            ["J. PEREZ"],
+            ["J. PEREZ"],
+        ),
+        (
+            "Juan Pérez",
+            "PAGO LOCAL 17",
+            [("AGUA", "LOCAL-DEBUG", "PAGO LOCAL 17")],
+            False,
+            [],
+            [],
+        ),
+        (
+            "Juan Pérez",
+            "PAGO LOCAL 17",
+            [("ALQUILER", "OTRO-LOCAL", "PAGO LOCAL 17")],
+            False,
+            [],
+            [],
+        ),
+        (
+            "Juan Pérez",
+            "TRANSFERENCIA DESCONOCIDA",
+            [("ALQUILER", "LOCAL-DEBUG", "J. PEREZ")],
+            False,
+            ["J. PEREZ"],
+            [],
+        ),
+        (
+            "José Núñez",
+            "INGRESO JOSE NUNEZ",
+            [],
+            True,
+            [],
+            [],
+        ),
+        (
+            "",
+            "TRANSFERENCIA DESCONOCIDA",
+            [],
+            False,
+            [],
+            [],
+        ),
+    ],
+)
+def test_identificacion_contraparte_coincide_con_diagnostico(
+    inmueble,
+    contraparte,
+    descripcion,
+    aliases,
+    identificada,
+    aplicables,
+    coincidentes,
+) -> None:
+    inmueble.referencia = "LOCAL-DEBUG"
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+    previsto.contraparte = contraparte
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+
+    bancario = _bancario_para_confirmar(
+        "debug-identificacion",
+        97000,
+    )
+    bancario.fecha = date(2026, 10, 1)
+    bancario.descripcion_original = descripcion
+
+    identificacion_automatica = (
+        servicios_conciliacion._bancario_identifica_contraparte(
+            bancario,
+            previsto,
+            aliases,
+        )
+    )
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_emparejamiento(
+            bancario,
+            previsto,
+            aliases_configurados=aliases,
+        )
+    )
+
+    assert identificacion_automatica is identificada
+    assert diagnostico.contraparte_identificada is identificada
+
+    assert diagnostico.aliases_aplicables == aplicables
+    assert diagnostico.aliases_coincidentes == coincidentes
+
+    if identificada:
+        assert diagnostico.tipo == "DIFERENCIA"
+        assert "CONTRAPARTE" not in diagnostico.motivos_descarte
+    else:
+        assert diagnostico.tipo == "DESCARTADA"
+        assert "CONTRAPARTE" in diagnostico.motivos_descarte
+
+
+def test_diagnostico_identificacion_conserva_todos_los_aliases(
+    inmueble,
+) -> None:
+    inmueble.referencia = "LOCAL-DEBUG"
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler octubre",
+        100000,
+    )
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+    previsto.contraparte = "Juan Pérez"
+
+    bancario = _bancario_para_confirmar(
+        "debug-varios-aliases",
+        97000,
+    )
+    bancario.fecha = date(2026, 10, 1)
+    bancario.descripcion_original = (
+        "PAGO JUAN PEREZ LOCAL 17 REF-123"
+    )
+
+    aliases = [
+        ("ALQUILER", "LOCAL-DEBUG", "LOCAL 17"),
+        ("ALQUILER", "LOCAL-DEBUG", "REF-123"),
+        ("ALQUILER", "LOCAL-DEBUG", "OTRO TEXTO"),
+    ]
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_emparejamiento(
+            bancario,
+            previsto,
+            aliases_configurados=aliases,
+        )
+    )
+
+    assert diagnostico.contraparte_identificada is True
+
+    assert diagnostico.aliases_aplicables == [
+        "LOCAL 17",
+        "REF-123",
+        "OTRO TEXTO",
+    ]
+
+    assert diagnostico.aliases_coincidentes == [
+        "LOCAL 17",
+        "REF-123",
+    ]
+
+    assert diagnostico.tipo == "DIFERENCIA"
+    assert diagnostico.motivos_descarte == []
+
+    # Dos alias coincidentes no duplican la bonificación.
+    assert diagnostico.puntos_contraparte == 50
+    assert diagnostico.puntos_alias == 40
+    assert diagnostico.puntuacion_total == 210
+
+
+@pytest.mark.parametrize(
+    (
+        "importes_previstos",
+        "importes_bancarios",
+        "tipo_esperado",
+        "motivos_esperados",
+    ),
+    [
+        ([100000, 20000], [120000], "GRUPO_EXACTO", []),
+        ([120000], [100000, 20000], "GRUPO_EXACTO", []),
+        (
+            [100000, 20000],
+            [119962],
+            "GRUPO_DIFERENCIA",
+            [],
+        ),
+    ],
+)
+def test_diagnosticar_grupo_conciliacion_importes(
+    inmueble,
+    importes_previstos,
+    importes_bancarios,
+    tipo_esperado,
+    motivos_esperados,
+) -> None:
+    previstos = [
+        _previsto_para_confirmar(
+            inmueble,
+            f"Previsto {indice}",
+            importe,
+        )
+        for indice, importe in enumerate(
+            importes_previstos,
+            start=1,
+        )
+    ]
+
+    bancarios = [
+        _bancario_para_confirmar(
+            f"debug-grupo-{indice}",
+            importe,
+        )
+        for indice, importe in enumerate(
+            importes_bancarios,
+            start=1,
+        )
+    ]
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_grupo_conciliacion(
+            bancarios,
+            previstos,
+            aliases_configurados=[],
+        )
+    )
+
+    assert diagnostico.tipo == tipo_esperado
+    assert diagnostico.motivos_descarte == motivos_esperados
+
+    assert diagnostico.total_bancario == sum(
+        importes_bancarios
+    )
+    assert diagnostico.total_previsto == sum(
+        importes_previstos
+    )
+
+    assert diagnostico.diferencia == (
+        sum(importes_bancarios)
+        - sum(importes_previstos)
+    )
+
+    assert diagnostico.importe_exacto is (
+        sum(importes_bancarios)
+        == sum(importes_previstos)
+    )
+
+
+def test_diagnosticar_grupo_desglosa_parejas_y_puntuacion(
+    inmueble,
+) -> None:
+    primero = _previsto_para_confirmar(
+        inmueble, "Alquiler", 100000
+    )
+    segundo = _previsto_para_confirmar(
+        inmueble, "Agua", 20000
+    )
+
+    primero.fecha_prevista_desde = date(2026, 10, 1)
+    segundo.fecha_prevista_desde = date(2026, 10, 1)
+
+    primero.contraparte = "Juan Pérez"
+    segundo.contraparte = "Otra persona"
+
+    bancario = _bancario_para_confirmar(
+        "debug-grupo-desglose", 120000
+    )
+    bancario.fecha = date(2026, 10, 1)
+    bancario.descripcion_original = "PAGO JUAN PEREZ"
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_grupo_conciliacion(
+            [bancario],
+            [primero, segundo],
+            aliases_configurados=[],
+        )
+    )
+
+    assert diagnostico.tipo == "GRUPO_EXACTO"
+    assert len(diagnostico.parejas) == 2
+
+    assert [
+        pareja.puntos_fecha
+        for pareja in diagnostico.parejas
+    ] == [20, 20]
+
+    assert [
+        pareja.puntos_contraparte
+        for pareja in diagnostico.parejas
+    ] == [50, 0]
+
+    assert diagnostico.puntuacion_total == 145
+
+    # Debe coincidir con el selector automático.
+    propuesta = PropuestaConciliacion(
+        bancarios=[bancario],
+        previstos=[primero, segundo],
+        puntuacion=0,
+    )
+
+    assert diagnostico.puntuacion_total == (
+        servicios_conciliacion._puntuar_calidad_propuesta(
+            propuesta,
+            [],
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("naturaleza_segundo", "fecha_bancaria", "motivo"),
+    [
+        ("GASTO", date(2026, 10, 5), "NATURALEZA"),
+        ("INGRESO", date(2026, 9, 20), "FECHA"),
+    ],
+)
+def test_diagnosticar_grupo_rechaza_parejas_incompatibles(
+    inmueble,
+    naturaleza_segundo,
+    fecha_bancaria,
+    motivo,
+) -> None:
+    primero = _previsto_para_confirmar(
+        inmueble, "Alquiler", 100000
+    )
+    segundo = _previsto_para_confirmar(
+        inmueble, "Agua", 20000
+    )
+
+    primero.fecha_prevista_desde = date(2026, 10, 1)
+    segundo.fecha_prevista_desde = date(2026, 10, 1)
+    segundo.naturaleza = naturaleza_segundo
+
+    bancario = _bancario_para_confirmar(
+        "debug-grupo-incompatible", 120000
+    )
+    bancario.fecha = fecha_bancaria
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_grupo_conciliacion(
+            [bancario],
+            [primero, segundo],
+            aliases_configurados=[],
+        )
+    )
+
+    assert diagnostico.tipo == "DESCARTADO"
+    assert motivo in diagnostico.motivos_descarte
+
+
+@pytest.mark.parametrize(
+    "cardinalidad",
+    ["uno_a_dos", "dos_a_uno"],
+)
+@pytest.mark.parametrize(
+    ("total_bancario", "debe_proponerse"),
+    [
+        (100000, True),   # Exacta
+        (95000, True),    # Diferencia -5 %
+        (105000, True),   # Diferencia +5 %
+        (94999, False),   # Supera el 5 % por un céntimo
+        (105001, False),  # Supera el 5 % por un céntimo
+    ],
+)
+def test_propuestas_agrupadas_admiten_diferencia_cinco_por_ciento(
+    session,
+    inmueble,
+    cardinalidad,
+    total_bancario,
+    debe_proponerse,
+) -> None:
+    """El margen se calcula sobre el total previsto del grupo."""
+
+    if cardinalidad == "uno_a_dos":
+        previsto = _previsto_para_confirmar(
+            inmueble, "Alquiler octubre", 100000
+        )
+        previsto.contraparte = "Juan Pérez"
+        previsto.fecha_prevista_desde = date(2026, 10, 1)
+
+        primero = _bancario_para_confirmar(
+            f"margen-12-a-{total_bancario}",
+            40000,
+        )
+        segundo = _bancario_para_confirmar(
+            f"margen-12-b-{total_bancario}",
+            total_bancario - 40000,
+        )
+
+        previstos = [previsto]
+        bancarios = [primero, segundo]
+
+    else:
+        primero = _previsto_para_confirmar(
+            inmueble, "Alquiler octubre", 60000
+        )
+        segundo = _previsto_para_confirmar(
+            inmueble, "Agua octubre", 40000
+        )
+
+        for previsto in (primero, segundo):
+            previsto.contraparte = "Juan Pérez"
+            previsto.fecha_prevista_desde = date(2026, 10, 1)
+
+        bancario = _bancario_para_confirmar(
+            f"margen-21-{total_bancario}",
+            total_bancario,
+        )
+
+        previstos = [primero, segundo]
+        bancarios = [bancario]
+
+    for bancario in bancarios:
+        bancario.fecha = date(2026, 10, 1)
+        bancario.descripcion_original = "PAGO JUAN PEREZ"
+
+    session.add_all([*previstos, *bancarios])
+    session.flush()
+
+    propuestas = buscar_propuestas_conciliacion(
+        bancarios,
+        previstos,
+        aliases_configurados=[],
+    )
+
+    encontrada = any(
+        set(propuesta.bancarios) == set(bancarios)
+        and set(propuesta.previstos) == set(previstos)
+        for propuesta in propuestas
+    )
+
+    assert encontrada is debe_proponerse
+
+
+def test_propuesta_exacta_tiene_prioridad_sobre_grupo_con_diferencia(
+    session,
+    inmueble,
+) -> None:
+    """La diferencia agrupada no desplaza una coincidencia exacta."""
+
+    previsto = _previsto_para_confirmar(
+        inmueble, "Alquiler octubre", 100000
+    )
+    previsto.fecha_prevista_desde = date(2026, 10, 1)
+    previsto.contraparte = "Juan Pérez"
+
+    exacto = _bancario_para_confirmar(
+        "prioridad-exacto",
+        100000,
+    )
+    parcial_1 = _bancario_para_confirmar(
+        "prioridad-parcial-1",
+        40000,
+    )
+    parcial_2 = _bancario_para_confirmar(
+        "prioridad-parcial-2",
+        59000,
+    )
+
+    for bancario in (exacto, parcial_1, parcial_2):
+        bancario.fecha = date(2026, 10, 1)
+        bancario.descripcion_original = "PAGO JUAN PEREZ"
+
+    session.add_all([
+        previsto,
+        exacto,
+        parcial_1,
+        parcial_2,
+    ])
+    session.flush()
+
+    propuestas = buscar_propuestas_conciliacion(
+        [exacto, parcial_1, parcial_2],
+        [previsto],
+        aliases_configurados=[],
+    )
+
+    assert len(propuestas) == 1
+
+    assert propuestas[0].bancarios == [exacto]
+    assert propuestas[0].previstos == [previsto]
+
+
+@pytest.mark.parametrize(
+    ("importe_bancario", "tipo", "motivos"),
+    [
+        (100000, "GRUPO_EXACTO", []),
+        (95000, "GRUPO_DIFERENCIA", []),
+        (105000, "GRUPO_DIFERENCIA", []),
+        (94999, "DESCARTADO", ["IMPORTE_GRUPO"]),
+        (105001, "DESCARTADO", ["IMPORTE_GRUPO"]),
+    ],
+)
+def test_diagnostico_grupo_aplica_margen_cinco_por_ciento(
+    inmueble,
+    importe_bancario,
+    tipo,
+    motivos,
+) -> None:
+    primero = _previsto_para_confirmar(
+        inmueble, "Alquiler octubre", 60000
+    )
+    segundo = _previsto_para_confirmar(
+        inmueble, "Agua octubre", 40000
+    )
+
+    for previsto in (primero, segundo):
+        previsto.fecha_prevista_desde = date(2026, 10, 1)
+        previsto.contraparte = "Juan Pérez"
+
+    bancario = _bancario_para_confirmar(
+        f"debug-margen-grupo-{importe_bancario}",
+        importe_bancario,
+    )
+    bancario.fecha = date(2026, 10, 1)
+    bancario.descripcion_original = "PAGO JUAN PEREZ"
+
+    diagnostico = (
+        servicios_conciliacion.diagnosticar_grupo_conciliacion(
+            [bancario],
+            [primero, segundo],
+            aliases_configurados=[],
+        )
+    )
+
+    assert diagnostico.tipo == tipo
+    assert diagnostico.motivos_descarte == motivos
+    assert diagnostico.importe_exacto is (
+        importe_bancario == 100000
+    )
+    assert diagnostico.diferencia == (
+        importe_bancario - 100000
     )
 

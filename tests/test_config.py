@@ -13,6 +13,7 @@ from contab.config import (
     cargar_bancos,
     cargar_bases_datos,
     cargar_categorias_contables,
+    cargar_debug_conciliacion,
     cargar_secret_key,
     categorias_contables_activas,
     ruta_configuracion,
@@ -588,4 +589,53 @@ def test_get_database_path_rechaza_base_en_memoria() -> None:
         ):
             get_database_path()
 
+
+@pytest.mark.parametrize(
+    ("valor", "esperado"),
+    [
+        ("true", True),
+        ("false", False),
+        ("yes", True),
+        ("no", False),
+        ("1", True),
+        ("0", False),
+    ],
+)
+def test_cargar_debug_conciliacion(
+    tmp_path,
+    valor,
+    esperado,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        f"[app]\ndebug_conciliacion = {valor}\n",
+        encoding="utf-8",
+    )
+
+    assert cargar_debug_conciliacion(ruta) is esperado
+
+
+def test_debug_conciliacion_desactivado_por_defecto(
+    tmp_path,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        "[app]\nsecret_key = prueba\n",
+        encoding="utf-8",
+    )
+
+    assert cargar_debug_conciliacion(ruta) is False
+
+
+def test_debug_conciliacion_rechaza_valor_invalido(
+    tmp_path,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        "[app]\ndebug_conciliacion = quizá\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError):
+        cargar_debug_conciliacion(ruta)
 
