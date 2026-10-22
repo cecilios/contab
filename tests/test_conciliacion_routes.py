@@ -894,6 +894,8 @@ def test_listar_movimientos_previstos() -> None:
     )
 
     assert response.status_code == 200
+    assert 'href="/conciliacion/revisar"' in response.text
+    assert "Revisar conciliación" in response.text
     assert "Movimientos previstos" in response.text
     assert "LOCAL-1" in response.text
     assert "15/09/2026 a 20/09/2026" in response.text
@@ -1697,6 +1699,7 @@ def test_conciliar_movimiento_previsto_manualmente_desde_interfaz() -> None:
     )
 
     assert response.status_code == 302
+    assert response.location.endswith("/conciliacion/revisar")
 
     # La resolución manual queda persistida sin asociación bancaria.
     with session_factory() as session:
@@ -2829,6 +2832,8 @@ def test_aceptar_propuesta_agrupada_desde_revision(
     response = client.get("/conciliacion/revisar")
 
     assert response.status_code == 200
+    assert 'href="/conciliacion/importar"' in response.text
+    assert "Importar movimientos" in response.text
     assert "Concepto agrupado 1" not in response.text
     assert "PAGADOR AGRUPADO" not in response.text
     assert "Gasto independiente" in response.text

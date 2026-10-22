@@ -7,13 +7,20 @@
 {% block content %}
     <h1>Movimientos previstos</h1>
 
-    <p>
-        <a href="{{ url_for(
-            'conciliacion.listar_movimientos_bancarios'
-        ) }}">
+    <nav class="submenu-navegacion">
+        <a
+            class="revision__enlace"
+            href="{{ url_for('conciliacion.listar_movimientos_bancarios') }}"
+        >
             Movimientos bancarios
         </a>
-    </p>
+        <a
+            class="revision__enlace"
+            href="{{ url_for('conciliacion.revisar_conciliacion') }}"
+        >
+            Revisar conciliación
+        </a>
+    </nav>
 
     <form method="get">
         <p>

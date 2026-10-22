@@ -778,10 +778,7 @@ def conciliar_movimiento_previsto_manualmente_desde_interfaz(
             )
 
     return redirect(
-        url_for(
-            "conciliacion.listar_movimientos_previstos",
-            estado="PENDIENTE",
-        )
+        url_for("conciliacion.revisar_conciliacion")
     )
 
 

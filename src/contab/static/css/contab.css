@@ -261,6 +261,11 @@ tbody tr:has(
     cursor: pointer;
 }
 
+.submenu-navegacion {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
 
 /* Pantalla de preparación de facturación (lista.html) */
 
