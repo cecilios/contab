@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from calendar import monthrange
 
@@ -585,6 +585,99 @@ def _comprobar_documento_duplicado(
     )
 
 
+def _comprobar_continuidad_suministro(
+    session,
+    *,
+    inmueble_id: int,
+    categoria: str,
+    subcategoria: str | None,
+    naturaleza: str,
+    periodo_desde: date | None,
+    periodo_hasta: date | None,
+    criterio_periodo: str | None,
+    excluir_id: int | None = None,
+) -> str | None:
+    """Avisa de huecos o solapamientos con el recibo anterior."""
+
+    if (
+        naturaleza != "GASTO"
+        or categoria != "GAS_SERVICIOS_SUMINISTROS"
+        or subcategoria not in {
+            "AGUA",
+            "GAS",
+            "ELECTRICIDAD",
+        }
+        or periodo_desde is None
+        or periodo_hasta is None
+        or criterio_periodo is None
+    ):
+        return None
+
+    consulta = (
+        select(ApunteContable)
+        .where(
+            ApunteContable.inmueble_id == inmueble_id,
+            ApunteContable.naturaleza == naturaleza,
+            ApunteContable.categoria == categoria,
+            ApunteContable.subcategoria == subcategoria,
+            ApunteContable.periodo_desde < periodo_desde,
+            ApunteContable.periodo_hasta.is_not(None),
+        )
+        .order_by(
+            ApunteContable.periodo_desde.desc(),
+            ApunteContable.id.desc(),
+        )
+        .limit(1)
+    )
+
+    if excluir_id is not None:
+        consulta = consulta.where(
+            ApunteContable.id != excluir_id
+        )
+
+    anterior = session.scalar(consulta)
+
+    if anterior is None:
+        return None
+
+    # Último día efectivamente cubierto por el recibo anterior.
+    ultimo_dia = anterior.periodo_hasta
+
+    if anterior.criterio_periodo == "EXCLUIR_HASTA":
+        ultimo_dia -= timedelta(days=1)
+
+    # Los recibos actuales incluyen siempre el día desde.
+    primer_dia_nuevo = periodo_desde
+
+    dia_esperado = ultimo_dia + timedelta(days=1)
+
+    if primer_dia_nuevo == dia_esperado:
+        return None
+
+    suministro = subcategoria.lower()
+
+    if primer_dia_nuevo > dia_esperado:
+        ultimo_dia_sin_cubrir = (
+            primer_dia_nuevo - timedelta(days=1)
+        )
+
+        return (
+            f"Posible discontinuidad en los recibos de "
+            f"{suministro}. El recibo anterior cubre hasta "
+            f"{fecha_a_texto(ultimo_dia)}. "
+            f"Falta el período desde "
+            f"{fecha_a_texto(dia_esperado)} hasta "
+            f"{fecha_a_texto(ultimo_dia_sin_cubrir)}."
+        )
+
+    return (
+        f"Posible solapamiento en los recibos de "
+        f"{suministro}. El recibo anterior cubre hasta "
+        f"{fecha_a_texto(ultimo_dia)}, pero el nuevo "
+        f"comienza el {fecha_a_texto(primer_dia_nuevo)}."
+    )
+
+
 def _datos_apunte_formulario(
     datos,
     categorias,
@@ -882,6 +975,24 @@ def nuevo_apunte():
                     valores=valores,
                 )
 
+                aviso_continuidad = _comprobar_continuidad_suministro(
+                    session,
+                    inmueble_id=inmueble_id,
+                    categoria=valores["categoria"],
+                    subcategoria=valores["subcategoria"],
+                    naturaleza=valores["naturaleza"],
+                    periodo_desde=valores["periodo_desde"],
+                    periodo_hasta=valores["periodo_hasta"],
+                    criterio_periodo=valores["criterio_periodo"],
+                )
+
+                if aviso_continuidad:
+                    aviso = (
+                        f"{aviso} {aviso_continuidad}"
+                        if aviso
+                        else aviso_continuidad
+                    )
+
                 datos_formulario["nombre_documento"] = (
                     apunte.nombre_documento
                 )
@@ -1177,6 +1288,25 @@ def editar_apunte(apunte_id: int):
                     valores=valores,
                     excluir_id=apunte_id,
                 )
+
+                aviso_continuidad = _comprobar_continuidad_suministro(
+                    session,
+                    inmueble_id=inmueble_id,
+                    categoria=valores["categoria"],
+                    subcategoria=valores["subcategoria"],
+                    naturaleza=valores["naturaleza"],
+                    periodo_desde=valores["periodo_desde"],
+                    periodo_hasta=valores["periodo_hasta"],
+                    criterio_periodo=valores["criterio_periodo"],
+                    excluir_id=apunte_id,
+                )
+
+                if aviso_continuidad:
+                    aviso = (
+                        f"{aviso} {aviso_continuidad}"
+                        if aviso
+                        else aviso_continuidad
+                    )
 
                 datos_formulario["nombre_documento"] = (
                     apunte_validado.nombre_documento

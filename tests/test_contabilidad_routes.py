@@ -17,6 +17,7 @@ from contab.contabilidad.services import (
 )
 from contab.contabilidad.routes import (
     _comprobar_documento_duplicado,
+    _comprobar_continuidad_suministro,
 )
 from contab.conciliacion.services import (
     ConciliacionError,
@@ -3348,4 +3349,270 @@ GAS_TRIBUTOS.IBI = IBI
             2026, 9, 30
         )
 
+
+@pytest.mark.parametrize(
+    (
+        "criterio_anterior",
+        "inicio_nuevo",
+        "tipo_aviso",
+    ),
+    [
+        # Fecha hasta incluida: continuidad al día siguiente.
+        ("INCLUIR_AMBOS", date(2026, 9, 1), None),
+        ("INCLUIR_AMBOS", date(2026, 9, 2), "discontinuidad"),
+        ("INCLUIR_AMBOS", date(2026, 8, 31), "solapamiento"),
+
+        # Fecha hasta excluida: continuidad el mismo día.
+        ("EXCLUIR_HASTA", date(2026, 8, 31), None),
+        ("EXCLUIR_HASTA", date(2026, 9, 1), "discontinuidad"),
+        ("EXCLUIR_HASTA", date(2026, 8, 30), "solapamiento"),
+    ],
+)
+def test_validar_continuidad_periodo_suministro(
+    session,
+    inmueble,
+    criterio_anterior,
+    inicio_nuevo,
+    tipo_aviso,
+) -> None:
+    """La continuidad depende de incluir el día hasta."""
+
+    anterior = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 9, 5),
+        naturaleza="GASTO",
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="AGUA",
+        concepto="Agua anterior",
+        periodo_desde=date(2026, 7, 1),
+        periodo_hasta=date(2026, 8, 31),
+        criterio_periodo=criterio_anterior,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="agua-anterior.pdf",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+    )
+
+    session.add(anterior)
+    session.flush()
+
+    aviso = _comprobar_continuidad_suministro(
+        session,
+        inmueble_id=inmueble.id,
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="AGUA",
+        naturaleza="GASTO",
+        periodo_desde=inicio_nuevo,
+        periodo_hasta=date(2026, 10, 31),
+        criterio_periodo="INCLUIR_AMBOS",
+    )
+
+    if tipo_aviso is None:
+        assert aviso is None
+    else:
+        assert aviso is not None
+        assert tipo_aviso in aviso.lower()
+
+
+def test_continuidad_suministro_ignora_otros_suministros(
+    session,
+    inmueble,
+) -> None:
+    anterior = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 9, 5),
+        naturaleza="GASTO",
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="GAS",
+        concepto="Gas anterior",
+        periodo_desde=date(2026, 7, 1),
+        periodo_hasta=date(2026, 8, 31),
+        criterio_periodo="INCLUIR_AMBOS",
+        tratamiento="CONTABILIZAR",
+        nombre_documento="gas-anterior.pdf",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+    )
+
+    session.add(anterior)
+    session.flush()
+
+    aviso = _comprobar_continuidad_suministro(
+        session,
+        inmueble_id=inmueble.id,
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="AGUA",
+        naturaleza="GASTO",
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 11, 30),
+        criterio_periodo="INCLUIR_AMBOS",
+    )
+
+    assert aviso is None
+
+
+def test_continuidad_suministro_excluye_apunte_editado(
+    session,
+    inmueble,
+) -> None:
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 9, 5),
+        naturaleza="GASTO",
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="AGUA",
+        concepto="Recibo editado",
+        periodo_desde=date(2026, 7, 1),
+        periodo_hasta=date(2026, 8, 31),
+        criterio_periodo="INCLUIR_AMBOS",
+        tratamiento="CONTABILIZAR",
+        nombre_documento="agua-editado.pdf",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+    )
+
+    session.add(apunte)
+    session.flush()
+
+    aviso = _comprobar_continuidad_suministro(
+        session,
+        inmueble_id=inmueble.id,
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="AGUA",
+        naturaleza="GASTO",
+        periodo_desde=date(2026, 7, 1),
+        periodo_hasta=date(2026, 8, 31),
+        criterio_periodo="INCLUIR_AMBOS",
+        excluir_id=apunte.id,
+    )
+
+    assert aviso is None
+
+
+@pytest.mark.parametrize("editar", [False, True])
+def test_validar_apunte_agua_avisa_de_discontinuidad(
+    tmp_path,
+    monkeypatch,
+    editar,
+) -> None:
+    """Alta y edición avisan si falta un período de agua."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_SERVICIOS_SUMINISTROS = GASTO | Servicios y suministros
+
+[subcategorias_contables]
+GAS_SERVICIOS_SUMINISTROS.AGUA = Agua
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CONTAB_CONFIG", str(ruta))
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        anterior = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 9, 5),
+            naturaleza="GASTO",
+            categoria="GAS_SERVICIOS_SUMINISTROS",
+            subcategoria="AGUA",
+            concepto="Agua anterior",
+            periodo_desde=date(2026, 7, 1),
+            periodo_hasta=date(2026, 8, 31),
+            criterio_periodo="INCLUIR_AMBOS",
+            tratamiento="CONTABILIZAR",
+            nombre_documento="agua-anterior.pdf",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+        )
+
+        session.add_all([inmueble, anterior])
+
+        if editar:
+            actual = ApunteContable(
+                inmueble=inmueble,
+                fecha=date(2026, 10, 1),
+                naturaleza="GASTO",
+                categoria="GAS_SERVICIOS_SUMINISTROS",
+                subcategoria="AGUA",
+                concepto="Agua actual",
+                periodo_desde=date(2026, 9, 15),
+                periodo_hasta=date(2026, 10, 31),
+                criterio_periodo="INCLUIR_AMBOS",
+                tratamiento="CONTABILIZAR",
+                nombre_documento="agua-actual.pdf",
+                base=12000,
+                iva_importe=0,
+                retencion_importe=0,
+                total=12000,
+            )
+            session.add(actual)
+
+        session.commit()
+        inmueble_id = inmueble.id
+        apunte_id = actual.id if editar else None
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    url = (
+        f"/contabilidad/{apunte_id}/editar"
+        if editar
+        else "/contabilidad/nuevo"
+    )
+
+    response = client.post(
+        url,
+        data={
+            "inmueble_id": str(inmueble_id),
+            "fecha": "01/10/2026",
+            "clasificacion": (
+                "GAS_SERVICIOS_SUMINISTROS.AGUA"
+            ),
+            "concepto": "Agua actual",
+            "periodo_desde": "15/09/2026",
+            "periodo_hasta": "31/10/2026",
+            "criterio_periodo": "INCLUIR_AMBOS",
+            "tratamiento": "CONTABILIZAR",
+            "base": "120,00",
+            "iva_importe": "0,00",
+            "retencion_importe": "0,00",
+            "nombre_documento": "",
+            "tercero_nombre": "Empresa de aguas",
+            "tercero_nif": "",
+            "referencia_documento": "AGUA-2026-02",
+            "accion": "validar",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Posible discontinuidad" in response.text
+    assert "01/09/2026" in response.text
+    assert "14/09/2026" in response.text
+    assert 'class="warning"' in response.text
+    assert _valor_input(response, "firma_validacion")
 
