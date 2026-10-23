@@ -9,6 +9,14 @@
 {% endblock %}
 
 {% block content %}
+    {% for categoria, mensaje in get_flashed_messages(
+        with_categories=true
+    ) %}
+        <p class="mensaje-{{ categoria }}">
+            {{ mensaje }}
+        </p>
+    {% endfor %}
+
     {% set meses = (
         "",
         "Enero",
@@ -27,17 +35,36 @@
 
     <h1>Facturación</h1>
 
-    <div class="no-imprimir">
+    <div class="no-imprimir facturacion-acciones">
         <a href="{{ url_for('facturacion.listar_facturas') }}">
             Facturas
         </a>
 
         {% if preparacion %}
-            &nbsp;&middot;&nbsp;
+            <span>·</span>
 
             <a href="#" onclick="window.print(); return false;">
                 Imprimir
             </a>
+
+            <span>·</span>
+
+            <form
+                method="post"
+                action="{{ url_for(
+                    'facturacion.crear_apuntes_automaticos'
+                ) }}"
+            >
+                <input
+                    type="hidden"
+                    name="periodo"
+                    value="{{ periodo_texto }}"
+                >
+
+                <button type="submit">
+                    Crear apuntes automáticos
+                </button>
+            </form>
         {% endif %}
     </div>
 

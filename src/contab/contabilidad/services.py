@@ -7,8 +7,14 @@ from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
-from contab.calculos import redondear_division
+from contab.calculos import (
+    redondear_division,
+)
+from contab.conciliacion.services import (
+    crear_movimiento_desde_apunte,
+)
 from contab.config import (
+    ApunteAutomatico,
     CategoriaContable,
     validar_clasificacion_contable,
 )
@@ -18,6 +24,7 @@ from contab.models import (
     DistribucionApunte,
     ImputacionContrato,
     Inmueble,
+    MovimientoPrevisto,
 )
 
 
@@ -41,6 +48,14 @@ class RepartoContratoCalculado:
     contrato: Contrato
     importe: int
     dias: int | None
+
+
+@dataclass(frozen=True)
+class ApunteAutomaticoPreparado:
+    """Agrupa un apunte mensual y su movimiento previsto."""
+
+    apunte: ApunteContable
+    movimiento_previsto: MovimientoPrevisto
 
 
 
@@ -1069,6 +1084,156 @@ def crear_apunte_contable(
     _preparar_distribuciones(apunte)
 
     return apunte
+
+
+def preparar_apuntes_automaticos(
+    session: Session,
+    *,
+    configurados: list[ApunteAutomatico],
+    categorias: dict[str, CategoriaContable],
+    periodo: date,
+) -> list[ApunteAutomaticoPreparado]:
+    """Prepara los apuntes mensuales y sus movimientos previstos."""
+
+    if periodo.day != 1:
+        raise ContabilidadError(
+            "El período debe comenzar el primer día del mes."
+        )
+
+    if not configurados:
+        raise ContabilidadError(
+            "No hay apuntes automáticos configurados."
+        )
+
+    # Primer y último día del período contable.
+    periodo_desde = periodo
+
+    ultimo_dia = monthrange(
+        periodo.year,
+        periodo.month,
+    )[1]
+
+    periodo_hasta = date(
+        periodo.year,
+        periodo.month,
+        ultimo_dia,
+    )
+
+    # El previsto comienza el día 20 del mes anterior.
+    mes_anterior = periodo - timedelta(days=1)
+
+    fecha_prevista_desde = date(
+        mes_anterior.year,
+        mes_anterior.month,
+        20,
+    )
+
+    fecha_prevista_hasta = periodo_hasta
+
+    periodo_texto = periodo.strftime("%m/%Y")
+
+    preparados = []
+    identificadores = set()
+
+    for configurado in configurados:
+        referencia = configurado.inmueble_referencia.strip()
+        categoria = configurado.categoria.strip().upper()
+
+        inmueble = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia == referencia
+            )
+        )
+
+        if inmueble is None:
+            raise ContabilidadError(
+                f"No existe el inmueble {referencia}."
+            )
+
+        try:
+            validar_clasificacion_contable(
+                categorias,
+                "GASTO",
+                categoria,
+                "",
+            )
+        except ValueError as exc:
+            raise ContabilidadError(
+                f"La categoría {categoria} no es válida."
+            ) from exc
+
+        concepto = (
+            f"{configurado.concepto.strip()} "
+            f"{periodo_texto}"
+        )
+
+        # Identidad del apunte, sin incluir el importe.
+        identificador = (
+            inmueble.id,
+            categoria,
+            concepto,
+            periodo_desde,
+            periodo_hasta,
+        )
+
+        # Detectar duplicados dentro del propio archivo.
+        if identificador in identificadores:
+            raise ContabilidadError(
+                f"Ya existe otro apunte automático "
+                f"para {referencia}, {concepto}."
+            )
+
+        identificadores.add(identificador)
+
+        # Detectar apuntes ya registrados en la base de datos.
+        existente = session.scalar(
+            select(ApunteContable.id).where(
+                ApunteContable.inmueble_id == inmueble.id,
+                ApunteContable.naturaleza == "GASTO",
+                ApunteContable.categoria == categoria,
+                ApunteContable.subcategoria.is_(None),
+                ApunteContable.concepto == concepto,
+                ApunteContable.periodo_desde == periodo_desde,
+                ApunteContable.periodo_hasta == periodo_hasta,
+            )
+        )
+
+        if existente is not None:
+            raise ContabilidadError(
+                f"Ya existe un apunte para "
+                f"{referencia}, {concepto}."
+            )
+
+        # Reutilizar la validación y creación contable.
+        apunte = crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=periodo,
+            naturaleza="GASTO",
+            categoria=categoria,
+            concepto=concepto,
+            base=configurado.base,
+            periodo_desde=periodo_desde,
+            periodo_hasta=periodo_hasta,
+            criterio_periodo="INCLUIR_AMBOS",
+            tratamiento="CONTABILIZAR",
+        )
+
+        # Crear siempre el movimiento previsto asociado.
+        movimiento_previsto = crear_movimiento_desde_apunte(
+            apunte=apunte,
+            fecha_prevista_desde=fecha_prevista_desde,
+            fecha_prevista_hasta=fecha_prevista_hasta,
+        )
+
+        preparados.append(
+            ApunteAutomaticoPreparado(
+                apunte=apunte,
+                movimiento_previsto=movimiento_previsto,
+            )
+        )
+
+    return preparados
 
 
 def eliminar_apunte_contable(

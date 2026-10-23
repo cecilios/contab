@@ -6,6 +6,7 @@ from sqlalchemy import select
 from flask import (
     Blueprint,
     current_app,
+    flash,
     redirect,
     render_template,
     request,
@@ -35,6 +36,8 @@ from contab.models import (
     RevisionRenta,
 )
 from contab.config import (
+    ConfigError,
+    cargar_apuntes_automaticos,
     cargar_categorias_contables,
 )
 from contab.context import (
@@ -66,6 +69,14 @@ from contab.contratos.services import (
     RevisionRentaError,
     renta_vigente,
     resolver_revision_renta,
+)
+from contab.contabilidad.services import (
+    ContabilidadError,
+    preparar_apuntes_automaticos,
+)
+
+from contab.conciliacion.services import (
+    ConciliacionError,
 )
 
 
@@ -225,6 +236,71 @@ def _factura_editada_desde_formulario(
         total=calculo.total,
     )
 
+
+
+@bp.post("/apuntes-automaticos")
+def crear_apuntes_automaticos():
+    """Genera los apuntes mensuales de la base seleccionada."""
+
+    periodo_texto = request.form.get(
+        "periodo",
+        "",
+    ).strip()
+
+    try:
+        periodo = texto_a_periodo(
+            periodo_texto
+        )
+
+        nombre_base = get_database_name()
+
+        if nombre_base is None:
+            raise ValueError(
+                "No se ha seleccionado ninguna base de datos."
+            )
+
+        configurados = cargar_apuntes_automaticos(
+            nombre_base
+        )
+
+        categorias = cargar_categorias_contables()
+
+        session_factory = get_session_factory()
+
+        with session_factory() as session:
+            with session.begin():
+                preparados = preparar_apuntes_automaticos(
+                    session,
+                    configurados=configurados,
+                    categorias=categorias,
+                    periodo=periodo,
+                )
+
+                for preparado in preparados:
+                    session.add(preparado.apunte)
+                    session.add(preparado.movimiento_previsto)
+
+    except (
+        ValueError,
+        ConfigError,
+        ContabilidadError,
+        ConciliacionError,
+    ) as exc:
+        return str(exc), 400
+
+    flash(
+        f"Se han creado {len(preparados)} "
+        f"apuntes automáticos para "
+        f"{periodo:%m/%Y}.",
+        "success",
+    )
+
+    return redirect(
+        url_for(
+            "facturacion.listar",
+            periodo=periodo_a_texto(periodo),
+        )
+    )
 
 
 @bp.get("/")

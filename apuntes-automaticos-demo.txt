@@ -1,0 +1,10 @@
+# Apuntes automáticos mensuales
+# Base de datos: damo
+# Formato:  Inmueble | Categoría | Concepto | Importe
+
+
+# Gastos de comunidad
+Local-1 | GAS_COMUNIDAD | Comunidad | 87,35
+Piso1 | GAS_COMUNIDAD | Comunidad | 64,20
+Garaje-1 | GAS_COMUNIDAD | Comunidad | 32,50
+

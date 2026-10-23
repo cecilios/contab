@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from contab.config import (
+    ApunteAutomatico,
     CategoriaContable,
     SubcategoriaContable,
 )
@@ -19,6 +20,7 @@ from contab.contabilidad.services import (
     crear_apunte_contable,
     eliminar_apunte_contable,
     modificar_apunte_contable,
+    preparar_apuntes_automaticos,
     preparar_imputaciones_contrato,
     proponer_nombre_documento,
 )
@@ -3057,5 +3059,235 @@ def test_eliminar_apunte_con_imputacion_persistida_se_rechaza(
         ApunteContable,
         apunte.id,
     ) is apunte
+
+
+def test_preparar_apuntes_automaticos_crea_apunte_y_previsto(
+    session,
+    inmueble,
+) -> None:
+    categorias = _categorias_gastos_comunes()
+
+    configurados = [
+        ApunteAutomatico(
+            inmueble_referencia="LOCAL-1",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=8735,
+        ),
+    ]
+
+    # El usuario prepara noviembre desde Facturación.
+    preparados = preparar_apuntes_automaticos(
+        session,
+        configurados=configurados,
+        categorias=categorias,
+        periodo=date(2026, 11, 1),
+    )
+
+    assert len(preparados) == 1
+
+    apunte = preparados[0].apunte
+    previsto = preparados[0].movimiento_previsto
+
+    # El apunte corresponde al mes de noviembre.
+    assert apunte.inmueble is inmueble
+    assert apunte.fecha == date(2026, 11, 1)
+    assert apunte.periodo_desde == date(2026, 11, 1)
+    assert apunte.periodo_hasta == date(2026, 11, 30)
+    assert apunte.criterio_periodo == "INCLUIR_AMBOS"
+
+    assert apunte.naturaleza == "GASTO"
+    assert apunte.categoria == "GAS_COMUNIDAD"
+    assert apunte.concepto == "Comunidad 11/2026"
+    assert apunte.tratamiento == "CONTABILIZAR"
+
+    assert apunte.base == 8735
+    assert apunte.iva_importe == 0
+    assert apunte.retencion_importe == 0
+    assert apunte.total == 8735
+
+    # El previsto conserva un margen amplio de conciliación.
+    assert previsto.apunte is apunte
+    assert previsto.inmueble is inmueble
+    assert previsto.naturaleza == "GASTO"
+    assert previsto.concepto == "Comunidad 11/2026"
+    assert previsto.importe_esperado == 8735
+
+    assert previsto.fecha_prevista_desde == date(2026, 10, 20)
+    assert previsto.fecha_prevista_hasta == date(2026, 11, 30)
+    assert previsto.estado == "PENDIENTE"
+
+
+def test_preparar_apuntes_automaticos_rechaza_duplicado_sin_comparar_importe(
+    session,
+    inmueble,
+) -> None:
+    categorias = _categorias_gastos_comunes()
+
+    # Ya existe un apunte de comunidad de noviembre.
+    existente = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 11, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad 11/2026",
+        base=8735,
+        periodo_desde=date(2026, 11, 1),
+        periodo_hasta=date(2026, 11, 30),
+        criterio_periodo="INCLUIR_AMBOS",
+    )
+
+    session.add(existente)
+    session.commit()
+
+    # El archivo contiene el mismo gasto, pero con otro importe.
+    configurados = [
+        ApunteAutomatico(
+            inmueble_referencia="LOCAL-1",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=9000,
+        ),
+    ]
+
+    # El usuario intenta generar noviembre otra vez.
+    with pytest.raises(
+        ContabilidadError,
+        match="existe",
+    ):
+        preparar_apuntes_automaticos(
+            session,
+            configurados=configurados,
+            categorias=categorias,
+            periodo=date(2026, 11, 1),
+        )
+
+    # El apunte original permanece sin modificaciones.
+    apuntes = session.scalars(
+        select(ApunteContable)
+    ).all()
+
+    assert len(apuntes) == 1
+    assert apuntes[0].id == existente.id
+    assert apuntes[0].base == 8735
+
+
+@pytest.mark.parametrize(
+    ("referencia", "categoria", "mensaje"),
+    [
+        (
+            "LOCAL-INEXISTENTE",
+            "GAS_COMUNIDAD",
+            "inmueble",
+        ),
+        (
+            "LOCAL-1",
+            "GAS_INEXISTENTE",
+            "categoría",
+        ),
+    ],
+)
+def test_preparar_apuntes_automaticos_rechaza_configuracion_invalida(
+    session,
+    inmueble,
+    referencia: str,
+    categoria: str,
+    mensaje: str,
+) -> None:
+    categorias = _categorias_gastos_comunes()
+
+    configurados = [
+        ApunteAutomatico(
+            inmueble_referencia=referencia,
+            categoria=categoria,
+            concepto="Comunidad",
+            base=8735,
+        ),
+    ]
+
+    # El usuario intenta generar apuntes con datos incorrectos.
+    with pytest.raises(
+        ContabilidadError,
+        match=mensaje,
+    ):
+        preparar_apuntes_automaticos(
+            session,
+            configurados=configurados,
+            categorias=categorias,
+            periodo=date(2026, 11, 1),
+        )
+
+    # No debe haberse creado ningún apunte.
+    apuntes = session.scalars(
+        select(ApunteContable)
+    ).all()
+
+    assert apuntes == []
+
+
+def test_preparar_apuntes_automaticos_rechaza_todo_si_hay_duplicado(
+    session,
+    inmueble,
+) -> None:
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario ya contabilizó Comunidad de noviembre.
+    existente = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 11, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad 11/2026",
+        base=8735,
+        periodo_desde=date(2026, 11, 1),
+        periodo_hasta=date(2026, 11, 30),
+        criterio_periodo="INCLUIR_AMBOS",
+    )
+
+    session.add(existente)
+    session.commit()
+
+    # El usuario intenta generar dos apuntes del mes.
+    # El primero es nuevo, pero el segundo ya existe.
+    configurados = [
+        ApunteAutomatico(
+            inmueble_referencia="LOCAL-1",
+            categoria="GAS_COMUNIDAD",
+            concepto="Limpieza",
+            base=2500,
+        ),
+        ApunteAutomatico(
+            inmueble_referencia="LOCAL-1",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=9000,
+        ),
+    ]
+
+    with pytest.raises(
+        ContabilidadError,
+        match="existe",
+    ):
+        preparar_apuntes_automaticos(
+            session,
+            configurados=configurados,
+            categorias=categorias,
+            periodo=date(2026, 11, 1),
+        )
+
+    # La preparación fallida no deja objetos pendientes
+    # de insertar en la sesión.
+    assert not session.new
+
+    # El único apunte registrado sigue siendo el original.
+    apuntes = session.scalars(
+        select(ApunteContable)
+    ).all()
+
+    assert len(apuntes) == 1
+    assert apuntes[0].id == existente.id
+    assert apuntes[0].base == 8735
 
 

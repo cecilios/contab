@@ -5397,3 +5397,316 @@ def test_eliminar_factura_con_gasto_facturable_rechaza_cobro_conciliado(
         assert pendientes == []
 
 
+def test_crear_apuntes_automaticos_desde_facturacion(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+
+    ruta_config.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    ruta_apuntes = (
+        tmp_path / "apuntes-automaticos-test.txt"
+    )
+
+    ruta_apuntes.write_text(
+        """
+# Gastos mensuales
+LOCAL-1 | GAS_COMUNIDAD | Comunidad | 87,35
+LOCAL-2 | GAS_COMUNIDAD | Comunidad | 64,20
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta_config),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        session.add_all([
+            Inmueble(
+                referencia="LOCAL-1",
+                tipo="L",
+                codigo_facturacion="A1",
+                descripcion="Local 1",
+                direccion="Dirección",
+                poblacion="Pontevedra",
+                provincia="Pontevedra",
+            ),
+            Inmueble(
+                referencia="LOCAL-2",
+                tipo="L",
+                codigo_facturacion="A2",
+                descripcion="Local 2",
+                direccion="Dirección",
+                poblacion="Pontevedra",
+                provincia="Pontevedra",
+            ),
+        ])
+        session.commit()
+
+    client = app.test_client()
+
+    # El usuario selecciona su base de datos.
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario genera los apuntes de noviembre.
+    response = client.post(
+        "/facturacion/apuntes-automaticos",
+        data={"periodo": "11/2026"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+
+    texto = response.get_data(as_text=True)
+
+    assert "2 apuntes automáticos" in texto
+    assert "11/2026" in texto
+
+    # Comprobamos que se han guardado los dos apuntes.
+    with session_factory() as session:
+        apuntes = session.scalars(
+            select(ApunteContable).order_by(
+                ApunteContable.concepto,
+                ApunteContable.id,
+            )
+        ).all()
+
+        assert len(apuntes) == 2
+
+        assert {apunte.base for apunte in apuntes} == {
+            8735,
+            6420,
+        }
+
+        for apunte in apuntes:
+            assert apunte.fecha == date(2026, 11, 1)
+            assert apunte.periodo_desde == date(2026, 11, 1)
+            assert apunte.periodo_hasta == date(2026, 11, 30)
+            assert apunte.naturaleza == "GASTO"
+            assert apunte.tratamiento == "CONTABILIZAR"
+
+        # Cada apunte tiene su propio movimiento previsto.
+        previstos = session.scalars(
+            select(MovimientoPrevisto)
+        ).all()
+
+        assert len(previstos) == 2
+
+        for previsto in previstos:
+            assert previsto.apunte_id in {
+                apunte.id for apunte in apuntes
+            }
+
+            assert previsto.fecha_prevista_desde == date(
+                2026, 10, 20
+            )
+            assert previsto.fecha_prevista_hasta == date(
+                2026, 11, 30
+            )
+            assert previsto.estado == "PENDIENTE"
+
+
+def test_crear_apuntes_automaticos_rechaza_segunda_generacion(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+
+    ruta_config.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    ruta_apuntes = (
+        tmp_path / "apuntes-automaticos-test.txt"
+    )
+
+    ruta_apuntes.write_text(
+        "LOCAL-1 | GAS_COMUNIDAD | Comunidad | 87,35\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta_config),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        session.add(
+            Inmueble(
+                referencia="LOCAL-1",
+                tipo="L",
+                codigo_facturacion="A1",
+                descripcion="Local comercial",
+                direccion="Dirección",
+                poblacion="Pontevedra",
+                provincia="Pontevedra",
+            )
+        )
+        session.commit()
+
+    client = app.test_client()
+
+    # El usuario selecciona la base de datos.
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # Primera generación: debe completarse correctamente.
+    primera = client.post(
+        "/facturacion/apuntes-automaticos",
+        data={"periodo": "11/2026"},
+    )
+
+    assert primera.status_code == 302
+
+    # El usuario pulsa de nuevo Crear apuntes automáticos.
+    segunda = client.post(
+        "/facturacion/apuntes-automaticos",
+        data={"periodo": "11/2026"},
+    )
+
+    assert segunda.status_code == 400
+
+    texto = segunda.get_data(as_text=True)
+
+    assert "existe" in texto
+
+    # La segunda operación no debe duplicar registros.
+    with session_factory() as session:
+        apuntes = session.scalars(
+            select(ApunteContable)
+        ).all()
+
+        previstos = session.scalars(
+            select(MovimientoPrevisto)
+        ).all()
+
+        assert len(apuntes) == 1
+        assert len(previstos) == 1
+
+        assert apuntes[0].base == 8735
+        assert previstos[0].importe_esperado == 8735
+
+
+def test_crear_apuntes_automaticos_no_guarda_si_uno_falla(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+
+    ruta_config.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    ruta_apuntes = (
+        tmp_path / "apuntes-automaticos-test.txt"
+    )
+
+    ruta_apuntes.write_text(
+        """
+LOCAL-1 | GAS_COMUNIDAD | Comunidad | 87,35
+LOCAL-INEXISTENTE | GAS_COMUNIDAD | Comunidad | 64,20
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta_config),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        session.add(
+            Inmueble(
+                referencia="LOCAL-1",
+                tipo="L",
+                codigo_facturacion="A1",
+                descripcion="Local comercial",
+                direccion="Dirección",
+                poblacion="Pontevedra",
+                provincia="Pontevedra",
+            )
+        )
+        session.commit()
+
+    client = app.test_client()
+
+    # El usuario selecciona la base de datos.
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario intenta generar dos apuntes de noviembre.
+    # El primero es válido, pero el segundo tiene
+    # una referencia de inmueble inexistente.
+    response = client.post(
+        "/facturacion/apuntes-automaticos",
+        data={"periodo": "11/2026"},
+    )
+
+    assert response.status_code == 400
+
+    texto = response.get_data(as_text=True)
+
+    assert "LOCAL-INEXISTENTE" in texto
+
+    # No debe haberse guardado ninguno de los dos apuntes.
+    with session_factory() as session:
+        apuntes = session.scalars(
+            select(ApunteContable)
+        ).all()
+
+        previstos = session.scalars(
+            select(MovimientoPrevisto)
+        ).all()
+
+        assert apuntes == []
+        assert previstos == []
+
+

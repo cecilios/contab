@@ -8,7 +8,8 @@ body {
 }
 
 @media print {
-    .no-imprimir {
+    .no-imprimir,
+    .no-imprimir.facturacion-acciones {
         display: none;
     }
 }
@@ -269,10 +270,44 @@ tbody tr:has(
 
 /* Pantalla de preparación de facturación (lista.html) */
 
+.facturacion-acciones {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+
+.facturacion-acciones form {
+    margin: 0;
+}
+
+.facturacion-acciones button {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: #0000ee;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
 .facturacion-preparacion {
     display: flex;
     align-items: baseline;
     gap: 0.5rem;
+}
+.facturacion-preparacion #periodo {
+    min-width: 0;
+    width: 10ch;
+}
+
+.facturacion-preparacion #fecha_emision {
+    min-width: 0;
+    width: 12ch;
+}
+
+.facturacion-preparacion label[for="fecha_emision"] {
+    margin-left: 5.5rem;
 }
 
 .facturacion-locales {

@@ -10,6 +10,7 @@ from contab.config import (
     ConfigError,
     SubcategoriaContable,
     cargar_alias_conciliacion,
+    cargar_apuntes_automaticos,
     cargar_bancos,
     cargar_bases_datos,
     cargar_categorias_contables,
@@ -638,4 +639,260 @@ def test_debug_conciliacion_rechaza_valor_invalido(
 
     with pytest.raises(ConfigError):
         cargar_debug_conciliacion(ruta)
+
+def test_cargar_apuntes_automaticos_segun_base(
+    tmp_path: Path,
+) -> None:
+    """Lee exclusivamente los apuntes de la base indicada."""
+
+    ruta_config = tmp_path / "contab.ini"
+
+    ruta_config.write_text(
+        "[app]\nsecret_key = prueba\n",
+        encoding="utf-8",
+    )
+
+    # El usuario tiene configuradas dos bases de datos.
+    archivo_demo = (
+        tmp_path / "apuntes-automaticos-demo.txt"
+    )
+    archivo_principal = (
+        tmp_path / "apuntes-automaticos-principal.txt"
+    )
+
+    archivo_demo.write_text(
+        "DEMO-1 | GAS_COMUNIDAD | Comunidad | 12,50\n",
+        encoding="utf-8",
+    )
+
+    archivo_principal.write_text(
+        """
+# Gastos mensuales de la base principal
+
+LOCAL-1 | GAS_COMUNIDAD | Comunidad | 87,35
+LOCAL-2 | GAS_COMUNIDAD | Comunidad | 64,20
+""".strip(),
+        encoding="utf-8",
+    )
+
+    # El usuario selecciona la base de datos principal.
+    apuntes = cargar_apuntes_automaticos(
+        "principal",
+        ruta_config,
+    )
+
+    # Se leen sus dos apuntes, no el de la base demo.
+    assert len(apuntes) == 2
+
+    assert apuntes[0].inmueble_referencia == "LOCAL-1"
+    assert apuntes[0].categoria == "GAS_COMUNIDAD"
+    assert apuntes[0].concepto == "Comunidad"
+    assert apuntes[0].base == 8735
+
+    assert apuntes[1].inmueble_referencia == "LOCAL-2"
+    assert apuntes[1].categoria == "GAS_COMUNIDAD"
+    assert apuntes[1].concepto == "Comunidad"
+    assert apuntes[1].base == 6420
+
+
+def test_cargar_apuntes_automaticos_rechaza_archivo_inexistente(
+    tmp_path: Path,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+
+    ruta_config.write_text(
+        "[app]\nsecret_key = prueba\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="No se encuentra el archivo",
+    ):
+        cargar_apuntes_automaticos(
+            "principal",
+            ruta_config,
+        )
+
+
+def test_cargar_apuntes_automaticos_rechaza_archivo_vacio(
+    tmp_path: Path,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+    ruta_archivo = (
+        tmp_path / "apuntes-automaticos-principal.txt"
+    )
+
+    ruta_config.write_text(
+        "[app]\nsecret_key = prueba\n",
+        encoding="utf-8",
+    )
+
+    ruta_archivo.write_text(
+        """
+# Apuntes mensuales
+#
+# Todavía no hay apuntes configurados.
+
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="No hay apuntes automáticos",
+    ):
+        cargar_apuntes_automaticos(
+            "principal",
+            ruta_config,
+        )
+
+
+def test_cargar_apuntes_automaticos_rechaza_campos_incorrectos(
+    tmp_path: Path,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+    ruta_archivo = (
+        tmp_path / "apuntes-automaticos-principal.txt"
+    )
+
+    ruta_config.write_text(
+        "[app]\nsecret_key = prueba\n",
+        encoding="utf-8",
+    )
+
+    ruta_archivo.write_text(
+        """
+# Gastos mensuales
+LOCAL-1 | GAS_COMUNIDAD | Comunidad
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="línea 2",
+    ):
+        cargar_apuntes_automaticos(
+            "principal",
+            ruta_config,
+        )
+
+
+@pytest.mark.parametrize(
+    "linea",
+    [
+        "| GAS_COMUNIDAD | Comunidad | 87,35",
+        "LOCAL-1 | | Comunidad | 87,35",
+        "LOCAL-1 | GAS_COMUNIDAD | | 87,35",
+    ],
+)
+def test_cargar_apuntes_automaticos_rechaza_campos_vacios(
+    tmp_path: Path,
+    linea: str,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+    ruta_archivo = (
+        tmp_path / "apuntes-automaticos-principal.txt"
+    )
+
+    ruta_config.write_text(
+        "[app]\nsecret_key = prueba\n",
+        encoding="utf-8",
+    )
+
+    ruta_archivo.write_text(
+        linea,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="línea 1",
+    ):
+        cargar_apuntes_automaticos(
+            "principal",
+            ruta_config,
+        )
+
+
+@pytest.mark.parametrize(
+    "importe",
+    [
+        "",
+        "abc",
+        "0",
+        "0,00",
+        "-10,50",
+        "10,123",
+        "12.50",
+    ],
+)
+def test_cargar_apuntes_automaticos_rechaza_importes_invalidos(
+    tmp_path: Path,
+    importe: str,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+    ruta_archivo = (
+        tmp_path / "apuntes-automaticos-principal.txt"
+    )
+
+    ruta_config.write_text(
+        "[app]\nsecret_key = prueba\n",
+        encoding="utf-8",
+    )
+
+    ruta_archivo.write_text(
+        f"LOCAL-1 | GAS_COMUNIDAD | Comunidad | {importe}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ConfigError,
+        match="importe",
+    ):
+        cargar_apuntes_automaticos(
+            "principal",
+            ruta_config,
+        )
+
+
+@pytest.mark.parametrize(
+    ("importe", "centimos"),
+    [
+        ("85", 8500),
+        ("85,5", 8550),
+        ("85,50", 8550),
+        ("0,01", 1),
+        ("1234,56", 123456),
+    ],
+)
+def test_cargar_apuntes_automaticos_convierte_importes(
+    tmp_path: Path,
+    importe: str,
+    centimos: int,
+) -> None:
+    ruta_config = tmp_path / "contab.ini"
+    ruta_archivo = (
+        tmp_path / "apuntes-automaticos-principal.txt"
+    )
+
+    ruta_config.write_text(
+        "[app]\nsecret_key = prueba\n",
+        encoding="utf-8",
+    )
+
+    ruta_archivo.write_text(
+        f"LOCAL-1 | GAS_COMUNIDAD | Comunidad | {importe}\n",
+        encoding="utf-8",
+    )
+
+    apuntes = cargar_apuntes_automaticos(
+        "principal",
+        ruta_config,
+    )
+
+    assert len(apuntes) == 1
+    assert apuntes[0].base == centimos
+
 

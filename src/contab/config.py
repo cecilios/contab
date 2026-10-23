@@ -1,4 +1,5 @@
 import os
+import re
 
 from configparser import ConfigParser
 from pathlib import Path
@@ -28,6 +29,16 @@ class CategoriaContable:
     subcategorias: tuple[SubcategoriaContable, ...]
 
 
+@dataclass(frozen=True)
+class ApunteAutomatico:
+    """Datos de un apunte contable mensual configurado."""
+
+    inmueble_referencia: str
+    categoria: str
+    concepto: str
+    base: int
+
+
 
 def ruta_configuracion() -> Path:
     """Devuelve la ruta del archivo de configuración de Contab."""
@@ -37,6 +48,133 @@ def ruta_configuracion() -> Path:
         return Path(ruta)
 
     return Path("contab.ini")
+
+
+def cargar_apuntes_automaticos(
+    nombre_base: str,
+    ruta: str | Path | None = None,
+) -> list[ApunteAutomatico]:
+    """Carga los apuntes automáticos de una base de datos."""
+
+    if ruta is None:
+        ruta = ruta_configuracion()
+
+    ruta = Path(ruta)
+
+    # El nombre de la base forma parte del nombre del archivo.
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", nombre_base):
+        raise ConfigError(
+            "El nombre de la base de datos no es válido."
+        )
+
+    archivo = ruta.parent / (
+        f"apuntes-automaticos-{nombre_base}.txt"
+    )
+
+    if not archivo.is_file():
+        raise ConfigError(
+            f"No se encuentra el archivo de apuntes "
+            f"automáticos: {archivo}"
+        )
+
+    try:
+        lineas = archivo.read_text(
+            encoding="utf-8"
+        ).splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ConfigError(
+            f"No se pudo leer el archivo: {archivo}"
+        ) from exc
+
+    apuntes = []
+
+    for numero_linea, linea in enumerate(
+        lineas,
+        start=1,
+    ):
+        linea = linea.strip()
+
+        # Se ignoran comentarios y líneas vacías.
+        if not linea or linea.startswith("#"):
+            continue
+
+        campos = [
+            campo.strip()
+            for campo in linea.split("|")
+        ]
+
+        if len(campos) != 4:
+            raise ConfigError(
+                f"Formato incorrecto en la línea "
+                f"{numero_linea} de {archivo.name}: "
+                f"se esperan cuatro campos."
+            )
+
+        (
+            inmueble_referencia,
+            categoria,
+            concepto,
+            importe_texto,
+        ) = campos
+
+        if not (
+            inmueble_referencia
+            and categoria
+            and concepto
+        ):
+            raise ConfigError(
+                f"Hay campos obligatorios vacíos "
+                f"en la línea {numero_linea} "
+                f"de {archivo.name}."
+            )
+
+        # Se admiten importes positivos con coma decimal
+        # y un máximo de dos cifras decimales.
+        if not re.fullmatch(
+            r"\d+(?:,\d{1,2})?",
+            importe_texto,
+        ):
+            raise ConfigError(
+                f"El importe de la línea "
+                f"{numero_linea} de {archivo.name} "
+                f"no es válido."
+            )
+
+        partes = importe_texto.split(",")
+
+        euros = int(partes[0])
+
+        centimos = (
+            int(partes[1].ljust(2, "0"))
+            if len(partes) == 2
+            else 0
+        )
+
+        base = euros * 100 + centimos
+
+        if base <= 0:
+            raise ConfigError(
+                f"El importe de la línea "
+                f"{numero_linea} de {archivo.name} "
+                f"debe ser positivo."
+            )
+
+        apuntes.append(
+            ApunteAutomatico(
+                inmueble_referencia=inmueble_referencia,
+                categoria=categoria.upper(),
+                concepto=concepto,
+                base=base,
+            )
+        )
+
+    if not apuntes:
+        raise ConfigError(
+            f"No hay apuntes automáticos "
+            f"en el archivo {archivo.name}."
+        )
+
+    return apuntes
 
 
 def cargar_secret_key(
