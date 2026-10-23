@@ -960,7 +960,7 @@ def deshacer_asociacion_bancaria_desde_interfaz(
     return redirect(
         url_for(
             "conciliacion.listar_movimientos_previstos",
-            estado="TODOS",
+            estado="CONCILIADO",
         )
     )
 

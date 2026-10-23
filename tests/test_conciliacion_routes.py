@@ -1991,6 +1991,8 @@ def test_deshacer_conciliacion_manual_desde_interfaz() -> None:
 
     assert response.status_code == 302
 
+    assert "estado=CONCILIADO" in response.location
+
     # El movimiento vuelve a quedar disponible para conciliar.
     with session_factory() as session:
         movimiento = session.get(
