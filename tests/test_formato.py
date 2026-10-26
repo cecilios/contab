@@ -23,9 +23,17 @@ def test_importe_a_texto_entrada() -> None:
 
 
 def test_importe_a_texto() -> None:
+    # Importes positivos.
     assert importe_a_texto(102500) == "1.025,00"
     assert importe_a_texto(35) == "0,35"
+
+    # Importes negativos sin céntimos.
     assert importe_a_texto(-102500) == "-1.025,00"
+
+    # Importes negativos con céntimos.
+    assert importe_a_texto(-3025) == "-30,25"
+    assert importe_a_texto(-50) == "-0,50"
+    assert importe_a_texto(-123456) == "-1.234,56"
 
 
 def test_texto_a_importe() -> None:

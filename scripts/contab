@@ -1,5 +1,5 @@
 #!/bin/sh
 # Script que se copia durante la instalación en /usr/local/bin/
 
-export CONTAB_CONFIG=/opt/contab/contab.ini
+export CONTAB_CONFIG=/datos/casa/inmuebles/contab/contab.ini
 exec /opt/contab/venv/bin/contab "$@"

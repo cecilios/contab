@@ -36,10 +36,10 @@ from contab.config import (
 
 
 def _valor_input(response, nombre: str) -> str:
-    """Extrae el valor de un input de la respuesta HTML."""
+    """Extrae el valor de un input por su nombre o identificador."""
 
     coincidencia = re.search(
-        rf'name="{re.escape(nombre)}"'
+        rf'(?:name|id)="{re.escape(nombre)}"'
         rf'[^>]*value="([^"]*)"',
         response.text,
         re.DOTALL,
@@ -48,6 +48,7 @@ def _valor_input(response, nombre: str) -> str:
     assert coincidencia is not None
 
     return unescape(coincidencia.group(1))
+
 
 
 def crear_app_test():
@@ -649,6 +650,119 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
         )
         assert movimiento.estado == "PENDIENTE"
         assert movimiento.metodo_conciliacion is None
+
+
+def test_crear_apunte_negativo_desde_formulario(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("CONTAB_CONFIG", str(ruta))
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "26/10/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Devolución de comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": "-30,00",
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Comunidad de propietarios",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "accion": "validar",
+    }
+
+    # El usuario introduce una base negativa y pulsa Validar.
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    # El total calculado debe mostrarse con signo negativo.
+    assert _valor_input(
+        response,
+        "importe_a_pagar",
+    ) == "-30,00"
+
+    nombre_documento = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    firma_validacion = _valor_input(
+        response,
+        "firma_validacion",
+    )
+
+    assert nombre_documento
+    assert firma_validacion
+
+    # El usuario guarda el apunte después de validarlo.
+    datos["nombre_documento"] = nombre_documento
+    datos["firma_validacion"] = firma_validacion
+    datos["accion"] = "guardar"
+
+    response = client.post(
+        "/contabilidad/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    # La base de datos conserva importes positivos y el signo aparte.
+    with session_factory() as session:
+        apunte = session.scalar(
+            select(ApunteContable).where(
+                ApunteContable.concepto
+                == "Devolución de comunidad"
+            )
+        )
+
+        assert apunte is not None
+        assert apunte.naturaleza == "GASTO"
+        assert apunte.tratamiento == "CONTABILIZAR"
+        assert apunte.importe_negativo is True
+        assert apunte.base == 3000
+        assert apunte.total == 3000
 
 
 def test_crear_apunte_repercutir_crea_movimiento_previsto(
@@ -1398,6 +1512,256 @@ GAS_TRIBUTOS.IBI = Impuesto sobre Bienes Inmuebles
         assert apunte.iva_importe == 0
         assert apunte.total == 20000
         assert apunte.tercero_nombre == "Ayuntamiento"
+
+
+def test_editar_apunte_negativo_muestra_importes_con_signo(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("CONTAB_CONFIG", str(ruta))
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 10, 26),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Devolución de comunidad",
+            base=3000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=3000,
+            importe_negativo=True,
+        )
+
+        session.add_all([inmueble, apunte])
+        session.commit()
+        apunte_id = apunte.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre la edición de un apunte negativo.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    # La base y el total se presentan con signo negativo.
+    assert _valor_input(
+        response,
+        "base",
+    ) == "-30,00"
+
+    assert _valor_input(
+        response,
+        "importe_a_pagar",
+    ) == "-30,00"
+
+    # Consultar el formulario no altera los valores almacenados.
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+
+        assert apunte.importe_negativo is True
+        assert apunte.base == 3000
+        assert apunte.total == 3000
+
+
+@pytest.mark.parametrize(
+    ("negativo_inicial", "base_formulario"),
+    [
+        (False, "-30,00"),
+        (True, "-30,00"),
+    ],
+)
+def test_editar_apunte_guarda_signo_y_actualiza_previsto(
+    tmp_path,
+    monkeypatch,
+    negativo_inicial: bool,
+    base_formulario: str,
+) -> None:
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("CONTAB_CONFIG", str(ruta))
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        # Existe un apunte con un movimiento previsto pendiente.
+        apunte = crear_apunte_contable(
+            inmueble=inmueble,
+            categorias={
+                "GAS_COMUNIDAD": CategoriaContable(
+                    codigo="GAS_COMUNIDAD",
+                    naturaleza="GASTO",
+                    nombre="Comunidad",
+                    activa=True,
+                    subcategorias=(),
+                ),
+            },
+            fecha=date(2026, 10, 26),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Cuota de comunidad",
+            base=3000,
+            importe_negativo=negativo_inicial,
+        )
+
+        movimiento = crear_movimiento_desde_apunte(
+            apunte=apunte,
+        )
+
+        session.add_all([apunte, movimiento])
+        session.commit()
+
+        apunte_id = apunte.id
+        movimiento_id = movimiento.id
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre la edición del apunte.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "26/10/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Devolución de comunidad",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "CONTABILIZAR",
+        "base": base_formulario,
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "accion": "validar",
+    }
+
+    # El usuario valida los datos negativos.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+    assert _valor_input(
+        response,
+        "importe_a_pagar",
+    ) == "-30,00"
+
+    nombre_documento = _valor_input(
+        response,
+        "nombre_documento",
+    )
+    firma_validacion = _valor_input(
+        response,
+        "firma_validacion",
+    )
+
+    assert nombre_documento
+    assert firma_validacion
+
+    # El usuario guarda los datos validados.
+    datos["nombre_documento"] = nombre_documento
+    datos["firma_validacion"] = firma_validacion
+    datos["accion"] = "guardar"
+
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    # El apunte conserva los importes positivos y el signo aparte.
+    with session_factory() as session:
+        apunte = session.get(ApunteContable, apunte_id)
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert apunte is not None
+        assert apunte.importe_negativo is True
+        assert apunte.base == 3000
+        assert apunte.total == 3000
+        assert apunte.concepto == "Devolución de comunidad"
+
+        # El movimiento previsto se sincroniza sin duplicarse.
+        assert movimiento is not None
+        assert movimiento.naturaleza == "INGRESO"
+        assert movimiento.importe_esperado == 3000
+        assert movimiento.estado == "PENDIENTE"
+
+        movimientos = session.scalars(
+            select(MovimientoPrevisto).where(
+                MovimientoPrevisto.apunte_id == apunte_id
+            )
+        ).all()
+
+        assert len(movimientos) == 1
+        assert movimientos[0].id == movimiento_id
 
 
 def test_eliminar_apunte_con_movimiento_conciliado_falla(

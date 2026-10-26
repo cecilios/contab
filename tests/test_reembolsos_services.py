@@ -9,6 +9,7 @@ from contab.models import (
     Contrato,
     ImputacionContrato,
     Inmueble,
+    MovimientoPrevisto,
     SolicitudReembolso,
     SolicitudReembolsoLinea,
 )
@@ -117,6 +118,106 @@ def test_preparar_solicitud_reembolso_un_gasto(
     assert linea.importe_total == 10000
     assert linea.importe_aplicable == 10000
     assert linea.imputacion.contrato is contrato
+
+
+@pytest.mark.parametrize(
+    ("devolucion", "total_esperado"),
+    [
+        (3000, 7000),
+        (10000, 0),
+        (12000, -2000),
+    ],
+)
+def test_preparar_solicitud_reembolso_compensa_apuntes_negativos(
+    session,
+    devolucion: int,
+    total_esperado: int,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+    categorias = _categorias_gastos()
+
+    # El usuario registra un gasto repercutible de 100 €.
+    gasto = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    # Posteriormente registra una devolución del mismo gasto.
+    abono = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Devolución comunidad",
+        base=devolucion,
+        importe_negativo=True,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        gasto,
+        abono,
+    ])
+    session.commit()
+
+    # El usuario consulta las repercusiones pendientes del contrato.
+    pendientes = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert len(pendientes) == 2
+
+    # Selecciona el gasto y su devolución para una misma solicitud.
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=pendientes,
+    )
+
+    assert preparada.contrato is contrato
+    assert len(preparada.lineas) == 2
+    assert preparada.total == total_esperado
+
+    lineas = {
+        linea.concepto: linea
+        for linea in preparada.lineas
+    }
+
+    linea_gasto = lineas["Comunidad octubre"]
+    linea_abono = lineas["Devolución comunidad"]
+
+    # La solicitud conserva los importes con su signo económico.
+    assert linea_gasto.importe_total == 10000
+    assert linea_gasto.importe_aplicable == 10000
+
+    assert linea_abono.importe_total == -devolucion
+    assert linea_abono.importe_aplicable == -devolucion
+
+    # Las imputaciones siguen almacenando magnitudes positivas.
+    assert linea_gasto.imputacion.importe == 10000
+    assert linea_abono.imputacion.importe == devolucion
+
+    assert gasto.importe_negativo is False
+    assert abono.importe_negativo is True
 
 
 def test_preparar_solicitud_reembolso_subdividido_usa_importe_distribuido(
@@ -938,6 +1039,166 @@ def test_confirmar_solicitud_reembolso_prepara_todos_los_efectos(
     )
 
     assert pendientes == []
+
+
+@pytest.mark.parametrize(
+    ("devolucion", "saldo", "naturaleza_prevista"),
+    [
+        (3000, 7000, "INGRESO"),
+        (10000, 0, None),
+        (12000, -2000, "GASTO"),
+    ],
+)
+def test_confirmar_solicitud_reembolso_con_apuntes_negativos(
+    session,
+    devolucion: int,
+    saldo: int,
+    naturaleza_prevista: str | None,
+) -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato(inmueble)
+    categorias = _categorias_gastos()
+
+    # El usuario registra un gasto repercutible de 100 €.
+    gasto = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    # También registra una devolución repercutible.
+    abono = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Devolución comunidad",
+        base=devolucion,
+        importe_negativo=True,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        gasto,
+        abono,
+    ])
+    session.commit()
+
+    # El usuario prepara una solicitud con ambos apuntes.
+    pendientes = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    preparada = preparar_solicitud_reembolso(
+        contrato=contrato,
+        gastos=pendientes,
+    )
+
+    assert preparada.total == saldo
+
+    # El usuario confirma el envío de la solicitud.
+    confirmacion = confirmar_solicitud_reembolso(
+        preparada=preparada,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    solicitud = confirmacion.solicitud
+
+    assert solicitud.contrato is contrato
+    assert solicitud.fecha_envio == date(2026, 10, 20)
+    assert len(solicitud.lineas) == 2
+    assert solicitud.total == saldo
+
+    lineas = {
+        linea.concepto: linea
+        for linea in solicitud.lineas
+    }
+
+    # Las líneas persistibles mantienen magnitudes positivas.
+    assert lineas["Comunidad octubre"].importe == 10000
+    assert lineas["Devolución comunidad"].importe == devolucion
+
+    assert lineas["Comunidad octubre"].apunte is gasto
+    assert lineas["Devolución comunidad"].apunte is abono
+
+    # Ambas imputaciones quedan asociadas a la solicitud.
+    assert len(confirmacion.imputaciones) == 2
+
+    if saldo == 0:
+        # No existe ningún cobro ni pago que conciliar.
+        assert confirmacion.movimiento is None
+    else:
+        # Se prevé un cobro o pago según el signo del saldo.
+        movimiento = confirmacion.movimiento
+
+        assert movimiento is not None
+        assert movimiento.naturaleza == naturaleza_prevista
+        assert movimiento.importe_esperado == abs(saldo)
+        assert movimiento.solicitud_reembolso is solicitud
+        assert movimiento.estado == "PENDIENTE"
+
+    # Guardamos la solicitud y las imputaciones.
+    session.add(confirmacion.solicitud)
+    session.add_all(confirmacion.imputaciones)
+
+    # Si existe movimiento previsto, también lo guardamos.
+    if confirmacion.movimiento is not None:
+        session.add(confirmacion.movimiento)
+
+        # Comprobamos que pertenece a la sesión.
+        assert confirmacion.movimiento in session
+
+    session.commit()
+
+    if confirmacion.movimiento is not None:
+        assert confirmacion.movimiento.id is not None
+
+        guardado = session.get(
+            MovimientoPrevisto,
+            confirmacion.movimiento.id,
+        )
+
+        assert guardado is not None
+        assert guardado.naturaleza == naturaleza_prevista
+        assert guardado.importe_esperado == abs(saldo)
+
+    assert solicitud.id is not None
+
+    assert all(
+        linea.id is not None
+        for linea in solicitud.lineas
+    )
+
+    assert all(
+        imputacion.id is not None
+        for imputacion in confirmacion.imputaciones
+    )
+
+    # El contrato ya no tiene esos apuntes pendientes.
+    pendientes_restantes = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert pendientes_restantes == []
 
 
 @pytest.mark.parametrize(

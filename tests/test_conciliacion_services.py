@@ -364,6 +364,73 @@ def test_crear_movimiento_desde_apunte_reutiliza_datos(
     assert movimiento.estado == "PENDIENTE"
 
 
+@pytest.mark.parametrize(
+    ("naturaleza", "naturaleza_prevista"),
+    [
+        ("GASTO", "INGRESO"),
+        ("INGRESO", "GASTO"),
+    ],
+)
+def test_crear_movimiento_desde_apunte_negativo_invierte_naturaleza(
+    inmueble,
+    naturaleza: str,
+    naturaleza_prevista: str,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+        "ING_OTRAS_RENTAS": CategoriaContable(
+            codigo="ING_OTRAS_RENTAS",
+            naturaleza="INGRESO",
+            nombre="Otras rentas",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    categoria = (
+        "GAS_COMUNIDAD"
+        if naturaleza == "GASTO"
+        else "ING_OTRAS_RENTAS"
+    )
+
+    # El usuario registra un apunte contable negativo.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 26),
+        naturaleza=naturaleza,
+        categoria=categoria,
+        concepto="Regularización",
+        base=3000,
+        tratamiento="CONTABILIZAR",
+        importe_negativo=True,
+    )
+
+    # El usuario crea su movimiento previsto.
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+        fecha_prevista_desde=date(2026, 10, 26),
+    )
+
+    # El movimiento bancario tendrá el sentido contrario,
+    # pero conservará el importe positivo.
+    assert movimiento.apunte is apunte
+    assert movimiento.naturaleza == naturaleza_prevista
+    assert movimiento.importe_esperado == 3000
+    assert movimiento.estado == "PENDIENTE"
+
+    # El apunte conserva su clasificación contable.
+    assert apunte.naturaleza == naturaleza
+    assert apunte.importe_negativo is True
+    assert apunte.total == 3000
+
+
 def test_crear_movimiento_desde_apunte_admite_correcciones(
     inmueble,
 ) -> None:
@@ -8398,3 +8465,45 @@ def test_alias_inquilino_no_identifica_otro_inmueble(
         previsto,
         aliases,
     )
+
+
+def test_movimiento_previsto_de_apunte_negativo_rechaza_naturaleza_incorrecta(
+    inmueble,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    # El usuario registra una devolución de comunidad.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Devolución de comunidad",
+        base=5000,
+        importe_negativo=True,
+    )
+
+    # Intenta asociar un gasto previsto cuando corresponde
+    # un ingreso bancario.
+    with pytest.raises(
+        ConciliacionError,
+        match="naturaleza",
+    ):
+        crear_movimiento_previsto(
+            inmueble=inmueble,
+            apunte=apunte,
+            naturaleza="GASTO",
+            concepto="Devolución de comunidad",
+            importe_esperado=5000,
+        )
+
+

@@ -903,6 +903,13 @@ class ApunteContable(Base):
         nullable=False,
     )
 
+    importe_negativo: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+
     tercero_nombre: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -1235,12 +1242,21 @@ class SolicitudReembolso(Base):
 
     @property
     def total(self) -> int:
-        """Devuelve el importe total de la solicitud."""
+        """Devuelve el saldo firmado de la solicitud."""
 
-        return sum(
-            linea.importe
-            for linea in self.lineas
-        )
+        total = 0
+
+        for linea in self.lineas:
+            if linea.apunte is not None:
+                apunte = linea.apunte
+            else:
+                apunte = linea.distribucion_apunte.apunte
+
+            signo = -1 if apunte.importe_negativo else 1
+
+            total += signo * linea.importe
+
+        return total
 
 
 class SolicitudReembolsoLinea(Base):

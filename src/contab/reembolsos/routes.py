@@ -300,9 +300,9 @@ def listar_pendientes():
                 )
             )
 
-        solicitudes_activas = session.scalars(
+        solicitudes_candidatas = session.scalars(
             select(SolicitudReembolso)
-            .join(
+            .outerjoin(
                 SolicitudReembolso.movimiento_previsto
             )
             .where(
@@ -313,6 +313,7 @@ def listar_pendientes():
                         "CANCELADO",
                     )
                 )
+                | MovimientoPrevisto.id.is_(None)
             )
             .order_by(
                 SolicitudReembolso.fecha_envio.desc(),
@@ -320,6 +321,17 @@ def listar_pendientes():
             )
         ).all()
 
+        solicitudes_activas = [
+            solicitud
+            for solicitud in solicitudes_candidatas
+            if (
+                solicitud.movimiento_previsto is not None
+                or (
+                    solicitud.lineas
+                    and solicitud.total == 0
+                )
+            )
+        ]
         solicitudes = [
             SolicitudReembolsoVisible(
                 solicitud=solicitud,
@@ -443,11 +455,11 @@ def marcar_como_enviado(
                     )
                 )
 
-                session.add_all([
-                    confirmacion.solicitud,
-                    confirmacion.movimiento,
-                    *confirmacion.imputaciones,
-                ])
+                session.add(confirmacion.solicitud)
+                session.add_all(confirmacion.imputaciones)
+
+                if confirmacion.movimiento is not None:
+                    session.add(confirmacion.movimiento)
 
     except ReembolsoError as exc:
         return str(exc), 400
@@ -487,9 +499,10 @@ def eliminar_solicitud_reembolso(
                     )
                 )
 
-                session.delete(
-                    eliminacion.movimiento
-                )
+                if eliminacion.movimiento is not None:
+                    session.delete(
+                        eliminacion.movimiento
+                    )
 
                 for linea in eliminacion.lineas:
                     session.delete(

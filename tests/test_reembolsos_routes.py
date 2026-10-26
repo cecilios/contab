@@ -11,6 +11,7 @@ from contab.contabilidad.services import (
 )
 from contab.database import Base
 from contab.models import (
+    ApunteContable,
     Contrato,
     ContratoInquilino,
     ImputacionContrato,
@@ -118,6 +119,43 @@ def _crear_contrato(
     session.commit()
 
     return contrato
+
+def _crear_apuntes_compensados(session) -> tuple[int, list[int]]:
+    """Crea dos apuntes repercutibles cuyo saldo es cero."""
+
+    contrato = _crear_contrato(session)
+    categorias = _categorias_gastos()
+
+    # El usuario registra un gasto repercutible de 100 €.
+    gasto = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    # Posteriormente registra una devolución de 100 €.
+    abono = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Devolución comunidad",
+        base=10000,
+        importe_negativo=True,
+        tratamiento="REPERCUTIR",
+    )
+
+    session.add_all([gasto, abono])
+    session.commit()
+
+    return contrato.id, [gasto.id, abono.id]
+
 
 
 def test_reembolsos_muestra_gastos_pendientes(app) -> None:
@@ -414,6 +452,184 @@ def test_marcar_reembolso_como_enviado_persiste_todos_los_efectos(app) -> None:
         assert "Agua" not in response.text
 
 
+@pytest.mark.parametrize(
+    ("devolucion", "saldo", "naturaleza_prevista"),
+    [
+        (10000, 0, None),
+        (12000, -2000, "GASTO"),
+    ],
+)
+def test_marcar_reembolso_negativo_como_enviado(
+    app,
+    devolucion: int,
+    saldo: int,
+    naturaleza_prevista: str | None,
+) -> None:
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato(session)
+        categorias = _categorias_gastos()
+
+        # El usuario registra un gasto repercutible de 100 €.
+        gasto = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad octubre",
+            base=10000,
+            tratamiento="REPERCUTIR",
+        )
+
+        # Posteriormente registra una devolución repercutible.
+        abono = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Devolución comunidad",
+            base=devolucion,
+            importe_negativo=True,
+            tratamiento="REPERCUTIR",
+        )
+
+        session.add_all([gasto, abono])
+        session.commit()
+
+        contrato_id = contrato.id
+        gasto_id = gasto.id
+        abono_id = abono.id
+
+    client = app.test_client()
+    _seleccionar_base(client)
+
+    # El usuario selecciona ambos apuntes y marca
+    # la solicitud como enviada.
+    response = client.post(
+        f"/reembolsos/{contrato_id}/enviar",
+        data={
+            "origen": [
+                f"A:{gasto_id}",
+                f"A:{abono_id}",
+            ],
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(
+        "/reembolsos/"
+    )
+
+    with session_factory() as session:
+        solicitud = session.scalar(
+            select(SolicitudReembolso)
+        )
+
+        assert solicitud is not None
+        assert solicitud.contrato_id == contrato_id
+        assert solicitud.total == saldo
+        assert len(solicitud.lineas) == 2
+
+        # Las líneas persistidas mantienen importes positivos.
+        importes = {
+            linea.apunte_id: linea.importe
+            for linea in solicitud.lineas
+        }
+
+        assert importes == {
+            gasto_id: 10000,
+            abono_id: devolucion,
+        }
+
+        # Los dos apuntes tienen sus imputaciones registradas.
+        imputaciones = session.scalars(
+            select(ImputacionContrato).where(
+                ImputacionContrato.contrato_id == contrato_id
+            )
+        ).all()
+
+        assert len(imputaciones) == 2
+
+        if saldo == 0:
+            # No hay movimiento bancario que conciliar.
+            assert solicitud.movimiento_previsto is None
+        else:
+            # El saldo negativo genera un pago previsto.
+            movimiento = solicitud.movimiento_previsto
+
+            assert movimiento is not None
+            assert movimiento.naturaleza == naturaleza_prevista
+            assert movimiento.importe_esperado == abs(saldo)
+            assert movimiento.estado == "PENDIENTE"
+
+    # Los apuntes ya registrados no vuelven a aparecer
+    # como pendientes de repercutir.
+    response = client.get("/reembolsos/")
+
+    assert response.status_code == 200
+    assert "No hay gastos pendientes de repercutir." in response.text
+
+
+def test_reembolsos_lista_solicitud_con_saldo_cero(app) -> None:
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato_id, apunte_ids = (
+            _crear_apuntes_compensados(session)
+        )
+
+    client = app.test_client()
+    _seleccionar_base(client)
+
+    # El usuario confirma una solicitud cuyos importes se compensan.
+    response = client.post(
+        f"/reembolsos/{contrato_id}/enviar",
+        data={
+            "origen": [
+                f"A:{apunte_id}"
+                for apunte_id in apunte_ids
+            ],
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        solicitud = session.scalar(
+            select(SolicitudReembolso)
+        )
+
+        assert solicitud is not None
+        assert solicitud.total == 0
+        assert solicitud.movimiento_previsto is None
+
+        solicitud_id = solicitud.id
+
+    # El usuario consulta las solicitudes enviadas.
+    response = client.get("/reembolsos/")
+
+    assert response.status_code == 200
+
+    # La compensación debe aparecer aunque no exista previsto.
+    assert "Solicitudes enviadas" in response.text
+    assert "0,00" in response.text
+    assert "Sin movimiento" in response.text
+
+    # Debe ofrecer la posibilidad de deshacerla.
+    assert (
+        f"/reembolsos/{solicitud_id}/eliminar"
+        in response.text
+    )
+    assert "Eliminar solicitud" in response.text
+
+
 def test_eliminar_solicitud_reembolso_restaura_gasto_pendiente(
     app,
 ) -> None:
@@ -600,6 +816,97 @@ def test_eliminar_solicitud_reembolso_rechaza_movimiento_conciliado(
 
         assert movimiento is not None
         assert movimiento.estado == "CONCILIADO"
+
+
+def test_eliminar_solicitud_saldo_cero_restaura_pendientes(
+    app,
+) -> None:
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato_id, apunte_ids = (
+            _crear_apuntes_compensados(session)
+        )
+
+    client = app.test_client()
+    _seleccionar_base(client)
+
+    # El usuario confirma la compensación de ambos apuntes.
+    response = client.post(
+        f"/reembolsos/{contrato_id}/enviar",
+        data={
+            "origen": [
+                f"A:{apunte_id}"
+                for apunte_id in apunte_ids
+            ],
+        },
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        solicitud = session.scalar(
+            select(SolicitudReembolso)
+        )
+
+        assert solicitud is not None
+        assert solicitud.total == 0
+
+        solicitud_id = solicitud.id
+
+        # Ambos apuntes tienen imputaciones persistidas.
+        imputaciones = session.scalars(
+            select(ImputacionContrato).where(
+                ImputacionContrato.contrato_id
+                == contrato_id
+            )
+        ).all()
+
+        assert len(imputaciones) == 2
+
+    # El usuario elimina la solicitud de saldo cero.
+    response = client.post(
+        f"/reembolsos/{solicitud_id}/eliminar"
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(
+        "/reembolsos/"
+    )
+
+    with session_factory() as session:
+        # La solicitud y sus líneas han desaparecido.
+        assert session.get(
+            SolicitudReembolso,
+            solicitud_id,
+        ) is None
+
+        assert session.scalars(
+            select(SolicitudReembolsoLinea)
+        ).all() == []
+
+        # También desaparecen las imputaciones.
+        assert session.scalars(
+            select(ImputacionContrato)
+        ).all() == []
+
+        # Los apuntes contables originales se conservan.
+        apuntes = session.scalars(
+            select(ApunteContable).where(
+                ApunteContable.id.in_(apunte_ids)
+            )
+        ).all()
+
+        assert len(apuntes) == 2
+
+    # Los dos apuntes vuelven a aparecer pendientes de repercutir.
+    response = client.get("/reembolsos/")
+
+    assert response.status_code == 200
+    assert "Comunidad octubre" in response.text
+    assert "Devolución comunidad" in response.text
 
 
 def test_reembolsos_muestra_solicitud_enviada_y_permite_eliminarla(

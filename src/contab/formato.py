@@ -72,13 +72,14 @@ def texto_a_periodo(texto: str) -> date:
 
 
 def importe_a_texto(importe: int) -> str:
-    """Convierte un importe en céntimos a texto"""
+    """Convierte un importe con signo de céntimos a texto."""
 
-    euros, centimos = divmod(importe, 100)
+    signo = "-" if importe < 0 else ""
+    euros, centimos = divmod(abs(importe), 100)
 
     euros_texto = f"{euros:,}".replace(",", ".")
 
-    return f"{euros_texto},{centimos:02d}"
+    return f"{signo}{euros_texto},{centimos:02d}"
 
 
 def texto_a_importe(texto: str) -> int:

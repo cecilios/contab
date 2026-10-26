@@ -30,6 +30,7 @@ from contab.models import (
     DistribucionApunte,
     ImputacionContrato,
     Inmueble,
+    MovimientoPrevisto,
 )
 
 
@@ -3289,5 +3290,395 @@ def test_preparar_apuntes_automaticos_rechaza_todo_si_hay_duplicado(
     assert len(apuntes) == 1
     assert apuntes[0].id == existente.id
     assert apuntes[0].base == 8735
+
+
+def test_apunte_contable_persiste_importe_negativo(
+    session,
+    inmueble,
+) -> None:
+    """Conserva el signo sin almacenar importes negativos."""
+
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="GAS",
+        concepto="Devolución de recibos de gas",
+        tratamiento="CONTABILIZAR",
+        base=3000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=3000,
+        importe_negativo=True,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    apunte_id = apunte.id
+
+    # Se vuelve a leer el apunte desde SQLite.
+    session.expire_all()
+
+    guardado = session.get(
+        ApunteContable,
+        apunte_id,
+    )
+
+    assert guardado is not None
+    assert guardado.importe_negativo is True
+
+    # Los componentes económicos siguen siendo positivos.
+    assert guardado.base == 3000
+    assert guardado.iva_importe == 0
+    assert guardado.retencion_importe == 0
+    assert guardado.total == 3000
+
+    assert guardado.naturaleza == "GASTO"
+    assert guardado.tratamiento == "CONTABILIZAR"
+
+
+def test_apunte_contable_es_positivo_por_defecto(
+    session,
+    inmueble,
+) -> None:
+    """Los apuntes sin signo explícito conservan el comportamiento anterior."""
+
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        subcategoria="GAS",
+        concepto="Recibo ordinario de gas",
+        tratamiento="CONTABILIZAR",
+        base=8500,
+        iva_importe=0,
+        retencion_importe=0,
+        total=8500,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    apunte_id = apunte.id
+
+    # Se recupera el apunte sin depender del objeto original.
+    session.expire_all()
+
+    guardado = session.get(
+        ApunteContable,
+        apunte_id,
+    )
+
+    assert guardado is not None
+    assert guardado.importe_negativo is False
+
+    assert guardado.base == 8500
+    assert guardado.total == 8500
+
+
+@pytest.mark.parametrize(
+    "tratamiento",
+    ["CONTABILIZAR", "REPERCUTIR"],
+)
+def test_crear_apunte_contable_negativo(
+    inmueble,
+    tratamiento: str,
+) -> None:
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario registra un abono de un gasto anterior.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Devolución de cuota",
+        base=3000,
+        iva_importe=630,
+        retencion_importe=0,
+        tratamiento=tratamiento,
+        importe_negativo=True,
+    )
+
+    # El signo se guarda aparte; los importes siguen positivos.
+    assert apunte.importe_negativo is True
+    assert apunte.base == 3000
+    assert apunte.iva_importe == 630
+    assert apunte.retencion_importe == 0
+    assert apunte.total == 3630
+    assert apunte.tratamiento == tratamiento
+
+
+def test_modificar_signo_apunte_contable(
+    session,
+    inmueble,
+) -> None:
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario crea inicialmente un gasto positivo.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    assert apunte.importe_negativo is False
+
+    # El usuario edita el apunte para convertirlo en un abono.
+    resultado = modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Devolución de cuota",
+        base=10000,
+        tratamiento="CONTABILIZAR",
+        importe_negativo=True,
+    )
+
+    assert resultado is apunte
+    assert apunte.importe_negativo is True
+    assert apunte.base == 10000
+    assert apunte.total == 10000
+
+    # El usuario vuelve a editarlo para dejarlo positivo.
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+        tratamiento="CONTABILIZAR",
+        importe_negativo=False,
+    )
+
+    assert apunte.importe_negativo is False
+    assert apunte.base == 10000
+    assert apunte.total == 10000
+
+
+@pytest.mark.parametrize(
+    "estado",
+    ["CONCILIADO", "PARCIAL"],
+)
+def test_modificar_signo_apunte_con_movimiento_conciliado_se_rechaza(
+    session,
+    inmueble,
+    estado: str,
+) -> None:
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario registra un gasto y su movimiento previsto.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    movimiento = MovimientoPrevisto(
+        inmueble=inmueble,
+        apunte=apunte,
+        naturaleza="GASTO",
+        concepto="Cuota de comunidad",
+        importe_esperado=10000,
+        estado=estado,
+    )
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    # El usuario intenta invertir el signo de un apunte
+    # cuyo movimiento ya está conciliado o parcialmente conciliado.
+    with pytest.raises(
+        ContabilidadError,
+        match="conciliado",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Cuota de comunidad",
+            base=10000,
+            tratamiento="CONTABILIZAR",
+            importe_negativo=True,
+        )
+
+    # El intento rechazado no debe alterar los datos.
+    assert apunte.importe_negativo is False
+    assert apunte.base == 10000
+    assert apunte.total == 10000
+    assert movimiento.naturaleza == "GASTO"
+    assert movimiento.importe_esperado == 10000
+
+
+def test_modificar_signo_apunte_con_imputacion_persistida_se_rechaza(
+    session,
+    contrato,
+) -> None:
+    inmueble = contrato.inmueble
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario registra un gasto que se repercute al inquilino.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    # La repercusión se registra y queda persistida.
+    imputacion = ImputacionContrato(
+        apunte=apunte,
+        contrato=contrato,
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=10000,
+    )
+
+    session.add_all([apunte, imputacion])
+    session.commit()
+
+    # El usuario intenta convertir el gasto en un abono
+    # después de haber registrado su repercusión.
+    with pytest.raises(
+        ContabilidadError,
+        match="imputaciones",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Cuota de comunidad",
+            base=10000,
+            tratamiento="REPERCUTIR",
+            importe_negativo=True,
+        )
+
+    # El intento rechazado no modifica el apunte ni la imputación.
+    assert apunte.importe_negativo is False
+    assert apunte.base == 10000
+    assert apunte.total == 10000
+    assert imputacion.importe == 10000
+
+
+@pytest.mark.parametrize(
+    (
+        "signo_inicial",
+        "signo_final",
+        "naturaleza_inicial",
+        "naturaleza_final",
+    ),
+    [
+        (False, True, "GASTO", "INGRESO"),
+        (True, False, "INGRESO", "GASTO"),
+    ],
+)
+def test_modificar_signo_apunte_actualiza_movimiento_pendiente(
+    session,
+    inmueble,
+    signo_inicial: bool,
+    signo_final: bool,
+    naturaleza_inicial: str,
+    naturaleza_final: str,
+) -> None:
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario crea un apunte y su movimiento previsto.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Regularización de comunidad",
+        base=10000,
+        tratamiento="CONTABILIZAR",
+        importe_negativo=signo_inicial,
+    )
+
+    movimiento = MovimientoPrevisto(
+        inmueble=inmueble,
+        apunte=apunte,
+        naturaleza=naturaleza_inicial,
+        concepto=apunte.concepto,
+        importe_esperado=10000,
+        estado="PENDIENTE",
+    )
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    movimiento_id = movimiento.id
+
+    # El usuario modifica el signo del apunte.
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 26),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Regularización de comunidad",
+        base=10000,
+        tratamiento="CONTABILIZAR",
+        importe_negativo=signo_final,
+    )
+
+    session.commit()
+
+    # El movimiento previsto existente cambia de sentido.
+    assert apunte.importe_negativo is signo_final
+    assert apunte.base == 10000
+    assert apunte.total == 10000
+
+    assert movimiento.id == movimiento_id
+    assert movimiento.naturaleza == naturaleza_final
+    assert movimiento.importe_esperado == 10000
+    assert movimiento.estado == "PENDIENTE"
+
+    # No se ha creado ningún movimiento adicional.
+    movimientos = session.scalars(
+        select(MovimientoPrevisto).where(
+            MovimientoPrevisto.apunte_id == apunte.id
+        )
+    ).all()
+
+    assert len(movimientos) == 1
+    assert movimientos[0].id == movimiento_id
 
 

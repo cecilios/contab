@@ -17,6 +17,15 @@ from contab.models import (
 
 
 
+def _importe_firmado(
+    apunte: ApunteContable,
+    importe: int,
+) -> int:
+    """Aplica el signo del apunte a un importe positivo."""
+
+    return -importe if apunte.importe_negativo else importe
+
+
 def _base_propietario(
     apunte: ApunteContable,
 ) -> int:
@@ -171,28 +180,31 @@ def _totales_inmueble_trimestre(
     ]
 
     ingresos = sum(
-        apunte.base
+        _importe_firmado(apunte, apunte.base)
         for apunte in apuntes_aplicables
         if apunte.naturaleza == "INGRESO"
     )
 
     gastos = sum(
-        _base_propietario_inmueble(
-            apunte=apunte,
-            inmueble=inmueble,
+        _importe_firmado(
+            apunte,
+            _base_propietario_inmueble(
+                apunte=apunte,
+                inmueble=inmueble,
+            ),
         )
         for apunte in apuntes_aplicables
         if apunte.naturaleza == "GASTO"
     )
 
     iva = sum(
-        apunte.iva_importe
+        _importe_firmado(apunte, apunte.iva_importe)
         for apunte in apuntes_aplicables
         if apunte.naturaleza == "INGRESO"
     )
 
     retencion = sum(
-        apunte.retencion_importe
+        _importe_firmado(apunte, apunte.retencion_importe)
         for apunte in apuntes_aplicables
         if apunte.naturaleza == "INGRESO"
     )
@@ -382,22 +394,31 @@ def generar_csv_iva(
 
         for apunte in apuntes_trimestre:
             if apunte.naturaleza == "INGRESO":
-                ingresos += apunte.base
-                iva += apunte.iva_importe
-                retencion += apunte.retencion_importe
+                base_firmada = _importe_firmado(
+                    apunte,
+                    apunte.base,
+                )
+                iva_firmado = _importe_firmado(
+                    apunte,
+                    apunte.iva_importe,
+                )
+                retencion_firmada = _importe_firmado(
+                    apunte,
+                    apunte.retencion_importe,
+                )
+
+                ingresos += base_firmada
+                iva += iva_firmado
+                retencion += retencion_firmada
 
                 filas.append(
                     [
                         "",
                         apunte.concepto,
-                        _formatear_importe(apunte.base),
+                        _formatear_importe(base_firmada),
                         "",
-                        _formatear_importe(
-                            apunte.iva_importe
-                        ),
-                        _formatear_importe(
-                            apunte.retencion_importe
-                        ),
+                        _formatear_importe(iva_firmado),
+                        _formatear_importe(retencion_firmada),
                     ]
                 )
 
@@ -413,6 +434,11 @@ def generar_csv_iva(
                     )
                 else:
                     base_propietario = _base_propietario(apunte)
+
+                base_propietario = _importe_firmado(
+                    apunte,
+                    base_propietario,
+                )
 
                 gastos += base_propietario
 

@@ -533,11 +533,12 @@ def _mostrar_formulario_apunte(
 
 
 def _importe_para_formulario(importe: int) -> str:
-    """Convierte céntimos al formato utilizado en formularios."""
+    """Convierte céntimos con signo al formato del formulario."""
 
-    euros, centimos = divmod(importe, 100)
+    signo = "-" if importe < 0 else ""
+    euros, centimos = divmod(abs(importe), 100)
 
-    return f"{euros},{centimos:02d}"
+    return f"{signo}{euros},{centimos:02d}"
 
 
 def _comprobar_documento_duplicado(
@@ -725,6 +726,10 @@ def _datos_apunte_formulario(
         "fecha_prevista_hasta": fecha_prevista_hasta,
     }
 
+    base = _importe_a_centimos(datos["base"])
+    importe_negativo = base < 0
+    base = abs(base)
+
     valores = {
         "categorias": categorias,
         "fecha": fecha,
@@ -732,7 +737,8 @@ def _datos_apunte_formulario(
         "categoria": categoria,
         "subcategoria": subcategoria,
         "concepto": datos["concepto"],
-        "base": _importe_a_centimos(datos["base"]),
+        "base": base,
+        "importe_negativo": importe_negativo,
         "iva_importe": _importe_a_centimos(datos["iva_importe"]),
         "retencion_importe": _importe_a_centimos(datos["retencion_importe"]),
         "tercero_nombre": datos["tercero_nombre"],
@@ -996,11 +1002,19 @@ def nuevo_apunte():
                 datos_formulario["nombre_documento"] = (
                     apunte.nombre_documento
                 )
+
+                total_firmado = (
+                    -apunte.total
+                    if apunte.importe_negativo
+                    else apunte.total
+                )
+
                 datos_formulario["importe_a_pagar"] = (
                     _importe_para_formulario(
-                        apunte.total
+                        total_firmado
                     )
                 )
+
                 datos_formulario["firma_validacion"] = (
                     _firma_formulario(
                         datos_formulario
@@ -1168,7 +1182,9 @@ def editar_apunte(apunte_id: int):
                 ),
                 "tratamiento": apunte.tratamiento,
                 "base": _importe_para_formulario(
-                    apunte.base
+                    -apunte.base
+                    if apunte.importe_negativo
+                    else apunte.base
                 ),
                 "iva_importe": (
                     _importe_para_formulario(
@@ -1182,7 +1198,9 @@ def editar_apunte(apunte_id: int):
                 ),
                 "importe_a_pagar": (
                     _importe_para_formulario(
-                        apunte.total
+                        -apunte.total
+                        if apunte.importe_negativo
+                        else apunte.total
                     )
                 ),
                 "nombre_documento": (
@@ -1280,6 +1298,7 @@ def editar_apunte(apunte_id: int):
                     inmueble=apunte_validado.inmueble,
                     naturaleza=apunte_validado.naturaleza,
                     total=apunte_validado.total,
+                    importe_negativo=apunte_validado.importe_negativo,
                 )
 
                 aviso = _comprobar_documento_duplicado(
@@ -1311,11 +1330,19 @@ def editar_apunte(apunte_id: int):
                 datos_formulario["nombre_documento"] = (
                     apunte_validado.nombre_documento
                 )
+
+                total_firmado = (
+                    -apunte_validado.total
+                    if apunte_validado.importe_negativo
+                    else apunte_validado.total
+                )
+
                 datos_formulario["importe_a_pagar"] = (
                     _importe_para_formulario(
-                        apunte_validado.total
+                        total_firmado
                     )
                 )
+
                 datos_formulario["firma_validacion"] = (
                     _firma_formulario(
                         datos_formulario

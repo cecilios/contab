@@ -145,6 +145,10 @@
                             movimiento
                             and movimiento.estado
                                 in ["PENDIENTE", "CANCELADO"]
+                        ) or (
+                            not movimiento
+                            and solicitud.lineas
+                            and solicitud.total == 0
                         ) %}
                             <form
                                 method="post"

@@ -72,7 +72,7 @@ class ConfirmacionSolicitudReembolso:
         ImputacionContrato,
         ...,
     ]
-    movimiento: MovimientoPrevisto
+    movimiento: MovimientoPrevisto | None
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,7 @@ class EliminacionSolicitudReembolso:
         ImputacionContrato,
         ...,
     ]
-    movimiento: MovimientoPrevisto
+    movimiento: MovimientoPrevisto | None
 
 
 
@@ -229,19 +229,28 @@ def preparar_solicitud_reembolso(
             )
         )
 
+        signo = (
+            -1
+            if gasto.apunte.importe_negativo
+            else 1
+        )
+
+        importe_total = signo * gasto.apunte.total
+        importe_aplicable = signo * imputacion.importe
+
         lineas.append(
             LineaSolicitudReembolsoPreparada(
                 apunte=gasto.apunte,
                 imputacion=imputacion,
                 concepto=gasto.apunte.concepto,
-                importe_total=gasto.apunte.total,
-                importe_aplicable=imputacion.importe,
+                importe_total=importe_total,
+                importe_aplicable=importe_aplicable,
                 reparto_espacial=reparto_espacial,
                 prorrateo_temporal=prorrateo_temporal,
             )
         )
 
-        total += imputacion.importe
+        total += importe_aplicable
 
     return SolicitudReembolsoPreparada(
         contrato=contrato,
@@ -284,7 +293,7 @@ def confirmar_solicitud_reembolso(
                     imputacion.distribucion_apunte
                 ),
                 concepto=linea.concepto,
-                importe=linea.importe_aplicable,
+                importe=abs(linea.importe_aplicable),
             )
         )
 
@@ -292,34 +301,47 @@ def confirmar_solicitud_reembolso(
             imputacion
         )
 
-    contraparte = " / ".join(
-        titular.inquilino.nombre
-        for titular in sorted(
-            contrato.titulares,
-            key=lambda titular: titular.orden,
-        )
-    )
+    movimiento = None
 
-    movimiento = crear_movimiento_previsto(
-        inmueble=contrato.inmueble,
-        contrato=contrato,
-        naturaleza="INGRESO",
-        concepto=(
-            f"Reembolso. {preparada.lineas[0].concepto}"
-            if len(preparada.lineas) == 1
-            else (
-                "Reembolso. " + ", ".join(
-                    linea.concepto for linea in preparada.lineas
-                )
-                if len(preparada.lineas) == 2
-                else f"Reembolso. {len(preparada.lineas)} gastos"
+    if preparada.total != 0:
+        contraparte = " / ".join(
+            titular.inquilino.nombre
+            for titular in sorted(
+                contrato.titulares,
+                key=lambda titular: titular.orden,
             )
-        ),
-        importe_esperado=preparada.total,
-        contraparte=contraparte,
-    )
+        )
 
-    movimiento.solicitud_reembolso = solicitud
+        naturaleza = (
+            "INGRESO"
+            if preparada.total > 0
+            else "GASTO"
+        )
+
+        movimiento = crear_movimiento_previsto(
+            inmueble=contrato.inmueble,
+            contrato=contrato,
+            naturaleza=naturaleza,
+            concepto=(
+                f"Reembolso. {preparada.lineas[0].concepto}"
+                if len(preparada.lineas) == 1
+                else (
+                    "Reembolso. " + ", ".join(
+                        linea.concepto
+                        for linea in preparada.lineas
+                    )
+                    if len(preparada.lineas) == 2
+                    else (
+                        f"Reembolso. "
+                        f"{len(preparada.lineas)} gastos"
+                    )
+                )
+            ),
+            importe_esperado=abs(preparada.total),
+            contraparte=contraparte,
+        )
+
+        movimiento.solicitud_reembolso = solicitud
 
     return ConfirmacionSolicitudReembolso(
         solicitud=solicitud,
@@ -336,11 +358,12 @@ def preparar_eliminacion_solicitud_reembolso(
     movimiento = solicitud.movimiento_previsto
 
     if movimiento is None:
-        raise ReembolsoError(
-            "La solicitud no tiene movimiento previsto asociado."
-        )
+        if not solicitud.lineas or solicitud.total != 0:
+            raise ReembolsoError(
+                "La solicitud no tiene movimiento previsto asociado."
+            )
 
-    if movimiento.estado not in {
+    elif movimiento.estado not in {
         "PENDIENTE",
         "CANCELADO",
     }:

@@ -12,6 +12,7 @@ from contab.calculos import (
 )
 from contab.conciliacion.services import (
     crear_movimiento_desde_apunte,
+    naturaleza_prevista_apunte,
 )
 from contab.config import (
     ApunteAutomatico,
@@ -70,6 +71,7 @@ def _datos_apunte_contable(
     subcategoria: str = "",
     iva_importe: int = 0,
     retencion_importe: int = 0,
+    importe_negativo: bool = False,
     tercero_nombre: str = "",
     tercero_nif: str = "",
     referencia_documento: str = "",
@@ -179,6 +181,7 @@ def _datos_apunte_contable(
         "iva_importe": iva_importe,
         "retencion_importe": retencion_importe,
         "total": total,
+        "importe_negativo": importe_negativo,
         "tercero_nombre": tercero_nombre.strip(),
         "tercero_nif": tercero_nif.strip().upper(),
         "referencia_documento": referencia_documento.strip(),
@@ -1041,6 +1044,7 @@ def crear_apunte_contable(
     subcategoria: str = "",
     iva_importe: int = 0,
     retencion_importe: int = 0,
+    importe_negativo: bool = False,
     tercero_nombre: str = "",
     tercero_nif: str = "",
     referencia_documento: str = "",
@@ -1064,6 +1068,7 @@ def crear_apunte_contable(
         base=base,
         iva_importe=iva_importe,
         retencion_importe=retencion_importe,
+        importe_negativo=importe_negativo,
         tercero_nombre=tercero_nombre,
         tercero_nif=tercero_nif,
         referencia_documento=referencia_documento,
@@ -1279,6 +1284,7 @@ def validar_modificacion_con_movimientos(
     inmueble: Inmueble,
     naturaleza: str,
     total: int,
+    importe_negativo: bool,
 ) -> None:
     """Valida cambios incompatibles con movimientos ya conciliados."""
 
@@ -1294,6 +1300,7 @@ def validar_modificacion_con_movimientos(
         inmueble is not apunte.inmueble
         or naturaleza != apunte.naturaleza
         or total != apunte.total
+        or importe_negativo != apunte.importe_negativo
     )
 
     if (
@@ -1302,8 +1309,8 @@ def validar_modificacion_con_movimientos(
     ):
         raise ContabilidadError(
             "No puede cambiarse el inmueble, la naturaleza "
-            "o el importe de un apunte con un movimiento "
-            "conciliado total o parcialmente."
+            "o el importe (incluido su signo) de un apunte "
+            "con un movimiento conciliado total o parcialmente."
         )
 
 
@@ -1320,6 +1327,7 @@ def modificar_apunte_contable(
     subcategoria: str = "",
     iva_importe: int = 0,
     retencion_importe: int = 0,
+    importe_negativo: bool = False,
     tercero_nombre: str = "",
     tercero_nif: str = "",
     referencia_documento: str = "",
@@ -1343,6 +1351,7 @@ def modificar_apunte_contable(
         base=base,
         iva_importe=iva_importe,
         retencion_importe=retencion_importe,
+        importe_negativo=importe_negativo,
         tercero_nombre=tercero_nombre,
         tercero_nif=tercero_nif,
         referencia_documento=referencia_documento,
@@ -1360,6 +1369,7 @@ def modificar_apunte_contable(
         inmueble=inmueble,
         naturaleza=datos["naturaleza"],
         total=datos["total"],
+        importe_negativo=datos["importe_negativo"],
     )
 
     validar_modificacion_con_imputaciones(
@@ -1369,6 +1379,7 @@ def modificar_apunte_contable(
         base=datos["base"],
         iva_importe=datos["iva_importe"],
         retencion_importe=datos["retencion_importe"],
+        importe_negativo=datos["importe_negativo"],
         periodo_desde=datos["periodo_desde"],
         periodo_hasta=datos["periodo_hasta"],
         criterio_periodo=datos["criterio_periodo"],
@@ -1402,7 +1413,7 @@ def modificar_apunte_contable(
 
     for movimiento in apunte.movimientos_previstos:
         movimiento.inmueble = apunte.inmueble
-        movimiento.naturaleza = apunte.naturaleza
+        movimiento.naturaleza = naturaleza_prevista_apunte(apunte)
         movimiento.concepto = apunte.concepto
         movimiento.importe_esperado = apunte.total
         movimiento.contraparte = apunte.tercero_nombre
@@ -1418,6 +1429,7 @@ def validar_modificacion_con_imputaciones(
     base: int,
     iva_importe: int,
     retencion_importe: int,
+    importe_negativo: bool,
     periodo_desde: date | None,
     periodo_hasta: date | None,
     criterio_periodo: str | None,
@@ -1434,6 +1446,7 @@ def validar_modificacion_con_imputaciones(
         or base != apunte.base
         or iva_importe != apunte.iva_importe
         or retencion_importe != apunte.retencion_importe
+        or importe_negativo != apunte.importe_negativo
         or periodo_desde != apunte.periodo_desde
         or periodo_hasta != apunte.periodo_hasta
         or criterio_periodo != apunte.criterio_periodo

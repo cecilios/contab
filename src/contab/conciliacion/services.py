@@ -544,10 +544,11 @@ def crear_movimiento_previsto(
                 "pertenecer al mismo inmueble."
             )
 
-        if apunte.naturaleza != naturaleza:
+        if naturaleza != naturaleza_prevista_apunte(apunte):
             raise ConciliacionError(
                 "El apunte y el movimiento previsto deben "
-                "tener la misma naturaleza."
+                "tener la misma naturaleza bancaria, "
+                "teniendo en cuenta el signo del apunte."
             )
 
     if (contrato is not None
@@ -590,6 +591,21 @@ def crear_movimiento_previsto(
     )
 
 
+def naturaleza_prevista_apunte(
+    apunte: ApunteContable,
+) -> str:
+    """Devuelve el sentido bancario de un apunte contable."""
+
+    if not apunte.importe_negativo:
+        return apunte.naturaleza
+
+    return (
+        "INGRESO"
+        if apunte.naturaleza == "GASTO"
+        else "GASTO"
+    )
+
+
 def crear_movimiento_desde_apunte(
     *,
     apunte: ApunteContable,
@@ -609,7 +625,7 @@ def crear_movimiento_desde_apunte(
         contrato=contrato,
         fecha_prevista_desde=fecha_prevista_desde,
         fecha_prevista_hasta=fecha_prevista_hasta,
-        naturaleza=apunte.naturaleza,
+        naturaleza=naturaleza_prevista_apunte(apunte),
         concepto=(
             apunte.concepto
             if concepto is None

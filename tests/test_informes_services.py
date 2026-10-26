@@ -763,6 +763,149 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
     assert "Hacienda (25,00%)" in contenido
 
 
+def test_generar_csv_iva_resta_apuntes_negativos_de_su_columna(
+    session,
+    inmueble,
+) -> None:
+    # El usuario registra un ingreso de 1.000 €.
+    ingreso = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler octubre",
+        base=100000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=100000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    # Registra una regularización negativa del ingreso: 100 €.
+    ingreso_negativo = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Regularización alquiler",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        importe_negativo=True,
+        tratamiento="CONTABILIZAR",
+    )
+
+    # Registra un gasto de comunidad de 200 €.
+    gasto = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=20000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=20000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    # La comunidad devuelve 30 € de un cobro anterior.
+    gasto_negativo = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Devolución de comunidad",
+        base=3000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=3000,
+        importe_negativo=True,
+        tratamiento="CONTABILIZAR",
+    )
+
+    session.add_all([
+        ingreso,
+        ingreso_negativo,
+        gasto,
+        gasto_negativo,
+    ])
+    session.commit()
+
+    # El usuario exporta el informe contable del inmueble.
+    contenido = generar_csv_iva(
+        inmueble=inmueble,
+        apuntes=[
+            ingreso,
+            ingreso_negativo,
+            gasto,
+            gasto_negativo,
+        ],
+        anio=2026,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    # La devolución de un ingreso permanece en Ingresos.
+    assert [
+        "",
+        "Regularización alquiler",
+        "-100,00",
+        "",
+        "0,00",
+        "0,00",
+    ] in filas
+
+    # La devolución de comunidad permanece en Gastos.
+    assert [
+        "",
+        "Devolución de comunidad",
+        "",
+        "-30,00",
+        "",
+        "",
+    ] in filas
+
+    # El cuarto trimestre presenta los importes netos:
+    # ingresos = 1.000 - 100 = 900 €
+    # gastos = 200 - 30 = 170 €
+    assert [
+        "",
+        "Totales 4T",
+        "900,00",
+        "170,00",
+        "0,00",
+        "0,00",
+    ] in filas
+
+    # El resultado económico es 900 - 170 = 730 €.
+    assert [
+        "",
+        "Ingresos netos",
+        "730,00",
+        "",
+        "",
+        "",
+    ] in filas
+
+    # Como todos los apuntes pertenecen al mismo año,
+    # los totales anuales coinciden con los trimestrales.
+    assert [
+        "",
+        "Totales del año",
+        "900,00",
+        "170,00",
+        "0,00",
+        "0,00",
+    ] in filas
+
+
 def test_generar_csv_iva_incluye_gasto_facturable(
     session,
     inmueble,
@@ -1442,6 +1585,127 @@ def test_generar_csv_resumen_iva_repercutir_distribucion_completa_deja_gasto_cer
         "0,00",
         "0,00",
         "0,00",
+    ] in filas
+
+
+def test_generar_csv_resumen_iva_descuenta_importes_negativos(
+    session,
+    inmueble,
+    contrato,
+) -> None:
+    # El usuario contabiliza un alquiler de 1.000 €.
+    ingreso = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler octubre",
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    # Registra una reducción del ingreso de 100 €.
+    ingreso_negativo = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Regularización alquiler",
+        base=10000,
+        iva_importe=2100,
+        retencion_importe=1900,
+        total=10200,
+        importe_negativo=True,
+        tratamiento="CONTABILIZAR",
+    )
+
+    # Registra un gasto de comunidad de 200 €.
+    gasto = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=20000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=20000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    # La comunidad devuelve 30 €.
+    gasto_negativo = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Devolución de comunidad",
+        base=3000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=3000,
+        importe_negativo=True,
+        tratamiento="CONTABILIZAR",
+    )
+
+    session.add_all([
+        ingreso,
+        ingreso_negativo,
+        gasto,
+        gasto_negativo,
+    ])
+    session.commit()
+
+    # El usuario genera el resumen anual.
+    contenido = generar_csv_resumen_iva(
+        inmuebles=[inmueble],
+        contratos=[contrato],
+        apuntes=[
+            ingreso,
+            ingreso_negativo,
+            gasto,
+            gasto_negativo,
+        ],
+        anio=2026,
+        porcentaje_irpf_estimado=1900,
+    )
+
+    filas = list(
+        csv.reader(
+            StringIO(contenido),
+            delimiter=";",
+        )
+    )
+
+    # Cuarto trimestre:
+    # Ingresos: 1.000 - 100 = 900 €
+    # Gastos: 200 - 30 = 170 €
+    # Retención: 190 - 19 = 171 €
+    # IVA: 210 - 21 = 189 €
+    # Neto: 900 - 170 - 171 - 189 = 370 €
+    fila_esperada = [
+        inmueble.referencia,
+        "900,00",
+        "170,00",
+        "171,00",
+        "189,00",
+        "370,00",
+    ]
+
+    assert fila_esperada in filas
+
+    # Solo tenemos movimientos en el cuarto trimestre,
+    # por lo que el total anual debe coincidir.
+    assert [
+        "Totales del año 2026",
+        "900,00",
+        "170,00",
+        "171,00",
+        "189,00",
+        "370,00",
     ] in filas
 
 
