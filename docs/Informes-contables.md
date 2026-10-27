@@ -78,6 +78,30 @@ En `REPERCUTIR`, la exclusión de los informes debe aplicarse únicamente a la p
 
 Los informes utilizan las distribuciones e imputaciones persistidas para conservar las decisiones históricas de reparto y atribución. No recalculan esos repartos a partir de la configuración o los contratos actuales.
 
+### Tratamiento de importes negativos
+
+Los apuntes negativos conservan su naturaleza y clasificación contable.
+
+En los informes, sus importes se presentan con signo negativo y se restan
+de la columna y categoría a las que pertenece el apunte original.
+
+Por ejemplo:
+
+- Un gasto de gas de `100,00 €` se incluye como gasto positivo.
+- Una devolución de gas de `30,00 €`, registrada como gasto negativo,
+  se incluye como `-30,00 €` en la misma categoría.
+- El gasto neto resultante es `70,00 €`.
+
+Una devolución de un gasto no se traslada a la columna de ingresos,
+ni una devolución de un ingreso se traslada a la columna de gastos.
+
+Esta regla se aplica tanto a las líneas de detalle como a los totales
+y resúmenes contables.
+
+En los apuntes `REPERCUTIR`, el signo también se tiene en cuenta al
+determinar qué parte corresponde al propietario, utilizando las
+imputaciones a contratos que estén persistidas.
+
 ## Clasificación contable
 -------------------------
 

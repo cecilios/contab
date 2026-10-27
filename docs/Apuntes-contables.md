@@ -51,6 +51,35 @@ El período puede ser:
 
 Los períodos servirán más adelante para detectar recibos duplicados, huecos y solapamientos.
 
+### Importes negativos
+
+Contab permite registrar apuntes negativos para representar devoluciones,
+abonos y correcciones que disminuyen un ingreso o un gasto previamente
+contabilizado.
+
+Por ejemplo, la devolución de un recibo de gas se registra como un gasto
+negativo en la categoría original de gas, no como un ingreso de otra naturaleza.
+
+El usuario introduce el signo directamente en el importe de la base:
+
+- `100,00`: apunte positivo.
+- `-100,00`: apunte negativo.
+
+Internamente, los importes monetarios se almacenan siempre como magnitudes
+positivas. El campo booleano `importe_negativo` conserva el signo del apunte.
+
+El total es un campo calculado y utiliza el mismo signo que la base.
+No existen indicadores independientes para el signo de la base y del total.
+
+Al consultar o editar un apunte negativo, los importes se presentan con
+el signo menos.
+
+El indicador se aplica al apunte completo, sin cambiar su naturaleza
+contable (`INGRESO` o `GASTO`) ni su categoría.
+
+Los apuntes negativos están admitidos actualmente para los tratamientos
+`CONTABILIZAR` y `REPERCUTIR`. Su utilización con `FACTURAR` queda pendiente.
+
 ## Integración con la conciliación
 ----------------------------------
 
@@ -58,7 +87,18 @@ Al crear un apunte, el formulario propone generar también un movimiento previst
 
 La creación del movimiento previsto asociado al apunte es independiente de su tratamiento contable. El tratamiento determina cómo se atribuye posteriormente el gasto, pero no elimina el hecho bancario original.
 
-Por tanto, un gasto marcado como `CONTABILIZAR`, `REPERCUTIR` o `FACTURAR` puede generar un movimiento previsto de gasto correspondiente al pago al proveedor.
+Por tanto, un gasto marcado como `CONTABILIZAR`, `REPERCUTIR` o `FACTURAR`
+puede generar un movimiento previsto correspondiente al pago al proveedor.
+
+En los apuntes negativos, el movimiento previsto invierte la naturaleza
+bancaria respecto de la naturaleza contable del apunte:
+
+- Un `GASTO` negativo genera un movimiento previsto `INGRESO`, como sucede
+  cuando un proveedor devuelve un importe.
+- Un `INGRESO` negativo genera un movimiento previsto `GASTO`, como sucede
+  cuando se devuelve un ingreso.
+
+El importe esperado del movimiento previsto se mantiene positivo.
 
 En los dos últimos casos podrán aparecer posteriormente operaciones bancarias distintas:
 
@@ -81,7 +121,12 @@ Las fechas previstas son datos propios de la conciliación y se introducen separ
 
 El apunte y su movimiento previsto se crean dentro de la misma operación, evitando que un fallo deje sólo una de las dos partes.
 
-Cuando posteriormente se modifica el apunte, sus movimientos previstos vinculados se mantienen sincronizados en inmueble, naturaleza, concepto, importe esperado y contraparte.
+Cuando posteriormente se modifica el apunte, sus movimientos previstos
+vinculados se mantienen sincronizados en inmueble, naturaleza bancaria
+derivada del signo, concepto, importe esperado y contraparte.
+
+Si cambia el signo de un apunte cuyo movimiento previsto todavía puede
+modificarse, se actualiza también la naturaleza del movimiento previsto.
 
 No se modifican durante esa sincronización:
 
@@ -92,7 +137,8 @@ No se modifican durante esa sincronización:
 
 Los movimientos pendientes y cancelados no imponen restricciones propias sobre la modificación del apunte. No obstante, pueden existir otros efectos históricos, como `ImputacionContrato` persistidas, que protejan los datos utilizados para calcularlos.
 
-Si existe algún movimiento conciliado total o parcialmente, no pueden modificarse el inmueble, la naturaleza ni el importe. La validación del formulario detecta esta situación antes de guardar y no habilita el guardado.
+Si existe algún movimiento conciliado total o parcialmente, no pueden
+modificarse el inmueble, la naturaleza, el importe ni su signo.
 
 Los datos descriptivos sí pueden corregirse después de conciliar. El movimiento previsto se actualiza conservando intacta la conciliación existente.
 

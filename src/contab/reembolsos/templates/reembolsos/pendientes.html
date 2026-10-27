@@ -71,7 +71,9 @@
 
                                 <td class="numero">
                                     {{ importe_a_texto(
-                                        gasto.imputacion.importe
+                                        -gasto.imputacion.importe
+                                        if gasto.apunte.importe_negativo
+                                        else gasto.imputacion.importe
                                     ) }}
                                 </td>
                             </tr>

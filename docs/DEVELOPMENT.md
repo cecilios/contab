@@ -230,7 +230,7 @@ expense reimbursement request
     → ImputacionContrato(s)
     + SolicitudReembolso
     + SolicitudReembolsoLinea(s)
-    + MovimientoPrevisto INGRESO
+    + optional MovimientoPrevisto INGRESO/GASTO
 
 expense reimbursement undo
     → delete MovimientoPrevisto
@@ -785,6 +785,49 @@ fully reversible downstream operation
     → perform operation again
 ```
 
+## Negative accounting entries
+
+`ApunteContable.importe_negativo` is a boolean indicating the sign
+of an accounting entry.
+
+Monetary values (`base`, `iva_importe`, `retencion_importe`, `total`)
+are stored as non-negative magnitudes.
+
+The sign belongs to the accounting entry as a whole.
+
+Manual forms accept a negative base and normalize the stored magnitude
+while setting `importe_negativo=True`.
+
+Displayed amounts recover the sign, including the accounting list,
+editing form and applicable reports.
+
+A negative entry retains its accounting `naturaleza` and category.
+Reports subtract its amounts from the original income or expense
+category rather than moving them to the opposite category.
+
+The expected bank movement uses the opposite nature when the entry
+is negative:
+
+```text
+GASTO positive    → MovimientoPrevisto GASTO
+GASTO negative    → MovimientoPrevisto INGRESO
+INGRESO positive  → MovimientoPrevisto INGRESO
+INGRESO negative  → MovimientoPrevisto GASTO
+```
+
+The expected bank amount remains positive.
+
+The shared helper naturaleza_prevista_apunte() centralizes this rule.
+
+Changes to the sign of an accounting entry must respect the same
+historical protections as changes to its amount.
+
+The implemented treatments are CONTABILIZAR and REPERCUTIR.
+
+Negative FACTURAR entries and rectifying invoices remain outside
+the implemented scope.
+
+
 ## Expense reimbursement workflow
 
 `REPERCUTIR` is implemented as a reimbursement workflow independent from ordinary invoice emission.
@@ -811,9 +854,27 @@ Confirmation persists atomically:
 ImputacionContrato(s)
 SolicitudReembolso
 SolicitudReembolsoLinea(s)
-MovimientoPrevisto INGRESO
+optional MovimientoPrevisto
 ```
 
+Positive and negative REPERCUTIR entries may be included in the
+same reimbursement request.
+
+The prepared request calculates a signed balance:
+- Positive balance: the tenant owes money. Create a
+  MovimientoPrevisto INGRESO.
+- Negative balance: the tenant has a credit. Create a
+  MovimientoPrevisto GASTO for the absolute balance.
+- Zero balance: no expected bank movement is created.
+The request and its imputations are persisted even when the balance
+is zero. This records that the selected entries have been compensated
+and prevents them from reappearing as pending.
+
+`SolicitudReembolsoLinea.importe` and `ImputacionContrato.importe`
+retain positive magnitudes. Their accounting sign comes from the
+original ApunteContable.
+
+The request total uses the signed amounts of its lines.
 `SolicitudReembolsoLinea` preserves which accounting origin was included in the request.
 
 That origin is either:
@@ -828,13 +889,22 @@ or:
 DistribucionApunte
 ```
 
-The expected movement represents the tenant reimbursement.
+The expected movement represents the resulting payment or collection
+between the tenant and the owner. No movement exists for a zero balance.
 
 The original supplier payment remains a separate accounting/banking fact.
 
 ### Reimbursement request states
 
-The request itself derives its useful operational state from its associated expected movement.
+The request normally derives its operational state from its associated
+expected movement.
+
+A zero-balance request has no expected movement and is displayed as
+`Sin movimiento`, with a total of `0,00`.
+
+Such requests may be deleted while no other historical constraints
+prevent the operation. Deletion also removes their imputations,
+making the original entries pending for reimbursement again.
 
 Current relevant states:
 
@@ -1818,8 +1888,38 @@ Further document-generation work should be driven by real use.
 
 ## Current stopping point
 
-The accounting/distribution/reimbursement modules remain implemented. The latest reconciliation block has the new two-section review screen, exact 1:1, 1:n, m:1 confirmation, `PARCIAL` saldo support, session-only rejection, and visible but unconfirmable 1:1 mismatch proposals. The tests for exact precedence, insufficient identification, ambiguity and rejecting a mismatched exact-acceptance POST were passing at the latest reported full-suite run. The subsequent discussion set the reconciliation design rules documented above; no new production changes for these rules have yet been made.
+Support for negative accounting entries is implemented.
+
+The implementation covers:
+
+- The `ApunteContable.importe_negativo` field and its database migration.
+- Manual creation, editing and display of signed accounting amounts.
+- Historical protections when changing an entry's sign.
+- Expected bank movements with the appropriate banking nature.
+- Signed amounts in accounting reports and summaries.
+- Positive and negative `REPERCUTIR` entries.
+- Reimbursement requests with positive, negative or zero balances.
+- Zero-balance requests without expected movements, including deletion.
+- Signed amounts in reimbursement preparation and email text.
+- Correct wording and signs for prorated refunds.
+
+The database migration has been applied and checked.
+
+The complete test suite and the relevant manual visual checks passed
+at the end of this implementation block.
 
 ## Next change
 
-Focus on reconciliation in small TDD increments: restore no-bank manual reconciliation, block absurd automatic amount mismatches, then design progressive versus accepted-difference closure and the economic contract statement. Do not build a separate m:n operation or group persistence merely for future possibilities.
+No immediate implementation work is required for negative entries.
+
+Continue development according to the next real operational need,
+using small changes protected by tests.
+
+Known deferred items:
+
+- Negative `FACTURAR` entries.
+- Rectifying invoices.
+- Replacing `criterio_periodo` with `dia_hasta_incluido`.
+- Creating accounting entries prefilled from bank movements.
+
+Do not implement these items merely because they are listed here.

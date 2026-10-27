@@ -226,7 +226,7 @@ Se aplican las siguientes convenciones generales:
 
 - los importes monetarios se manejan con precisión de céntimos;
 - los porcentajes se conservan con la precisión necesaria para los cálculos;
-- los importes contables son positivos y su naturaleza indica si son ingresos o gastos;
+- los importes monetarios se almacenan como magnitudes positivas; un indicador de signo permite representar devoluciones y correcciones sin cambiar la naturaleza contable del apunte;
 - los números definitivos, como los de factura, se asignan únicamente al confirmar la operación;
 - el sistema de ficheros sigue siendo el archivo principal de facturas y justificantes;
 - Contab conserva las referencias necesarias para relacionar los documentos con la contabilidad.

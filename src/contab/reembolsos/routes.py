@@ -145,55 +145,37 @@ def _seleccionar_gastos(
     return seleccionados
 
 
-def _periodo_linea(
-    linea,
-) -> str:
-    """Obtiene el período visible de una línea."""
-
-    apunte = linea.apunte
-
-    if (
-        apunte.periodo_desde is None
-        or apunte.periodo_hasta is None
-    ):
-        return ""
-
-    return (
-        f"del {fecha_a_texto(apunte.periodo_desde)} "
-        f"al {fecha_a_texto(apunte.periodo_hasta)}"
-    )
-
-
 def _texto_linea(
     linea,
 ) -> str:
     """Explica una línea preparada de reembolso."""
 
-    periodo = _periodo_linea(linea)
-
-    descripcion = linea.concepto
-
-    if periodo:
-        descripcion = (
-            f"{descripcion}, {periodo}"
-        )
-
     texto = (
-        f"- {descripcion}, de "
+        f"- {linea.concepto}, de "
         f"{importe_a_texto(linea.importe_total)} €."
     )
 
     prorrateo = linea.prorrateo_temporal
 
     if prorrateo is not None:
+        if linea.importe_total < 0:
+            explicacion = "Te corresponde una devolución por"
+            signo = -1
+        else:
+            explicacion = "Te corresponde abonar"
+            signo = 1
+
+        importe_base = signo * prorrateo.importe_base
+        importe_resultante = signo * prorrateo.importe_resultante
+
         texto += (
-            " Te corresponde abonar "
+            f" {explicacion} "
             f"{prorrateo.dias_contrato} de los "
             f"{prorrateo.dias_totales} días, es decir: "
-            f"{importe_a_texto(prorrateo.importe_base)}"
+            f"{importe_a_texto(importe_base)}"
             f" × {prorrateo.dias_contrato}"
             f" / {prorrateo.dias_totales}"
-            f" = {importe_a_texto(prorrateo.importe_resultante)} €."
+            f" = {importe_a_texto(importe_resultante)} €."
         )
 
     return texto
@@ -209,31 +191,32 @@ def _texto_solicitud(
         for linea in solicitud.lineas
     ]
 
-    importes = [
-        importe_a_texto(
-            linea.importe_aplicable
-        )
-        for linea in solicitud.lineas
-    ]
+    total = solicitud.total
 
-    partes = [
+    if total > 0:
+        texto_final = (
+            "Total a abonar: "
+            f"{importe_a_texto(total)} €."
+        )
+
+    elif total < 0:
+        texto_final = (
+            "Total a tu favor: "
+            f"{importe_a_texto(abs(total))} €."
+        )
+
+    else:
+        texto_final = (
+            "Los importes se compensan íntegramente. "
+            "No queda ninguna cantidad pendiente de "
+            "abonar o devolver."
+        )
+
+    return "\n\n".join([
         *lineas,
         "",
-    ]
-
-    if len(importes) == 1:
-        partes.append(
-            "El total pendiente de abonar es de "
-            f"{importes[0]} €."
-        )
-    else:
-        partes.append(
-            "Así que el total pendiente de abonar es de "
-            f"{' + '.join(importes)}"
-            f" = {importe_a_texto(solicitud.total)} €."
-        )
-
-    return "\n\n".join(partes)
+        texto_final,
+    ])
 
 
 def _render_revision(

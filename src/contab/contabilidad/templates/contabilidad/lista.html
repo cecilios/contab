@@ -91,7 +91,13 @@
                                 apunte.tratamiento
                             ) }}
                         </td>
-                        <td>{{ importe_a_texto(apunte.total) }}</td>
+                        <td>
+                            {{ importe_a_texto(
+                                -apunte.total
+                                if apunte.importe_negativo
+                                else apunte.total
+                            ) }}
+                        </td>
                         <td>
                             <a href="{{ url_for(
                                 'contabilidad.editar_apunte',

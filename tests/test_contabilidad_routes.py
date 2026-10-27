@@ -163,6 +163,98 @@ def test_listado_muestra_apuntes_ordenados() -> None:
     assert posicion_reciente < posicion_antiguo
 
 
+def test_listado_muestra_importes_negativos() -> None:
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        # El usuario registra un gasto normal de 100 €.
+        gasto = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad octubre",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            importe_negativo=False,
+        )
+
+        # Registra una devolución de gastos de 30,25 €.
+        devolucion_gasto = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Devolución de comunidad",
+            base=3025,
+            iva_importe=0,
+            retencion_importe=0,
+            total=3025,
+            importe_negativo=True,
+        )
+
+        # Registra también una regularización negativa de ingresos.
+        devolucion_ingreso = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 10, 20),
+            naturaleza="INGRESO",
+            categoria="ING_OTRAS_RENTAS",
+            concepto="Regularización de ingresos",
+            base=1250,
+            iva_importe=0,
+            retencion_importe=0,
+            total=1250,
+            importe_negativo=True,
+        )
+
+        session.add_all([
+            inmueble,
+            gasto,
+            devolucion_gasto,
+            devolucion_ingreso,
+        ])
+        session.commit()
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    # El usuario abre el listado de apuntes contables.
+    response = client.get("/contabilidad/")
+
+    assert response.status_code == 200
+
+    # El gasto normal sigue apareciendo positivo.
+    assert "Comunidad octubre" in response.text
+    assert "100,00" in response.text
+
+    # Las devoluciones deben mostrar el signo menos.
+    assert "Devolución de comunidad" in response.text
+    assert "-30,25" in response.text
+
+    assert "Regularización de ingresos" in response.text
+    assert "-12,50" in response.text
+
+
 def test_listado_filtra_por_inmueble_y_fecha_desde() -> None:
     app = crear_app_test()
 

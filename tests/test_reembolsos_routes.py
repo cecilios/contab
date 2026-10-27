@@ -197,6 +197,60 @@ def test_reembolsos_muestra_gastos_pendientes(app) -> None:
     assert "Preparar solicitud" in response.text
 
 
+def test_reembolsos_pendientes_muestra_importes_negativos(app) -> None:
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato(session)
+        categorias = _categorias_gastos()
+
+        # El usuario registra un gasto repercutible de 100 €.
+        gasto = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad octubre",
+            base=10000,
+            tratamiento="REPERCUTIR",
+        )
+
+        # También registra una devolución de 30,25 €.
+        devolucion = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Devolución de comunidad",
+            base=3025,
+            importe_negativo=True,
+            tratamiento="REPERCUTIR",
+        )
+
+        session.add_all([gasto, devolucion])
+        session.commit()
+
+    client = app.test_client()
+    _seleccionar_base(client)
+
+    # El usuario consulta los gastos pendientes de repercutir.
+    response = client.get("/reembolsos/")
+
+    assert response.status_code == 200
+
+    # El gasto normal conserva su importe positivo.
+    assert "Comunidad octubre" in response.text
+    assert "100,00" in response.text
+
+    # La devolución debe aparecer con signo negativo.
+    assert "Devolución de comunidad" in response.text
+    assert "-30,25" in response.text
+
+
 def test_reembolsos_prepara_solicitud(app) -> None:
 
     session_factory = app.extensions[
@@ -246,6 +300,159 @@ def test_reembolsos_prepara_solicitud(app) -> None:
 
     assert "Texto para el correo" in response.text
     assert "Marcar como enviado" in response.text
+
+
+@pytest.mark.parametrize(
+    ("devolucion", "texto_esperado"),
+    [
+        (
+            3000,
+            "Total a abonar: 70,00 €.",
+        ),
+        (
+            10000,
+            "Los importes se compensan íntegramente. "
+            "No queda ninguna cantidad pendiente de "
+            "abonar o devolver.",
+        ),
+        (
+            12000,
+            "Total a tu favor: 20,00 €.",
+        ),
+    ],
+)
+def test_texto_solicitud_distingue_cobro_devolucion_y_compensacion(
+    app,
+    devolucion: int,
+    texto_esperado: str,
+) -> None:
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato(session)
+        categorias = _categorias_gastos()
+
+        # El usuario registra un gasto repercutible de 100 €.
+        gasto = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad octubre",
+            base=10000,
+            tratamiento="REPERCUTIR",
+        )
+
+        # Registra una devolución que puede ser menor,
+        # igual o mayor que el gasto original.
+        abono = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Devolución comunidad",
+            base=devolucion,
+            importe_negativo=True,
+            tratamiento="REPERCUTIR",
+        )
+
+        session.add_all([gasto, abono])
+        session.commit()
+
+        contrato_id = contrato.id
+        gasto_id = gasto.id
+        abono_id = abono.id
+
+    client = app.test_client()
+    _seleccionar_base(client)
+
+    # El usuario selecciona ambos apuntes y prepara la solicitud.
+    response = client.post(
+        f"/reembolsos/{contrato_id}/preparar",
+        data={
+            "origen": [
+                f"A:{gasto_id}",
+                f"A:{abono_id}",
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+
+    # La revisión conserva el desglose de los dos conceptos.
+    assert "Comunidad octubre" in response.text
+    assert "Devolución comunidad" in response.text
+
+    # El texto del correo explica quién debe pagar
+    # o si ambos importes se compensan.
+    assert texto_esperado in response.text
+
+
+def test_texto_solicitud_no_duplica_periodo_del_concepto(
+    app,
+) -> None:
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato(session)
+        categorias = _categorias_gastos()
+
+        # El usuario registra un gasto cuyo concepto ya incluye
+        # el período al que corresponde.
+        apunte = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 31),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto=(
+                "Comunidad octubre "
+                "del 01/10/2026 al 31/10/2026"
+            ),
+            base=10000,
+            periodo_desde=date(2026, 10, 1),
+            periodo_hasta=date(2026, 10, 31),
+            criterio_periodo="INCLUIR_AMBOS",
+            tratamiento="REPERCUTIR",
+        )
+
+        session.add(apunte)
+        session.commit()
+
+        contrato_id = contrato.id
+        apunte_id = apunte.id
+
+    client = app.test_client()
+    _seleccionar_base(client)
+
+    # El usuario prepara una solicitud para este gasto.
+    response = client.post(
+        f"/reembolsos/{contrato_id}/preparar",
+        data={
+            "origen": f"A:{apunte_id}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    # El texto para el correo utiliza el concepto original,
+    # sin añadir otra vez el período.
+    assert (
+        "- Comunidad octubre del 01/10/2026 al 31/10/2026, "
+        "de 100,00 €."
+    ) in response.text
+
+    # No debe aparecer la repetición del período.
+    assert (
+        "del 01/10/2026 al 31/10/2026, "
+        "del 01/10/2026 al 31/10/2026"
+    ) not in response.text
 
 
 def test_reembolsos_rechaza_preparar_sin_gastos(app) -> None:
@@ -327,6 +534,86 @@ def test_reembolsos_revision_muestra_explicacion_del_prorrateo(app) -> None:
     assert "31" in response.text
     assert "61" in response.text
     assert "14,43" in response.text
+
+
+@pytest.mark.parametrize(
+    ("importe_negativo", "texto_esperado", "calculo_esperado"),
+    [
+        (
+            False,
+            "Te corresponde abonar 31 de los 61 días",
+            "28,39 × 31 / 61 = 14,43 €",
+        ),
+        (
+            True,
+            "Te corresponde una devolución por 31 de los 61 días",
+            "-28,39 × 31 / 61 = -14,43 €",
+        ),
+    ],
+)
+def test_texto_reembolso_prorrateado_respeta_signo(
+    app,
+    importe_negativo: bool,
+    texto_esperado: str,
+    calculo_esperado: str,
+) -> None:
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato(
+            session,
+            fecha_inicio=date(2026, 7, 1),
+        )
+
+        # El usuario registra un gasto o una devolución
+        # cuyo período empieza antes del contrato.
+        apunte = crear_apunte_contable(
+            inmueble=contrato.inmueble,
+            categorias=_categorias_gastos(),
+            fecha=date(2026, 8, 13),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Agua. 01/06/2026 al 01/08/2026",
+            base=2839,
+            importe_negativo=importe_negativo,
+            periodo_desde=date(2026, 6, 1),
+            periodo_hasta=date(2026, 8, 1),
+            criterio_periodo="EXCLUIR_HASTA",
+            tratamiento="REPERCUTIR",
+        )
+
+        session.add(apunte)
+        session.commit()
+
+        contrato_id = contrato.id
+        apunte_id = apunte.id
+
+    client = app.test_client()
+    _seleccionar_base(client)
+
+    # El usuario prepara la solicitud y consulta
+    # la explicación que copiará al correo.
+    response = client.post(
+        f"/reembolsos/{contrato_id}/preparar",
+        data={
+            "origen": f"A:{apunte_id}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    assert texto_esperado in response.text
+    assert calculo_esperado in response.text
+
+    if importe_negativo:
+        # Una devolución no debe describirse como
+        # una cantidad que el inquilino debe abonar.
+        assert (
+            "Te corresponde abonar"
+            not in response.text
+        )
 
 
 def test_reembolsos_rechaza_origen_que_no_esta_pendiente(app) -> None:
