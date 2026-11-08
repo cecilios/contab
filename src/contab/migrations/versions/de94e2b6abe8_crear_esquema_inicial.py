@@ -1,8 +1,8 @@
 """Crear esquema inicial
 
-Revision ID: b391f7694ec0
+Revision ID: de94e2b6abe8
 Revises: 
-Create Date: 2026-10-12 13:45:38.326602
+Create Date: 2026-11-08 15:15:47.314326
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'b391f7694ec0'
+revision: str = 'de94e2b6abe8'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -72,7 +72,7 @@ def upgrade() -> None:
     sa.Column('referencia_bancaria', sa.Text(), nullable=False),
     sa.Column('huella_importacion', sa.Text(), nullable=False),
     sa.Column('estado', sa.Text(), nullable=False),
-    sa.CheckConstraint("estado IN ('PENDIENTE', 'CONCILIADO', 'DESCARTADO')", name='ck_movimiento_bancario_estado'),
+    sa.CheckConstraint("estado IN ('PENDIENTE', 'PARCIAL', 'CONCILIADO', 'DESCARTADO')", name='ck_movimiento_bancario_estado'),
     sa.CheckConstraint("naturaleza IN ('INGRESO', 'GASTO')", name='ck_movimiento_bancario_naturaleza'),
     sa.CheckConstraint('importe > 0', name='ck_movimiento_bancario_importe'),
     sa.PrimaryKeyConstraint('id'),
@@ -88,21 +88,22 @@ def upgrade() -> None:
     sa.Column('concepto', sa.Text(), nullable=False),
     sa.Column('periodo_desde', sa.Date(), nullable=True),
     sa.Column('periodo_hasta', sa.Date(), nullable=True),
-    sa.Column('criterio_periodo', sa.Text(), nullable=True),
+    sa.Column('dia_hasta_incluido', sa.Boolean(), nullable=True),
     sa.Column('tratamiento', sa.Text(), nullable=False),
     sa.Column('nombre_documento', sa.Text(), nullable=False),
     sa.Column('base', sa.Integer(), nullable=False),
     sa.Column('iva_importe', sa.Integer(), nullable=False),
     sa.Column('retencion_importe', sa.Integer(), nullable=False),
     sa.Column('total', sa.Integer(), nullable=False),
+    sa.Column('importe_negativo', sa.Boolean(), server_default='0', nullable=False),
     sa.Column('tercero_nombre', sa.Text(), nullable=False),
     sa.Column('tercero_nif', sa.Text(), nullable=False),
     sa.Column('referencia_documento', sa.Text(), nullable=False),
     sa.Column('ruta_documento', sa.Text(), nullable=False),
     sa.Column('notas', sa.Text(), nullable=True),
-    sa.CheckConstraint("\n            (\n                periodo_desde IS NULL\n                AND periodo_hasta IS NULL\n                AND criterio_periodo IS NULL\n            )\n            OR\n            (\n                periodo_desde IS NOT NULL\n                AND periodo_hasta IS NOT NULL\n                AND criterio_periodo IS NOT NULL\n                AND criterio_periodo IN (\n                    'EXCLUIR_HASTA',\n                    'EXCLUIR_DESDE',\n                    'INCLUIR_AMBOS',\n                    'EXCLUIR_AMBOS'\n                )\n            )\n            ", name='ck_apunte_contable_criterio_periodo'),
     sa.CheckConstraint("\n            tratamiento IN (\n                'CONTABILIZAR',\n                'REPERCUTIR',\n                'FACTURAR'\n            )\n            ", name='ck_apunte_contable_tratamiento'),
     sa.CheckConstraint("naturaleza IN ('INGRESO', 'GASTO')", name='ck_apunte_contable_naturaleza'),
+    sa.CheckConstraint('\n            (\n                periodo_desde IS NULL\n                AND periodo_hasta IS NULL\n                AND dia_hasta_incluido IS NULL\n            )\n            OR\n            (\n                periodo_desde IS NOT NULL\n                AND periodo_hasta IS NOT NULL\n                AND dia_hasta_incluido IS NOT NULL\n                AND dia_hasta_incluido IN (0, 1)\n            )\n            ', name='ck_apunte_contable_dia_hasta_incluido'),
     sa.CheckConstraint('\n            (\n                periodo_desde IS NULL\n                AND periodo_hasta IS NULL\n            )\n            OR\n            (\n                periodo_desde IS NOT NULL\n                AND periodo_hasta IS NOT NULL\n            )\n            ', name='ck_apunte_contable_periodo_completo'),
     sa.CheckConstraint('\n            periodo_desde IS NULL\n            OR periodo_hasta >= periodo_desde\n            ', name='ck_apunte_contable_periodo_orden'),
     sa.CheckConstraint('base >= 0', name='ck_apunte_contable_base'),
@@ -261,28 +262,6 @@ def upgrade() -> None:
     sa.UniqueConstraint('apunte_contable_id'),
     sa.UniqueConstraint('numero_factura')
     )
-    op.create_table('imputacion_contrato',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('apunte_id', sa.Integer(), nullable=True),
-    sa.Column('distribucion_apunte_id', sa.Integer(), nullable=True),
-    sa.Column('contrato_id', sa.Integer(), nullable=False),
-    sa.Column('importe', sa.Integer(), nullable=False),
-    sa.Column('base', sa.Integer(), nullable=False),
-    sa.Column('iva_importe', sa.Integer(), nullable=False),
-    sa.Column('retencion_importe', sa.Integer(), nullable=False),
-    sa.CheckConstraint('\n            (\n                apunte_id IS NOT NULL\n                AND distribucion_apunte_id IS NULL\n            )\n            OR\n            (\n                apunte_id IS NULL\n                AND distribucion_apunte_id IS NOT NULL\n            )\n            ', name='ck_imputacion_contrato_origen'),
-    sa.CheckConstraint('base >= 0', name='ck_imputacion_contrato_base'),
-    sa.CheckConstraint('importe = base + iva_importe - retencion_importe', name='ck_imputacion_contrato_total'),
-    sa.CheckConstraint('importe > 0', name='ck_imputacion_contrato_importe'),
-    sa.CheckConstraint('iva_importe >= 0', name='ck_imputacion_contrato_iva'),
-    sa.CheckConstraint('retencion_importe >= 0', name='ck_imputacion_contrato_retencion'),
-    sa.ForeignKeyConstraint(['apunte_id'], ['apunte_contable.id'], ondelete='RESTRICT'),
-    sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
-    sa.ForeignKeyConstraint(['distribucion_apunte_id'], ['distribucion_apunte.id'], ondelete='RESTRICT'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('apunte_id', 'contrato_id', name='uq_imputacion_contrato_apunte'),
-    sa.UniqueConstraint('distribucion_apunte_id', 'contrato_id', name='uq_imputacion_contrato_distribucion')
-    )
     op.create_table('movimiento_previsto',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('inmueble_id', sa.Integer(), nullable=False),
@@ -345,6 +324,8 @@ def upgrade() -> None:
     sa.Column('movimiento_bancario_id', sa.Integer(), nullable=False),
     sa.Column('movimiento_previsto_id', sa.Integer(), nullable=False),
     sa.Column('importe_asociado', sa.Integer(), nullable=False),
+    sa.Column('cierra_bancario', sa.Boolean(), server_default='0', nullable=False),
+    sa.Column('cierra_previsto', sa.Boolean(), server_default='0', nullable=False),
     sa.CheckConstraint('importe_asociado > 0', name='ck_conciliacion_importe_positivo'),
     sa.ForeignKeyConstraint(['movimiento_bancario_id'], ['movimiento_bancario.id'], ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['movimiento_previsto_id'], ['movimiento_previsto.id'], ondelete='RESTRICT'),
@@ -372,19 +353,44 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('factura_id', 'orden', name='uq_factura_linea_orden')
     )
+    op.create_table('imputacion_contrato',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('apunte_id', sa.Integer(), nullable=True),
+    sa.Column('distribucion_apunte_id', sa.Integer(), nullable=True),
+    sa.Column('factura_linea_id', sa.Integer(), nullable=True),
+    sa.Column('contrato_id', sa.Integer(), nullable=False),
+    sa.Column('importe', sa.Integer(), nullable=False),
+    sa.Column('base', sa.Integer(), nullable=False),
+    sa.Column('iva_importe', sa.Integer(), nullable=False),
+    sa.Column('retencion_importe', sa.Integer(), nullable=False),
+    sa.CheckConstraint('\n            (\n                apunte_id IS NOT NULL\n                AND distribucion_apunte_id IS NULL\n            )\n            OR\n            (\n                apunte_id IS NULL\n                AND distribucion_apunte_id IS NOT NULL\n            )\n            ', name='ck_imputacion_contrato_origen'),
+    sa.CheckConstraint('base >= 0', name='ck_imputacion_contrato_base'),
+    sa.CheckConstraint('importe = base + iva_importe - retencion_importe', name='ck_imputacion_contrato_total'),
+    sa.CheckConstraint('importe > 0', name='ck_imputacion_contrato_importe'),
+    sa.CheckConstraint('iva_importe >= 0', name='ck_imputacion_contrato_iva'),
+    sa.CheckConstraint('retencion_importe >= 0', name='ck_imputacion_contrato_retencion'),
+    sa.ForeignKeyConstraint(['apunte_id'], ['apunte_contable.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['contrato_id'], ['contrato.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['distribucion_apunte_id'], ['distribucion_apunte.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['factura_linea_id'], ['factura_linea.id'], name='fk_imputacion_contrato_factura_linea', ondelete='RESTRICT'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('apunte_id', 'contrato_id', name='uq_imputacion_contrato_apunte'),
+    sa.UniqueConstraint('distribucion_apunte_id', 'contrato_id', name='uq_imputacion_contrato_distribucion'),
+    sa.UniqueConstraint('factura_linea_id', name='uq_imputacion_contrato_factura_linea')
+    )
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_table('imputacion_contrato')
     op.drop_table('factura_linea')
     op.drop_table('factura_destinatario')
     op.drop_table('conciliacion')
     op.drop_table('solicitud_reembolso_linea')
     op.drop_table('renta_contrato')
     op.drop_table('movimiento_previsto')
-    op.drop_table('imputacion_contrato')
     op.drop_table('factura')
     op.drop_table('ajuste_renta')
     op.drop_table('solicitud_reembolso')
