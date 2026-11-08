@@ -418,7 +418,7 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
 
 
 
-def test_formulario_apunte_solo_ofrece_dos_criterios_periodo(
+def test_formulario_apunte_solo_ofrece_dos_opciones_dia_hasta(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -449,7 +449,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
 
     # Se extraen exactamente los valores del selector de criterios.
     selector = re.search(
-        r'<select\b[^>]*id="criterio_periodo"[^>]*>'
+        r'<select\b[^>]*id="dia_hasta_incluido"[^>]*>'
         r'(.*?)</select>',
         response.text,
         re.DOTALL,
@@ -464,8 +464,8 @@ GAS_COMUNIDAD = GASTO | Comunidad
 
     assert set(opciones) == {
         "",
-        "INCLUIR_AMBOS",
-        "EXCLUIR_HASTA",
+        "1",
+        "0",
     }
 
     assert len(opciones) == 3
@@ -516,7 +516,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     assert 'id="periodo_hasta"' in html
 
     # El criterio seleccionable sigue identificado inequívocamente.
-    assert 'id="criterio_periodo"' in html
+    assert 'id="dia_hasta_incluido"' in html
 
 
 def test_crear_apunte_desde_formulario(
@@ -714,7 +714,7 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
         assert apunte.concepto == "Tasa de Residuos Urbanos 09/2026"
         assert apunte.periodo_desde == date(2026, 9, 1)
         assert apunte.periodo_hasta == date(2026, 9, 30)
-        assert apunte.criterio_periodo == "INCLUIR_AMBOS"
+        assert apunte.dia_hasta_incluido is True
         assert apunte.tratamiento == "CONTABILIZAR"
         assert apunte.nombre_documento == ("LOCAL-1-Tasa de Residuos Urbanos 2026-09.pdf")
         assert apunte.base == 10000
@@ -3808,26 +3808,26 @@ GAS_TRIBUTOS.IBI = IBI
 
 @pytest.mark.parametrize(
     (
-        "criterio_anterior",
+        "dia_hasta_incluido_anterior",
         "inicio_nuevo",
         "tipo_aviso",
     ),
     [
-        # Fecha hasta incluida: continuidad al día siguiente.
-        ("INCLUIR_AMBOS", date(2026, 9, 1), None),
-        ("INCLUIR_AMBOS", date(2026, 9, 2), "discontinuidad"),
-        ("INCLUIR_AMBOS", date(2026, 8, 31), "solapamiento"),
+        # Fecha final incluida: continuidad al día siguiente.
+        (True, date(2026, 9, 1), None),
+        (True, date(2026, 9, 2), "discontinuidad"),
+        (True, date(2026, 8, 31), "solapamiento"),
 
-        # Fecha hasta excluida: continuidad el mismo día.
-        ("EXCLUIR_HASTA", date(2026, 8, 31), None),
-        ("EXCLUIR_HASTA", date(2026, 9, 1), "discontinuidad"),
-        ("EXCLUIR_HASTA", date(2026, 8, 30), "solapamiento"),
+        # Fecha final excluida: continuidad el mismo día.
+        (False, date(2026, 8, 31), None),
+        (False, date(2026, 9, 1), "discontinuidad"),
+        (False, date(2026, 8, 30), "solapamiento"),
     ],
 )
 def test_validar_continuidad_periodo_suministro(
     session,
     inmueble,
-    criterio_anterior,
+    dia_hasta_incluido_anterior,
     inicio_nuevo,
     tipo_aviso,
 ) -> None:
@@ -3842,7 +3842,7 @@ def test_validar_continuidad_periodo_suministro(
         concepto="Agua anterior",
         periodo_desde=date(2026, 7, 1),
         periodo_hasta=date(2026, 8, 31),
-        criterio_periodo=criterio_anterior,
+        dia_hasta_incluido=dia_hasta_incluido_anterior,
         tratamiento="CONTABILIZAR",
         nombre_documento="agua-anterior.pdf",
         base=10000,
@@ -3862,7 +3862,7 @@ def test_validar_continuidad_periodo_suministro(
         naturaleza="GASTO",
         periodo_desde=inicio_nuevo,
         periodo_hasta=date(2026, 10, 31),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     if tipo_aviso is None:
@@ -3885,7 +3885,7 @@ def test_continuidad_suministro_ignora_otros_suministros(
         concepto="Gas anterior",
         periodo_desde=date(2026, 7, 1),
         periodo_hasta=date(2026, 8, 31),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
         tratamiento="CONTABILIZAR",
         nombre_documento="gas-anterior.pdf",
         base=10000,
@@ -3905,7 +3905,7 @@ def test_continuidad_suministro_ignora_otros_suministros(
         naturaleza="GASTO",
         periodo_desde=date(2026, 10, 1),
         periodo_hasta=date(2026, 11, 30),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     assert aviso is None
@@ -3924,7 +3924,7 @@ def test_continuidad_suministro_excluye_apunte_editado(
         concepto="Recibo editado",
         periodo_desde=date(2026, 7, 1),
         periodo_hasta=date(2026, 8, 31),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
         tratamiento="CONTABILIZAR",
         nombre_documento="agua-editado.pdf",
         base=10000,
@@ -3944,7 +3944,7 @@ def test_continuidad_suministro_excluye_apunte_editado(
         naturaleza="GASTO",
         periodo_desde=date(2026, 7, 1),
         periodo_hasta=date(2026, 8, 31),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
         excluir_id=apunte.id,
     )
 
@@ -3997,7 +3997,7 @@ GAS_SERVICIOS_SUMINISTROS.AGUA = Agua
             concepto="Agua anterior",
             periodo_desde=date(2026, 7, 1),
             periodo_hasta=date(2026, 8, 31),
-            criterio_periodo="INCLUIR_AMBOS",
+            dia_hasta_incluido=True,
             tratamiento="CONTABILIZAR",
             nombre_documento="agua-anterior.pdf",
             base=10000,
@@ -4018,7 +4018,7 @@ GAS_SERVICIOS_SUMINISTROS.AGUA = Agua
                 concepto="Agua actual",
                 periodo_desde=date(2026, 9, 15),
                 periodo_hasta=date(2026, 10, 31),
-                criterio_periodo="INCLUIR_AMBOS",
+                dia_hasta_incluido=True,
                 tratamiento="CONTABILIZAR",
                 nombre_documento="agua-actual.pdf",
                 base=12000,
@@ -4052,7 +4052,7 @@ GAS_SERVICIOS_SUMINISTROS.AGUA = Agua
             "concepto": "Agua actual",
             "periodo_desde": "15/09/2026",
             "periodo_hasta": "31/10/2026",
-            "criterio_periodo": "INCLUIR_AMBOS",
+            "dia_hasta_incluido": "1",
             "tratamiento": "CONTABILIZAR",
             "base": "120,00",
             "iva_importe": "0,00",

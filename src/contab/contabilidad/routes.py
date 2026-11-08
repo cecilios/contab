@@ -57,7 +57,7 @@ CAMPOS_VALIDACION = (
     "concepto",
     "periodo_desde",
     "periodo_hasta",
-    "criterio_periodo",
+    "dia_hasta_incluido",
     "tratamiento",
     "base",
     "iva_importe",
@@ -216,7 +216,7 @@ def _fechas_previstas(
 def _periodo(
     desde_texto: str,
     hasta_texto: str,
-) -> tuple[date | None, date | None, str | None]:
+) -> tuple[date | None, date | None, bool | None]:
     """Interpreta un período vacío, mensual o entre dos fechas."""
 
     desde_texto = desde_texto.strip()
@@ -250,7 +250,7 @@ def _periodo(
         return (
             date(mes.year, mes.month, 1),
             date(mes.year, mes.month, ultimo_dia),
-            "INCLUIR_AMBOS",
+            True,
         )
 
     return (
@@ -595,7 +595,7 @@ def _comprobar_continuidad_suministro(
     naturaleza: str,
     periodo_desde: date | None,
     periodo_hasta: date | None,
-    criterio_periodo: str | None,
+    dia_hasta_incluido: bool | None,
     excluir_id: int | None = None,
 ) -> str | None:
     """Avisa de huecos o solapamientos con el recibo anterior."""
@@ -610,7 +610,7 @@ def _comprobar_continuidad_suministro(
         }
         or periodo_desde is None
         or periodo_hasta is None
-        or criterio_periodo is None
+        or dia_hasta_incluido is None
     ):
         return None
 
@@ -644,7 +644,7 @@ def _comprobar_continuidad_suministro(
     # Último día efectivamente cubierto por el recibo anterior.
     ultimo_dia = anterior.periodo_hasta
 
-    if anterior.criterio_periodo == "EXCLUIR_HASTA":
+    if anterior.dia_hasta_incluido is False:
         ultimo_dia -= timedelta(days=1)
 
     # Los recibos actuales incluyen siempre el día desde.
@@ -693,16 +693,27 @@ def _datos_apunte_formulario(
         categorias,
     )
 
-    periodo_desde, periodo_hasta, criterio_automatico = _periodo(
+    periodo_desde, periodo_hasta, inclusion_automatica = _periodo(
         datos.get("periodo_desde", ""),
         datos.get("periodo_hasta", ""),
     )
 
-    criterio_periodo = (
-        criterio_automatico
-        if criterio_automatico is not None
-        else datos.get("criterio_periodo", "").strip().upper() or None
-    )
+    valor_inclusion = datos.get("dia_hasta_incluido", "").strip()
+
+    if inclusion_automatica is not None:
+        dia_hasta_incluido = inclusion_automatica
+    elif periodo_desde is None:
+        dia_hasta_incluido = None
+    elif valor_inclusion == "1":
+        dia_hasta_incluido = True
+    elif valor_inclusion == "0":
+        dia_hasta_incluido = False
+    elif not valor_inclusion:
+        dia_hasta_incluido = None
+    else:
+        raise ValueError(
+            "El indicador de inclusión del día final no es válido."
+        )
 
     crear_movimiento = (
         datos.get("crear_movimiento") == "on"
@@ -748,7 +759,7 @@ def _datos_apunte_formulario(
         "notas": datos.get("notas", ""),
         "periodo_desde": periodo_desde,
         "periodo_hasta": periodo_hasta,
-        "criterio_periodo": criterio_periodo,
+        "dia_hasta_incluido": dia_hasta_incluido,
         "tratamiento": datos.get("tratamiento", "CONTABILIZAR",),
         "nombre_documento": datos.get("nombre_documento", "",),
     }
@@ -989,7 +1000,7 @@ def nuevo_apunte():
                     naturaleza=valores["naturaleza"],
                     periodo_desde=valores["periodo_desde"],
                     periodo_hasta=valores["periodo_hasta"],
-                    criterio_periodo=valores["criterio_periodo"],
+                    dia_hasta_incluido=valores["dia_hasta_incluido"],
                 )
 
                 if aviso_continuidad:
@@ -1177,8 +1188,12 @@ def editar_apunte(apunte_id: int):
                 "concepto": apunte.concepto,
                 "periodo_desde": periodo_desde,
                 "periodo_hasta": periodo_hasta,
-                "criterio_periodo": (
-                    apunte.criterio_periodo or ""
+                "dia_hasta_incluido": (
+                    ""
+                    if apunte.dia_hasta_incluido is None
+                    else "1"
+                    if apunte.dia_hasta_incluido
+                    else "0"
                 ),
                 "tratamiento": apunte.tratamiento,
                 "base": _importe_para_formulario(
@@ -1316,7 +1331,7 @@ def editar_apunte(apunte_id: int):
                     naturaleza=valores["naturaleza"],
                     periodo_desde=valores["periodo_desde"],
                     periodo_hasta=valores["periodo_hasta"],
-                    criterio_periodo=valores["criterio_periodo"],
+                    dia_hasta_incluido=valores["dia_hasta_incluido"],
                     excluir_id=apunte_id,
                 )
 

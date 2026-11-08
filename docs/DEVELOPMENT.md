@@ -712,18 +712,23 @@ Temporal attribution uses:
 fecha
 periodo_desde
 periodo_hasta
-criterio_periodo
+dia_hasta_incluido
 contract dates
 ```
 
-Possible period criteria are:
+The start date is always included.
 
-```text
-EXCLUIR_HASTA
-EXCLUIR_DESDE
-INCLUIR_AMBOS
-EXCLUIR_AMBOS
-```
+The nullable boolean dia_hasta_incluido determines whether
+the end date is included:
+- True: include the end date.
+- False: exclude the end date.
+- None: the entry has no period.
+When a period is present, both dates and
+dia_hasta_incluido must be provided.
+
+Monthly periods include the last day of the month.
+
+The allocation rejects periods with no effective days.
 
 Days not covered by any applicable contract remain attributable to the owner.
 
@@ -743,7 +748,7 @@ iva_importe
 retencion_importe
 periodo_desde
 periodo_hasta
-criterio_periodo
+dia_hasta_incluido
 tratamiento
 ```
 
@@ -1919,7 +1924,6 @@ Known deferred items:
 
 - Negative `FACTURAR` entries.
 - Rectifying invoices.
-- Replacing `criterio_periodo` with `dia_hasta_incluido`.
 - Creating accounting entries prefilled from bank movements.
 
 Do not implement these items merely because they are listed here.

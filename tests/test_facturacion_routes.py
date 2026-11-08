@@ -176,7 +176,7 @@ def _anadir_registro_contable_factura_para_test(
         concepto="Alquiler local",
         periodo_desde=factura.periodo,
         periodo_hasta=date(2026, 10, 31),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
         base=factura.base,
         iva_importe=factura.iva_importe,
         retencion_importe=factura.retencion_importe,
@@ -3987,8 +3987,20 @@ def test_listar_revisiones_separa_locales_y_otros() -> None:
     assert "PISO-1" in texto
 
 
-def test_listar_revisiones_muestra_ultima_y_proxima_revision() -> None:
+def test_listar_revisiones_muestra_ultima_y_proxima_revision(
+    monkeypatch,
+) -> None:
     """Muestra el último resultado y la próxima revisión prevista."""
+
+    class FechaPrueba(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 15)
+
+    monkeypatch.setattr(
+        "contab.facturacion.routes.date",
+        FechaPrueba,
+    )
 
     app = crear_app_test()
 
@@ -4134,8 +4146,20 @@ def test_listar_revisiones_no_muestra_contratos_finalizados() -> None:
     assert "LOCAL-ANTIGUO" not in texto
 
 
-def test_listar_revisiones_no_enlaza_revision_que_espera_indice() -> None:
+def test_listar_revisiones_no_enlaza_revision_que_espera_indice(
+    monkeypatch,
+) -> None:
     """No ofrece resolver mientras la revisión espera el índice."""
+
+    class FechaPrueba(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 15)
+
+    monkeypatch.setattr(
+        "contab.facturacion.routes.date",
+        FechaPrueba,
+    )
 
     app = crear_app_test()
 

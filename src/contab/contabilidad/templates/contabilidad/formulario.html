@@ -149,27 +149,27 @@
 
 
             <p>
-                <label for="criterio_periodo">
+                <label for="dia_hasta_incluido">
                     Cómputo del período
                 </label>
                 <select
-                    id="criterio_periodo"
-                    name="criterio_periodo"
+                    id="dia_hasta_incluido"
+                    name="dia_hasta_incluido"
                 >
                     <option value="">
                         Seleccione el criterio
                     </option>
                     <option
-                        value="INCLUIR_AMBOS"
-                        {% if datos.get("criterio_periodo") == "INCLUIR_AMBOS" %}
+                        value="1"
+                        {% if datos.get("dia_hasta_incluido") == "1" %}
                             selected
                         {% endif %}
                     >
                         Incluir fecha final
                     </option>
                     <option
-                        value="EXCLUIR_HASTA"
-                        {% if datos.get("criterio_periodo") == "EXCLUIR_HASTA" %}
+                        value="0"
+                        {% if datos.get("dia_hasta_incluido") == "0" %}
                             selected
                         {% endif %}
                     >
@@ -479,8 +479,8 @@
             const periodoHasta = document.getElementById(
                 "periodo_hasta"
             );
-            const criterioPeriodo = document.getElementById(
-                "criterio_periodo"
+            const diaHastaIncluido = document.getElementById(
+                "dia_hasta_incluido"
             );
             const diasIncluirHasta = document.getElementById(
                 "dias_incluir_hasta"
@@ -604,17 +604,17 @@
                         ? "0 días (no válido)"
                         : `${diasExcluir} días`;
 
-                const opcionExcluir = criterioPeriodo.querySelector(
-                    'option[value="EXCLUIR_HASTA"]'
+                const opcionExcluir = diaHastaIncluido.querySelector(
+                    'option[value="0"]'
                 );
 
                 opcionExcluir.disabled = diasExcluir === 0;
 
                 if (
                     opcionExcluir.disabled
-                    && criterioPeriodo.value === "EXCLUIR_HASTA"
+                    && diaHastaIncluido.value === "0"
                 ) {
-                    criterioPeriodo.value = "";
+                    diaHastaIncluido.value = "";
                 }
             }
 

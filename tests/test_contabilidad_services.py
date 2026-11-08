@@ -144,7 +144,7 @@ def test_crear_apunte_contable(contrato) -> None:
         referencia_documento="  Liquidación agosto  ",
         periodo_desde=date(2026, 7, 1),
         periodo_hasta=date(2026, 7, 31),
-        criterio_periodo="EXCLUIR_HASTA",
+        dia_hasta_incluido=False,
         tratamiento=" repercutir ",
         nombre_documento="  antena-julio-2026.pdf  ",
     )
@@ -166,7 +166,7 @@ def test_crear_apunte_contable(contrato) -> None:
     assert apunte.notas is None
     assert apunte.periodo_desde == date(2026, 7, 1)
     assert apunte.periodo_hasta == date(2026, 7, 31)
-    assert apunte.criterio_periodo == "EXCLUIR_HASTA"
+    assert apunte.dia_hasta_incluido is False
     assert apunte.tratamiento == "REPERCUTIR"
     assert apunte.nombre_documento == "antena-julio-2026.pdf"
 
@@ -311,7 +311,7 @@ def test_modificar_apunte_contable(
         notas="Corregido",
         periodo_desde=date(2026, 8, 1),
         periodo_hasta=date(2026, 8, 31),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
         tratamiento="FACTURAR",
         nombre_documento="comunidad-agosto.pdf",
     )
@@ -325,7 +325,7 @@ def test_modificar_apunte_contable(
     assert apunte.notas == "Corregido"
     assert apunte.periodo_desde == date(2026, 8, 1)
     assert apunte.periodo_hasta == date(2026, 8, 31)
-    assert apunte.criterio_periodo == "INCLUIR_AMBOS"
+    assert apunte.dia_hasta_incluido is True
     assert apunte.tratamiento == "FACTURAR"
     assert apunte.nombre_documento == "comunidad-agosto.pdf"
 
@@ -557,7 +557,7 @@ def test_apunte_contable_admite_periodo(
         concepto="Suministro de agua",
         periodo_desde=date(2026, 3, 17),
         periodo_hasta=date(2026, 5, 14),
-        criterio_periodo="EXCLUIR_DESDE",
+        dia_hasta_incluido=True,
         tratamiento="REPERCUTIR",
         nombre_documento=(
             "PISO-1-agua 2026-03-17 a 2026-05-14.pdf"
@@ -578,7 +578,7 @@ def test_apunte_contable_admite_periodo(
 
     assert apunte.periodo_desde == date(2026, 3, 17)
     assert apunte.periodo_hasta == date(2026, 5, 14)
-    assert apunte.criterio_periodo == "EXCLUIR_DESDE"
+    assert apunte.dia_hasta_incluido is True
     assert apunte.tratamiento == "REPERCUTIR"
     assert apunte.nombre_documento == (
         "PISO-1-agua 2026-03-17 a 2026-05-14.pdf"
@@ -874,16 +874,13 @@ def test_buscar_documentos_duplicados(
 
 
 @pytest.mark.parametrize(
-    "criterio_periodo",
-    [
-        "EXCLUIR_HASTA",
-        "INCLUIR_AMBOS",
-    ],
+    "dia_hasta_incluido",
+    [False, True],
 )
-def test_apunte_contable_admite_criterios_periodo(
+def test_apunte_contable_admite_dia_hasta_incluido(
     session,
     inmueble,
-    criterio_periodo: str,
+    dia_hasta_incluido: bool,
 ) -> None:
     apunte = ApunteContable(
         inmueble=inmueble,
@@ -894,7 +891,7 @@ def test_apunte_contable_admite_criterios_periodo(
         concepto="Suministro de agua",
         periodo_desde=date(2026, 3, 17),
         periodo_hasta=date(2026, 5, 14),
-        criterio_periodo=criterio_periodo,
+        dia_hasta_incluido=dia_hasta_incluido,
         tratamiento="CONTABILIZAR",
         nombre_documento="agua.pdf",
         base=10000,
@@ -911,136 +908,31 @@ def test_apunte_contable_admite_criterios_periodo(
     session.add(apunte)
     session.commit()
 
-    assert apunte.criterio_periodo == criterio_periodo
-
-
-
-@pytest.mark.parametrize(
-    "criterio_periodo",
-    [
-        "EXCLUIR_DESDE",
-        "EXCLUIR_AMBOS",
-    ],
-)
-def test_crear_apunte_rechaza_criterios_periodo_obsoletos(
-    inmueble,
-    criterio_periodo,
-) -> None:
-    """No permite registrar nuevos apuntes con criterios obsoletos."""
-
-    categorias = _categorias_gastos_comunes()
-
-    with pytest.raises(
-        ContabilidadError,
-        match="criterio del período no es válido",
-    ):
-        crear_apunte_contable(
-            inmueble=inmueble,
-            categorias=categorias,
-            fecha=date(2026, 10, 15),
-            naturaleza="GASTO",
-            categoria="GAS_COMUNIDAD",
-            concepto="Cuota de comunidad",
-            base=10000,
-            periodo_desde=date(2026, 9, 3),
-            periodo_hasta=date(2026, 10, 6),
-            criterio_periodo=criterio_periodo,
-            tratamiento="REPERCUTIR",
-        )
-
-
-
-@pytest.mark.parametrize(
-    "criterio_periodo",
-    [
-        "EXCLUIR_DESDE",
-        "EXCLUIR_AMBOS",
-    ],
-)
-def test_modificar_apunte_rechaza_criterios_periodo_obsoletos(
-    session,
-    inmueble,
-    criterio_periodo,
-) -> None:
-    """Rechaza el criterio inválido sin alterar el apunte original."""
-
-    categorias = _categorias_gastos_comunes()
-
-    # El usuario tiene un apunte con un criterio válido.
-    apunte = crear_apunte_contable(
-        inmueble=inmueble,
-        categorias=categorias,
-        fecha=date(2026, 10, 15),
-        naturaleza="GASTO",
-        categoria="GAS_COMUNIDAD",
-        concepto="Comunidad septiembre",
-        base=10000,
-        periodo_desde=date(2026, 9, 3),
-        periodo_hasta=date(2026, 10, 6),
-        criterio_periodo="INCLUIR_AMBOS",
-        tratamiento="REPERCUTIR",
-    )
-
-    session.add(apunte)
-    session.commit()
-
-    # El usuario intenta introducir un criterio obsoleto.
-    with pytest.raises(
-        ContabilidadError,
-        match="criterio del período no es válido",
-    ):
-        modificar_apunte_contable(
-            session,
-            apunte=apunte,
-            inmueble=inmueble,
-            categorias=categorias,
-            fecha=date(2026, 10, 15),
-            naturaleza="GASTO",
-            categoria="GAS_COMUNIDAD",
-            concepto="Comunidad modificada",
-            base=12000,
-            periodo_desde=date(2026, 9, 3),
-            periodo_hasta=date(2026, 10, 6),
-            criterio_periodo=criterio_periodo,
-            tratamiento="REPERCUTIR",
-        )
-
-    # El intento rechazado no modifica ningún dato.
-    assert apunte.concepto == "Comunidad septiembre"
-    assert apunte.base == 10000
-    assert apunte.criterio_periodo == "INCLUIR_AMBOS"
+    assert apunte.dia_hasta_incluido is dia_hasta_incluido
 
 
 @pytest.mark.parametrize(
     (
         "periodo_desde",
         "periodo_hasta",
-        "criterio_periodo",
+        "dia_hasta_incluido",
     ),
     [
-        (
-            None,
-            None,
-            "INCLUIR_AMBOS",
-        ),
+        (None, None, True),
+        (None, None, False),
         (
             date(2026, 3, 17),
             date(2026, 5, 14),
             None,
-        ),
-        (
-            date(2026, 3, 17),
-            date(2026, 5, 14),
-            "DESCONOCIDO",
         ),
     ],
 )
-def test_apunte_contable_rechaza_criterio_periodo_invalido(
+def test_apunte_contable_rechaza_dia_hasta_incluido_invalido(
     session,
     inmueble,
     periodo_desde,
     periodo_hasta,
-    criterio_periodo,
+    dia_hasta_incluido,
 ) -> None:
     apunte = ApunteContable(
         inmueble=inmueble,
@@ -1051,7 +943,7 @@ def test_apunte_contable_rechaza_criterio_periodo_invalido(
         concepto="Suministro de agua",
         periodo_desde=periodo_desde,
         periodo_hasta=periodo_hasta,
-        criterio_periodo=criterio_periodo,
+        dia_hasta_incluido=dia_hasta_incluido,
         tratamiento="CONTABILIZAR",
         nombre_documento="agua.pdf",
         base=10000,
@@ -1074,15 +966,12 @@ def test_apunte_contable_rechaza_criterio_periodo_invalido(
 
 
 @pytest.mark.parametrize(
-    "criterio_periodo",
-    [
-        "EXCLUIR_HASTA",
-        "INCLUIR_AMBOS",
-    ],
+    "dia_hasta_incluido",
+    [False, True],
 )
-def test_crear_apunte_admite_criterios_periodo(
+def test_crear_apunte_admite_dia_hasta_incluido(
     inmueble,
-    criterio_periodo: str,
+    dia_hasta_incluido: bool,
 ) -> None:
     categorias = {
         "GAS_COMUNIDAD": CategoriaContable(
@@ -1103,25 +992,22 @@ def test_crear_apunte_admite_criterios_periodo(
         concepto="Cuota de comunidad",
         periodo_desde=date(2026, 7, 1),
         periodo_hasta=date(2026, 7, 31),
-        criterio_periodo=criterio_periodo,
+        dia_hasta_incluido=dia_hasta_incluido,
         base=10000,
     )
 
-    assert apunte.criterio_periodo == criterio_periodo
+    assert apunte.dia_hasta_incluido is dia_hasta_incluido
 
 
 @pytest.mark.parametrize(
     (
         "periodo_desde",
         "periodo_hasta",
-        "criterio_periodo",
+        "dia_hasta_incluido",
     ),
     [
-        (
-            None,
-            None,
-            "INCLUIR_AMBOS",
-        ),
+        (None, None, True),
+        (None, None, False),
         (
             date(2026, 7, 1),
             date(2026, 7, 31),
@@ -1130,15 +1016,25 @@ def test_crear_apunte_admite_criterios_periodo(
         (
             date(2026, 7, 1),
             date(2026, 7, 31),
-            "DESCONOCIDO",
+            "SI",
+        ),
+        (
+            date(2026, 7, 1),
+            date(2026, 7, 31),
+            1,
+        ),
+        (
+            date(2026, 7, 1),
+            date(2026, 7, 31),
+            0,
         ),
     ],
 )
-def test_crear_apunte_rechaza_criterio_periodo_invalido(
+def test_crear_apunte_rechaza_dia_hasta_incluido_invalido(
     inmueble,
-    periodo_desde: date | None,
-    periodo_hasta: date | None,
-    criterio_periodo: str | None,
+    periodo_desde,
+    periodo_hasta,
+    dia_hasta_incluido,
 ) -> None:
     categorias = {
         "GAS_COMUNIDAD": CategoriaContable(
@@ -1150,10 +1046,7 @@ def test_crear_apunte_rechaza_criterio_periodo_invalido(
         ),
     }
 
-    with pytest.raises(
-        ContabilidadError,
-        match="criterio",
-    ):
+    with pytest.raises(ContabilidadError):
         crear_apunte_contable(
             inmueble=inmueble,
             categorias=categorias,
@@ -1163,8 +1056,39 @@ def test_crear_apunte_rechaza_criterio_periodo_invalido(
             concepto="Cuota de comunidad",
             periodo_desde=periodo_desde,
             periodo_hasta=periodo_hasta,
-            criterio_periodo=criterio_periodo,
+            dia_hasta_incluido=dia_hasta_incluido,
             base=10000,
+        )
+
+
+def test_crear_apunte_rechaza_excluir_unico_dia() -> None:
+    inmueble = Inmueble(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    categorias = _categorias_gastos_comunes()
+
+    with pytest.raises(
+        ContabilidadError,
+        match="no contiene días efectivos",
+    ):
+        crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=10000,
+            periodo_desde=date(2026, 10, 1),
+            periodo_hasta=date(2026, 10, 1),
+            dia_hasta_incluido=False,
         )
 
 
@@ -1645,7 +1569,7 @@ def test_reparto_contratos_sin_periodo_usa_contrato_vigente() -> None:
         fecha=date(2026, 10, 1),
         periodo_desde=None,
         periodo_hasta=None,
-        criterio_periodo=None,
+        dia_hasta_incluido=None,
     )
 
     assert reparto == [
@@ -1671,7 +1595,7 @@ def test_reparto_contratos_sin_periodo_sin_contrato_es_propietario() -> None:
         fecha=date(2026, 10, 1),
         periodo_desde=None,
         periodo_hasta=None,
-        criterio_periodo=None,
+        dia_hasta_incluido=None,
     )
 
     assert reparto == []
@@ -1707,7 +1631,7 @@ def test_reparto_contratos_prorratea_periodo_entre_dos_contratos() -> None:
         fecha=date(2026, 10, 10),
         periodo_desde=date(2026, 10, 1),
         periodo_hasta=date(2026, 10, 10),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     assert reparto == [
@@ -1740,7 +1664,7 @@ def test_reparto_contratos_deja_dias_sin_contrato_al_propietario() -> None:
         fecha=date(2026, 10, 10),
         periodo_desde=date(2026, 10, 1),
         periodo_hasta=date(2026, 10, 10),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     assert reparto == [
@@ -1751,40 +1675,28 @@ def test_reparto_contratos_deja_dias_sin_contrato_al_propietario() -> None:
 
 @pytest.mark.parametrize(
     (
-        "criterio",
+        "dia_hasta_incluido",
         "esperado",
     ),
     [
         (
-            "INCLUIR_AMBOS",
+            True,
             [
                 ("contrato_1", 900),
                 ("contrato_2", 8100),
             ],
         ),
         (
-            "EXCLUIR_DESDE",
-            [
-                ("contrato_2", 9000),
-            ],
-        ),
-        (
-            "EXCLUIR_HASTA",
+            False,
             [
                 ("contrato_1", 1000),
                 ("contrato_2", 8000),
             ],
         ),
-        (
-            "EXCLUIR_AMBOS",
-            [
-                ("contrato_2", 9000),
-            ],
-        ),
     ],
 )
-def test_reparto_contratos_respeta_criterio_periodo(
-    criterio: str,
+def test_reparto_contratos_respeta_dia_hasta_incluido(
+    dia_hasta_incluido: bool,
     esperado,
 ) -> None:
     inmueble = Inmueble(
@@ -1815,7 +1727,7 @@ def test_reparto_contratos_respeta_criterio_periodo(
         fecha=date(2026, 10, 10),
         periodo_desde=date(2026, 10, 1),
         periodo_hasta=date(2026, 10, 10),
-        criterio_periodo=criterio,
+        dia_hasta_incluido=dia_hasta_incluido,
     )
 
     contratos = {
@@ -1851,7 +1763,7 @@ def test_reparto_contratos_rechaza_periodo_sin_dias_efectivos() -> None:
             fecha=date(2026, 10, 1),
             periodo_desde=date(2026, 10, 1),
             periodo_hasta=date(2026, 10, 1),
-            criterio_periodo="EXCLUIR_AMBOS",
+            dia_hasta_incluido=False,
         )
 
 
@@ -2211,7 +2123,7 @@ def test_preparar_imputaciones_apunte_normal_deja_resto_propietario() -> None:
         retencion_importe=1901,
         periodo_desde=date(2026, 10, 1),
         periodo_hasta=date(2026, 10, 10),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     imputaciones, propietario = preparar_imputaciones_contrato(
@@ -2556,7 +2468,7 @@ def test_gasto_repercutible_puede_estar_gestionado_para_un_contrato_y_pendiente_
         base=10000,
         periodo_desde=date(2026, 10, 1),
         periodo_hasta=date(2026, 10, 10),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
         tratamiento="REPERCUTIR",
     )
 
@@ -2629,7 +2541,7 @@ def test_reparto_detallado_conserva_dias_del_prorrateo() -> None:
             fecha=date(2026, 8, 13),
             periodo_desde=date(2026, 6, 1),
             periodo_hasta=date(2026, 8, 1),
-            criterio_periodo="EXCLUIR_HASTA",
+            dia_hasta_incluido=False,
         )
     )
 
@@ -2669,7 +2581,7 @@ def test_reparto_detallado_sin_periodo_no_tiene_dias() -> None:
             fecha=date(2026, 10, 1),
             periodo_desde=None,
             periodo_hasta=None,
-            criterio_periodo=None,
+            dia_hasta_incluido=None,
         )
     )
 
@@ -2767,7 +2679,10 @@ def test_modificar_apunte_con_imputacion_persistida_rechaza_cambio_economico(
         {
             "periodo_desde": date(2026, 9, 1),
             "periodo_hasta": date(2026, 9, 30),
-            "criterio_periodo": "INCLUIR_AMBOS",
+            "dia_hasta_incluido": True,
+        },
+        {
+            "dia_hasta_incluido": False,
         },
         {
             "tratamiento": "FACTURAR",
@@ -2803,6 +2718,9 @@ def test_modificar_apunte_con_imputacion_persistida_rechaza_cambios_de_reparto(
         concepto="Comunidad",
         base=10000,
         tratamiento="REPERCUTIR",
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 31),
+        dia_hasta_incluido=True,
     )
 
     imputacion = ImputacionContrato(
@@ -2829,7 +2747,7 @@ def test_modificar_apunte_con_imputacion_persistida_rechaza_cambios_de_reparto(
         "retencion_importe": apunte.retencion_importe,
         "periodo_desde": apunte.periodo_desde,
         "periodo_hasta": apunte.periodo_hasta,
-        "criterio_periodo": apunte.criterio_periodo,
+        "dia_hasta_incluido": apunte.dia_hasta_incluido,
         "tratamiento": apunte.tratamiento,
     }
 
@@ -2853,7 +2771,7 @@ def test_modificar_apunte_con_imputacion_persistida_rechaza_cambios_de_reparto(
             retencion_importe=datos["retencion_importe"],
             periodo_desde=datos["periodo_desde"],
             periodo_hasta=datos["periodo_hasta"],
-            criterio_periodo=datos["criterio_periodo"],
+            dia_hasta_incluido=datos["dia_hasta_incluido"],
             tratamiento=datos["tratamiento"],
         )
 
@@ -2920,7 +2838,7 @@ def test_modificar_apunte_con_imputacion_persistida_permite_cambiar_notas(
         retencion_importe=apunte.retencion_importe,
         periodo_desde=apunte.periodo_desde,
         periodo_hasta=apunte.periodo_hasta,
-        criterio_periodo=apunte.criterio_periodo,
+        dia_hasta_incluido=apunte.dia_hasta_incluido,
         tratamiento=apunte.tratamiento,
         notas="Nota corregida",
     )
@@ -2993,7 +2911,7 @@ def test_modificar_apunte_subdividido_con_imputacion_persistida_rechaza_cambio_e
             retencion_importe=apunte.retencion_importe,
             periodo_desde=apunte.periodo_desde,
             periodo_hasta=apunte.periodo_hasta,
-            criterio_periodo=apunte.criterio_periodo,
+            dia_hasta_incluido=apunte.dia_hasta_incluido,
             tratamiento=apunte.tratamiento,
         )
 
@@ -3095,7 +3013,7 @@ def test_preparar_apuntes_automaticos_crea_apunte_y_previsto(
     assert apunte.fecha == date(2026, 11, 1)
     assert apunte.periodo_desde == date(2026, 11, 1)
     assert apunte.periodo_hasta == date(2026, 11, 30)
-    assert apunte.criterio_periodo == "INCLUIR_AMBOS"
+    assert apunte.dia_hasta_incluido is True
 
     assert apunte.naturaleza == "GASTO"
     assert apunte.categoria == "GAS_COMUNIDAD"
@@ -3136,7 +3054,7 @@ def test_preparar_apuntes_automaticos_rechaza_duplicado_sin_comparar_importe(
         base=8735,
         periodo_desde=date(2026, 11, 1),
         periodo_hasta=date(2026, 11, 30),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     session.add(existente)
@@ -3244,7 +3162,7 @@ def test_preparar_apuntes_automaticos_rechaza_todo_si_hay_duplicado(
         base=8735,
         periodo_desde=date(2026, 11, 1),
         periodo_hasta=date(2026, 11, 30),
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     session.add(existente)

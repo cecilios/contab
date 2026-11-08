@@ -418,7 +418,7 @@ def test_texto_solicitud_no_duplica_periodo_del_concepto(
             base=10000,
             periodo_desde=date(2026, 10, 1),
             periodo_hasta=date(2026, 10, 31),
-            criterio_periodo="INCLUIR_AMBOS",
+            dia_hasta_incluido=True,
             tratamiento="REPERCUTIR",
         )
 
@@ -502,7 +502,7 @@ def test_reembolsos_revision_muestra_explicacion_del_prorrateo(app) -> None:
             base=2839,
             periodo_desde=date(2026, 6, 1),
             periodo_hasta=date(2026, 8, 1),
-            criterio_periodo="EXCLUIR_HASTA",
+            dia_hasta_incluido=False,
             tratamiento="REPERCUTIR",
         )
 
@@ -580,7 +580,7 @@ def test_texto_reembolso_prorrateado_respeta_signo(
             importe_negativo=importe_negativo,
             periodo_desde=date(2026, 6, 1),
             periodo_hasta=date(2026, 8, 1),
-            criterio_periodo="EXCLUIR_HASTA",
+            dia_hasta_incluido=False,
             tratamiento="REPERCUTIR",
         )
 

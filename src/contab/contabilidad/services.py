@@ -79,7 +79,7 @@ def _datos_apunte_contable(
     notas: str = "",
     periodo_desde: date | None = None,
     periodo_hasta: date | None = None,
-    criterio_periodo: str | None = None,
+    dia_hasta_incluido: bool | None = None,
     tratamiento: str = "CONTABILIZAR",
     nombre_documento: str = "",
 ) -> dict[str, object]:
@@ -91,11 +91,6 @@ def _datos_apunte_contable(
     concepto = concepto.strip()
     tratamiento = tratamiento.strip().upper()
     nombre_documento = nombre_documento.strip()
-    criterio_periodo = (
-        criterio_periodo.strip().upper()
-        if criterio_periodo is not None
-        else None
-    )
 
     try:
         validar_clasificacion_contable(
@@ -148,18 +143,24 @@ def _datos_apunte_contable(
         )
 
     if periodo_desde is None:
-        if criterio_periodo is not None:
+        if dia_hasta_incluido is not None:
             raise ContabilidadError(
-                "No puede indicarse un criterio de período "
+                "No puede indicarse la inclusión del día final "
                 "sin indicar un período."
             )
     else:
-        if criterio_periodo not in {
-            "EXCLUIR_HASTA",
-            "INCLUIR_AMBOS",
-        }:
+        if type(dia_hasta_incluido) is not bool:
             raise ContabilidadError(
-                "El criterio del período no es válido."
+                "Debe indicarse si el período incluye "
+                "el día final."
+            )
+
+        if (
+            not dia_hasta_incluido
+            and periodo_desde == periodo_hasta
+        ):
+            raise ContabilidadError(
+                "El período no contiene días efectivos."
             )
 
     if tratamiento not in {
@@ -189,7 +190,7 @@ def _datos_apunte_contable(
         "notas": notas.strip() or None,
         "periodo_desde": periodo_desde,
         "periodo_hasta": periodo_hasta,
-        "criterio_periodo": criterio_periodo,
+        "dia_hasta_incluido": dia_hasta_incluido,
         "tratamiento": tratamiento,
         "nombre_documento": nombre_documento,
     }
@@ -263,7 +264,7 @@ def _repartir_componentes_contratos(
     fecha: date,
     periodo_desde: date | None,
     periodo_hasta: date | None,
-    criterio_periodo: str | None,
+    dia_hasta_incluido: bool | None,
 ) -> tuple[
     list[tuple[Contrato, int, int, int, int]],
     int,
@@ -277,7 +278,7 @@ def _repartir_componentes_contratos(
             fecha=fecha,
             periodo_desde=periodo_desde,
             periodo_hasta=periodo_hasta,
-            criterio_periodo=criterio_periodo,
+            dia_hasta_incluido=dia_hasta_incluido,
         )
     )
 
@@ -288,7 +289,7 @@ def _repartir_componentes_contratos(
             fecha=fecha,
             periodo_desde=periodo_desde,
             periodo_hasta=periodo_hasta,
-            criterio_periodo=criterio_periodo,
+            dia_hasta_incluido=dia_hasta_incluido,
         )
     )
 
@@ -299,7 +300,7 @@ def _repartir_componentes_contratos(
             fecha=fecha,
             periodo_desde=periodo_desde,
             periodo_hasta=periodo_hasta,
-            criterio_periodo=criterio_periodo,
+            dia_hasta_incluido=dia_hasta_incluido,
         )
     )
 
@@ -569,7 +570,7 @@ def calcular_reparto_contratos_detallado(
     fecha: date,
     periodo_desde: date | None,
     periodo_hasta: date | None,
-    criterio_periodo: str | None,
+    dia_hasta_incluido: bool | None,
 ) -> tuple[
     list[RepartoContratoCalculado],
     int,
@@ -604,24 +605,16 @@ def calcular_reparto_contratos_detallado(
             )
         ], 0, None
 
-    if periodo_hasta is None or criterio_periodo is None:
+    if periodo_hasta is None or dia_hasta_incluido is None:
         raise ContabilidadError(
-            "El período y su criterio deben estar completos."
+            "El período y su indicador de inclusión "
+            "del día final deben estar completos."
         )
 
     desde = periodo_desde
     hasta = periodo_hasta
 
-    if criterio_periodo in {
-        "EXCLUIR_DESDE",
-        "EXCLUIR_AMBOS",
-    }:
-        desde += timedelta(days=1)
-
-    if criterio_periodo in {
-        "EXCLUIR_HASTA",
-        "EXCLUIR_AMBOS",
-    }:
+    if not dia_hasta_incluido:
         hasta -= timedelta(days=1)
 
     if desde > hasta:
@@ -753,7 +746,7 @@ def calcular_reparto_contratos(
     fecha: date,
     periodo_desde: date | None,
     periodo_hasta: date | None,
-    criterio_periodo: str | None,
+    dia_hasta_incluido: bool | None,
 ) -> tuple[list[tuple[Contrato, int]], int]:
     """Reparte un importe entre contratos y propietario según su período."""
 
@@ -764,7 +757,7 @@ def calcular_reparto_contratos(
             fecha=fecha,
             periodo_desde=periodo_desde,
             periodo_hasta=periodo_hasta,
-            criterio_periodo=criterio_periodo,
+            dia_hasta_incluido=dia_hasta_incluido,
         )
     )
 
@@ -801,8 +794,8 @@ def preparar_imputaciones_contrato(
                 fecha=apunte.fecha,
                 periodo_desde=apunte.periodo_desde,
                 periodo_hasta=apunte.periodo_hasta,
-                criterio_periodo=(
-                    apunte.criterio_periodo
+                dia_hasta_incluido=(
+                    apunte.dia_hasta_incluido
                 ),
             )
         )
@@ -843,8 +836,8 @@ def preparar_imputaciones_contrato(
                 fecha=apunte.fecha,
                 periodo_desde=apunte.periodo_desde,
                 periodo_hasta=apunte.periodo_hasta,
-                criterio_periodo=(
-                    apunte.criterio_periodo
+                dia_hasta_incluido=(
+                    apunte.dia_hasta_incluido
                 ),
             )
         )
@@ -1052,7 +1045,7 @@ def crear_apunte_contable(
     notas: str = "",
     periodo_desde: date | None = None,
     periodo_hasta: date | None = None,
-    criterio_periodo: str | None = None,
+    dia_hasta_incluido: bool | None = None,
     tratamiento: str = "CONTABILIZAR",
     nombre_documento: str = "",
 ) -> ApunteContable:
@@ -1076,7 +1069,7 @@ def crear_apunte_contable(
         notas=notas,
         periodo_desde=periodo_desde,
         periodo_hasta=periodo_hasta,
-        criterio_periodo=criterio_periodo,
+        dia_hasta_incluido=dia_hasta_incluido,
         tratamiento=tratamiento,
         nombre_documento=nombre_documento,
     )
@@ -1220,7 +1213,7 @@ def preparar_apuntes_automaticos(
             base=configurado.base,
             periodo_desde=periodo_desde,
             periodo_hasta=periodo_hasta,
-            criterio_periodo="INCLUIR_AMBOS",
+            dia_hasta_incluido=True,
             tratamiento="CONTABILIZAR",
         )
 
@@ -1335,7 +1328,7 @@ def modificar_apunte_contable(
     notas: str = "",
     periodo_desde: date | None = None,
     periodo_hasta: date | None = None,
-    criterio_periodo: str | None = None,
+    dia_hasta_incluido: bool | None = None,
     tratamiento: str = "CONTABILIZAR",
     nombre_documento: str = "",
 ) -> ApunteContable:
@@ -1359,7 +1352,7 @@ def modificar_apunte_contable(
         notas=notas,
         periodo_desde=periodo_desde,
         periodo_hasta=periodo_hasta,
-        criterio_periodo=criterio_periodo,
+        dia_hasta_incluido=dia_hasta_incluido,
         tratamiento=tratamiento,
         nombre_documento=nombre_documento,
     )
@@ -1382,7 +1375,7 @@ def modificar_apunte_contable(
         importe_negativo=datos["importe_negativo"],
         periodo_desde=datos["periodo_desde"],
         periodo_hasta=datos["periodo_hasta"],
-        criterio_periodo=datos["criterio_periodo"],
+        dia_hasta_incluido=datos["dia_hasta_incluido"],
         tratamiento=datos["tratamiento"],
     )
 
@@ -1432,7 +1425,7 @@ def validar_modificacion_con_imputaciones(
     importe_negativo: bool,
     periodo_desde: date | None,
     periodo_hasta: date | None,
-    criterio_periodo: str | None,
+    dia_hasta_incluido: bool | None,
     tratamiento: str,
 ) -> None:
     """Impide invalidar imputaciones de contrato ya persistidas."""
@@ -1449,7 +1442,7 @@ def validar_modificacion_con_imputaciones(
         or importe_negativo != apunte.importe_negativo
         or periodo_desde != apunte.periodo_desde
         or periodo_hasta != apunte.periodo_hasta
-        or criterio_periodo != apunte.criterio_periodo
+        or dia_hasta_incluido != apunte.dia_hasta_incluido
         or tratamiento != apunte.tratamiento
     )
 

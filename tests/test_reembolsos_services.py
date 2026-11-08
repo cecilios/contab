@@ -828,7 +828,7 @@ def test_preparar_solicitud_explica_prorrateo_por_frontera_contrato(
         base=2839,
         periodo_desde=date(2026, 6, 1),
         periodo_hasta=date(2026, 8, 1),
-        criterio_periodo="EXCLUIR_HASTA",
+        dia_hasta_incluido=False,
         tratamiento="REPERCUTIR",
     )
 
@@ -902,7 +902,7 @@ def test_preparar_solicitud_no_explica_periodo_completamente_cubierto(
         base=2839,
         periodo_desde=date(2026, 6, 1),
         periodo_hasta=date(2026, 8, 1),
-        criterio_periodo="EXCLUIR_HASTA",
+        dia_hasta_incluido=False,
         tratamiento="REPERCUTIR",
     )
 
@@ -1686,7 +1686,7 @@ def test_confirmar_reembolso_un_gasto_incluye_periodo(
         tratamiento="REPERCUTIR",
         periodo_desde=desde,
         periodo_hasta=hasta,
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     session.add_all([inmueble, contrato, apunte])

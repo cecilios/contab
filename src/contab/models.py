@@ -793,22 +793,17 @@ class ApunteContable(Base):
             (
                 periodo_desde IS NULL
                 AND periodo_hasta IS NULL
-                AND criterio_periodo IS NULL
+                AND dia_hasta_incluido IS NULL
             )
             OR
             (
                 periodo_desde IS NOT NULL
                 AND periodo_hasta IS NOT NULL
-                AND criterio_periodo IS NOT NULL
-                AND criterio_periodo IN (
-                    'EXCLUIR_HASTA',
-                    'EXCLUIR_DESDE',
-                    'INCLUIR_AMBOS',
-                    'EXCLUIR_AMBOS'
-                )
+                AND dia_hasta_incluido IS NOT NULL
+                AND dia_hasta_incluido IN (0, 1)
             )
             """,
-            name="ck_apunte_contable_criterio_periodo",
+            name="ck_apunte_contable_dia_hasta_incluido",
         ),
         CheckConstraint(
             """
@@ -864,8 +859,8 @@ class ApunteContable(Base):
         nullable=True,
     )
 
-    criterio_periodo: Mapped[str | None] = mapped_column(
-        Text,
+    dia_hasta_incluido: Mapped[bool | None] = mapped_column(
+        Boolean,
         nullable=True,
     )
 

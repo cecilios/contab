@@ -30,7 +30,7 @@ Esta operativa obliga a registrar información varias veces y a rehacer agrupaci
 - Los gastos y otros ingresos se introducen manualmente al recibir su documento soporte.
 - Al crear manualmente un apunte se genera por defecto un movimiento previsto para conciliación; el usuario puede desactivar expresamente esta generación cuando no corresponda.
 - La generación de ese movimiento previsto es independiente del tratamiento contable elegido. Un gasto `CONTABILIZAR`, `REPERCUTIR` o `FACTURAR` puede producir igualmente un pago al proveedor que debe conciliarse.
-- Los apuntes pueden corregirse mientras los efectos posteriores ya persistidos lo permitan. Una conciliación total o parcial protege el inmueble, la naturaleza y el importe. Una `ImputacionContrato` persistida protege además los datos que determinan su reparto: inmueble, fecha, base, IVA, retención, período, criterio de período y tratamiento.
+- Los apuntes pueden corregirse mientras los efectos posteriores ya persistidos lo permitan. Una conciliación total o parcial protege el inmueble, la naturaleza y el importe. Una `ImputacionContrato` persistida protege además los datos que determinan su reparto: inmueble, fecha, base, IVA, retención, período, inclusión del día final y tratamiento
 - Los datos descriptivos que no alteran esos efectos históricos, como las notas, pueden seguir corrigiéndose.
 - Un apunte no puede eliminarse si tiene movimientos previstos conciliados total o parcialmente ni si existen `ImputacionContrato` persistidas, directamente o a través de sus distribuciones.
 - Los informes sustituirán la transcripción trimestral y facilitarán las agrupaciones fiscales anuales.
@@ -50,6 +50,32 @@ El período puede ser:
 - un intervalo entre dos fechas.
 
 Los períodos servirán más adelante para detectar recibos duplicados, huecos y solapamientos.
+
+### Inclusión del día final
+
+Los períodos se representan mediante `periodo_desde`,
+`periodo_hasta` y el indicador booleano `dia_hasta_incluido`.
+
+La fecha inicial siempre está incluida. Para un intervalo entre
+dos fechas, el usuario elige si la fecha final está incluida
+o excluida:
+
+- `dia_hasta_incluido=True`: se incluyen ambas fechas.
+- `dia_hasta_incluido=False`: se incluye la fecha inicial
+  y se excluye la final.
+
+Los períodos mensuales introducidos como `mm/aaaa` incluyen
+automáticamente todos los días del mes.
+
+Cuando un apunte no tiene período, las dos fechas y
+`dia_hasta_incluido` son `NULL`.
+
+No puede excluirse la fecha final de un período que comienza
+y termina el mismo día, porque no contendría días efectivos.
+
+Para los suministros de agua, gas y electricidad, Contab
+avisa de posibles huecos o solapamientos con el recibo
+anterior, teniendo en cuenta si su fecha final estaba incluida.
 
 ### Importes negativos
 
@@ -152,7 +178,7 @@ Cuando existen `ImputacionContrato` persistidas, Contab conserva la decisión hi
 - el IVA;
 - la retención;
 - el período;
-- el criterio de período;
+- el indicador `dia_hasta_incluido`;
 - el tratamiento.
 
 Esta protección se aplica tanto a imputaciones asociadas directamente al apunte como a imputaciones asociadas a una `DistribucionApunte` de un inmueble `T`.

@@ -689,7 +689,7 @@ def preparar_registro_contable_factura(
         referencia_documento=factura.numero_factura,
         periodo_desde=periodo_desde,
         periodo_hasta=periodo_hasta,
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     movimiento = crear_movimiento_desde_apunte(
@@ -747,7 +747,7 @@ def contabilizar_ingreso_sin_factura(
         referencia_documento="",
         periodo_desde=periodo,
         periodo_hasta=periodo_hasta,
-        criterio_periodo="INCLUIR_AMBOS",
+        dia_hasta_incluido=True,
     )
 
     movimiento = crear_movimiento_desde_apunte(

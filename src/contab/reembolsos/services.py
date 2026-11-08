@@ -138,7 +138,7 @@ def _calculo_linea_reembolso(
             fecha=apunte.fecha,
             periodo_desde=apunte.periodo_desde,
             periodo_hasta=apunte.periodo_hasta,
-            criterio_periodo=apunte.criterio_periodo,
+            dia_hasta_incluido=apunte.dia_hasta_incluido,
         )
     )
 
