@@ -5,11 +5,23 @@
 {% block content %}
     <h1>Contratos</h1>
 
-    <p>
-        <a href="{{ url_for('contratos.nuevo_contrato') }}">
+    <nav class="contratos-lista__acciones">
+        <a
+            href="{{ url_for('contratos.nuevo_contrato') }}"
+            class="contratos-lista__enlace-nuevo"
+        >
             Nuevo contrato
         </a>
-    </p>
+
+        <span class="contratos-lista__separador">|</span>
+
+        <a
+            href="{{ url_for('contratos.situacion_contrato') }}"
+            class="contratos-lista__enlace-situacion"
+        >
+            Situación económica
+        </a>
+    </nav>
 
     <h2>Vigentes</h2>
 

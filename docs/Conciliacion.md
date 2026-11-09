@@ -158,17 +158,112 @@ Aceptar una diferencia no significa perdonarla, reclamarla ni
 compensarla. Esas decisiones no corresponden a la conciliación bancaria.
 
 
+
 ## Situación económica del contrato
 
-La futura pantalla de situación por contrato o local mostrará, a una fecha dada, las **facturas y otros importes exigibles** frente a los **ingresos reales atribuidos al contrato**, y sus totales:
+Contab dispone de una pantalla de situación económica por
+contrato que compara las obligaciones exigibles al inquilino
+con los cobros y devoluciones efectivamente atribuidos.
 
-**Saldo del contrato = total exigible − total efectivamente cobrado.**
+La consulta se realiza siempre hasta la fecha actual.
+El usuario puede indicar la fecha inicial del período.
 
-Un saldo positivo indica deuda del inquilino; uno negativo, crédito a su favor. Se acumulan las diferencias entre períodos, también los céntimos.
+La situación económica es independiente del estado de
+revisión de las conciliaciones. Una diferencia aceptada
+al conciliar no se considera automáticamente perdonada.
 
-Ejemplo: en octubre se debían 920 € y se ingresaron 900 €; quedan 20 € de deuda. En noviembre se debían 920 € y se ingresaron 940 €; el saldo acumulado pasa a cero, aunque ambas conciliaciones bancarias se hayan cerrado con diferencia.
+### Obligaciones exigibles
 
-**Esta pantalla aún está pendiente de desarrollar.** La atribución de ingresos al contrato, incluidos los cobros en efectivo y los pagos a cuenta sin factura específica, debe ser inequívoca y evitar dobles cómputos.
+Se incluyen las obligaciones del contrato procedentes de:
+
+- facturas emitidas, desde su fecha de emisión;
+- alquileres contabilizados sin factura, desde la fecha
+  del apunte contable;
+- solicitudes de reembolso enviadas, desde su fecha
+  de envío.
+
+Las correcciones negativas reducen el exigible.
+
+Una factura asociada a un apunte no se cuenta dos veces.
+
+Los gastos propios del propietario no se consideran
+automáticamente deudas del inquilino.
+
+### Cobros y devoluciones
+
+Los movimientos bancarios se incorporan por el importe
+efectivamente asociado mediante `Conciliacion.importe_asociado`.
+
+Se utiliza la fecha del movimiento bancario.
+
+Un cobro parcial se incorpora por su importe asociado,
+sin dar por ingresada la cantidad pendiente.
+
+Las diferencias aceptadas al cerrar una conciliación
+permanecen reflejadas en el saldo económico del contrato.
+
+Las devoluciones al inquilino se incorporan con signo
+negativo cuando corresponden a reembolsos o correcciones
+negativas de alquiler atribuidas al contrato.
+
+No se incluyen movimientos bancarios sin atribución
+al contrato.
+
+### Conciliaciones manuales sin banco
+
+Un movimiento previsto confirmado manualmente se considera
+realizado por su importe completo, aunque no tenga
+movimiento bancario asociado.
+
+Su fecha de referencia se determina por este orden:
+
+1. Fecha del apunte contable que originó el previsto,
+   si existe.
+2. Fecha prevista inicial del movimiento, en otro caso.
+3. Fecha desconocida, si no existe ninguna de las anteriores.
+
+En el último caso, el importe confirmado se incluye en
+el saldo actual y se presenta en el detalle como
+**Fecha desconocida**. No se inventa una fecha.
+
+Las fechas previstas originales no se modifican al
+conciliar; siguen siendo información orientativa
+conservada en el movimiento previsto.
+
+### Saldos y períodos
+
+La pantalla separa:
+
+- **Saldo anterior:** obligaciones menos cobros fechados
+  antes de la fecha inicial seleccionada.
+- **Total a ingresar:** obligaciones exigibles del período.
+- **Total ingresado:** cobros netos del período.
+- **Saldo pendiente:** saldo anterior más total a ingresar
+  menos total ingresado.
+
+Los movimientos manuales sin ninguna fecha conocida
+se incluyen en el período consultado, nunca en el
+saldo anterior.
+
+Un saldo positivo representa deuda del inquilino.
+Un saldo negativo representa crédito a su favor.
+
+Las diferencias entre obligaciones y cobros se acumulan
+entre períodos, también los céntimos.
+
+Por ejemplo, si en octubre eran exigibles 920 € y se
+cobraron 900 €, quedan 20 € pendientes. Si en noviembre
+eran exigibles otros 920 € y se cobraron 940 €, el saldo
+acumulado pasa a cero.
+
+Cada cálculo se limita al contrato seleccionado.
+No se trasladan deudas entre contratos sucesivos
+de un mismo inmueble.
+
+La pantalla muestra la situación actual utilizando
+las fechas de referencia disponibles. No pretende
+reconstruir retrospectivamente cuándo se confirmó
+cada conciliación manual.
 
 ## Principios
 

@@ -761,3 +761,180 @@ input[type="checkbox"] {
         grid-template-columns: 1fr;
     }
 }
+
+
+/* Situación económica de un contrato */
+
+.situacion-contrato__titulo {
+    margin-bottom: 1.5rem;
+}
+
+/* Los filtros y acciones comparten una sola línea. */
+
+.situacion-contrato__filtros {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.3rem;
+}
+
+.situacion-contrato__campo {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.situacion-contrato__campo label {
+    white-space: nowrap;
+}
+
+.situacion-contrato__selector-inmueble {
+    width: 11rem;
+    min-width: 0;
+}
+
+.situacion-contrato__selector-contrato {
+    width: 20rem;
+    min-width: 0;
+}
+
+.situacion-contrato__fecha-desde {
+    width: 9rem;
+    min-width: 0;
+}
+
+.situacion-contrato__acciones {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.situacion-contrato__resultado {
+    margin-top: 1.5rem;
+}
+
+.situacion-contrato__contrato {
+    margin-bottom: 0.75rem;
+}
+
+.situacion-contrato__saldo-anterior {
+    margin-bottom: 1.5rem;
+}
+
+/* Detalle económico: dos tablas independientes. */
+
+.situacion-contrato__tablas {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.situacion-contrato__grupo-exigibles,
+.situacion-contrato__grupo-cobros {
+    min-width: 0;
+}
+
+.situacion-contrato__subtitulo {
+    margin-top: 0;
+    margin-bottom: 0.6rem;
+}
+
+.situacion-contrato__tabla {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.situacion-contrato__tabla th,
+.situacion-contrato__tabla td {
+    border: 1px solid #999;
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.situacion-contrato__tabla th {
+    background-color: #eee;
+}
+
+.situacion-contrato__tabla tbody tr:nth-child(even) {
+    background-color: #f8f8f8;
+}
+
+.situacion-contrato__columna-fecha,
+.situacion-contrato__fecha {
+    white-space: nowrap;
+    width: 1%;
+}
+
+.situacion-contrato__columna-importe,
+.situacion-contrato__tabla .situacion-contrato__importe {
+    text-align: right;
+    white-space: nowrap;
+    width: 1%;
+}
+
+.situacion-contrato__concepto {
+    overflow-wrap: anywhere;
+}
+
+.situacion-contrato__fila-vacia {
+    color: #666;
+}
+
+/* Totales en una línea, debajo de las dos tablas. */
+
+.situacion-contrato__totales {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2rem;
+    margin-top: 1.5rem;
+    padding-top: 0.8rem;
+    border-top: 2px solid #777;
+}
+
+.situacion-contrato__total {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+
+.situacion-contrato__total-saldo {
+    font-weight: bold;
+}
+
+.situacion-contrato__navegacion {
+    margin-top: 2rem;
+}
+
+/* En pantallas estrechas, las tablas se apilan.
+   Los filtros conservan una línea desplazable. */
+
+@media (max-width: 900px) {
+    .situacion-contrato__tablas {
+        grid-template-columns: 1fr;
+    }
+
+    .situacion-contrato__totales {
+        justify-content: flex-start;
+    }
+}
+
+
+/* Situación económica del contrato: impresión */
+
+@media print {
+    .situacion-contrato__filtros.no-imprimir {
+        display: none;
+    }
+}

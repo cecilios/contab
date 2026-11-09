@@ -1259,38 +1259,135 @@ Contract reporting must handle these operations explicitly,
 without treating their absence of a bank association as proof
 that no payment occurred.
 
-### Contract economic balance (planned)
 
-The future contract statement must show, at a selected date:
+### Contract economic statement
 
-- Obligations due.
-- Actual receipts attributable to the contract.
-- Their difference.
+The contract economic statement is implemented and tested.
 
-`balance = total_due - actual_receipts`
+Service:
 
-A positive balance indicates tenant debt.
-A negative balance indicates tenant credit.
+`src/contab/contabilidad/situacion_contrato.py`
 
-This calculation must be independent of reconciliation review
-status, including accepted-difference closures.
+Public function:
 
-Differences accumulate across periods, including cents.
+`calcular_situacion_contrato(
+    session, contrato_id, fecha_desde, fecha_hasta
+)`
 
-Receipt attribution must avoid double counting bank movements
-associated with multiple expected movements.
+The result is a `SituacionContrato` containing:
 
-Cash collections, payments on account, and movements without
-a specific expected obligation require explicit attribution
-rules before implementing this statement.
+- `exigibles`: dated tenant obligations;
+- `cobros`: receipts and refunds attributable to the contract;
+- `saldo_anterior`;
+- `total_exigible`;
+- `total_cobrado`;
+- `saldo`.
 
-No invoice alteration, artificial accounting adjustment,
-or automatic forgiveness is implied by reconciliation.
+Amounts are integer cents, with negative values representing
+corrections or refunds.
+
+The service includes:
+
+- emitted invoices, without double-counting their accounting entries;
+- non-invoiced rent accounting entries;
+- sent reimbursement requests;
+- negative rent corrections and negative reimbursements;
+- bank receipts and eligible refunds through persisted
+  `Conciliacion.importe_asociado`;
+- partial reconciliations and accepted differences;
+- manually reconciled expected movements;
+- historical opening balances within the same contract.
+
+Bank receipts use the bank movement date.
+
+Manual reconciliations use, in order:
+
+1. The associated accounting entry date.
+2. The expected movement's `fecha_prevista_desde`.
+3. An unknown date (`None`) if neither exists.
+
+Confirmed manual movements with unknown dates are included
+in the current period, not in the opening balance.
+
+Expected movement dates are never overwritten by reconciliation.
+
+Bank movements without explicit contract attribution are
+not included. Contracts for the same property remain separate.
+
+The service accepts a date range for deterministic testing,
+but the user interface always uses today as its end date.
+
+Tests:
+
+`tests/test_situacion_contrato.py`
+
+The original implementation was protected by 17 focused
+service tests, covering obligations, partial and manual
+receipts, refunds, accepted differences, opening balances,
+successive contracts and unknown dates.
+
+### Contract economic statement screen
+
+Route:
+
+`GET /contratos/situacion`
+
+Implementation:
+
+`src/contab/contratos/routes.py`
+
+Template:
+
+`src/contab/contratos/templates/contratos/situacion.html`
+
+Styles:
+
+`src/contab/static/css/contab.css`
+
+The screen is accessible from the contracts listing.
+
+The user selects:
+
+- a starting date, defaulting to January 1 of the current year;
+- a property;
+- a contract.
+
+The ending date is always today.
+
+The contract selector offers contracts for the selected property
+whose validity overlaps the interval from the chosen start date
+through today. The selector is refreshed when the property changes.
+
+The page displays:
+
+- identification of the selected property and contract;
+- opening balance before the selected date;
+- separate tables of obligations and receipts/refunds;
+- "Fecha desconocida" for undated manual receipts;
+- "Total a ingresar", "Total ingresado" and "Saldo pendiente".
+
+Totals appear below the movement tables.
+
+The print link uses the browser print function.
+The form, page title, main navigation and footer navigation
+are hidden when printing. The printed report begins with
+the contract identification heading.
+
+The print CSS uses the existing `no-imprimir` class and
+an overriding rule for the flex form.
+
+The screen reuses the existing service and does not
+modify persistent data.
+
+Route tests:
+
+`tests/test_situacion_contrato_routes.py`
+
+They cover initial access, empty statements, contract selection,
+period-based filtering and the report structure.
 
 ### Remaining work
 
-- Implement the contract economic statement and payment
-  attribution rules.
 - Optionally extend automatic grouped-proposal detection
   to 1:3 and 3:1.
 
@@ -1891,39 +1988,59 @@ The current HTML/printing workflow is sufficient.
 
 Further document-generation work should be driven by real use.
 
+
 ## Current stopping point
 
-Support for negative accounting entries is implemented.
+The first contract economic statement screen is complete.
 
-The implementation covers:
+The implemented functionality includes:
 
-- The `ApunteContable.importe_negativo` field and its database migration.
-- Manual creation, editing and display of signed accounting amounts.
-- Historical protections when changing an entry's sign.
-- Expected bank movements with the appropriate banking nature.
-- Signed amounts in accounting reports and summaries.
-- Positive and negative `REPERCUTIR` entries.
-- Reimbursement requests with positive, negative or zero balances.
-- Zero-balance requests without expected movements, including deletion.
-- Signed amounts in reimbursement preparation and email text.
-- Correct wording and signs for prorated refunds.
+- economic obligations from emitted invoices, non-invoiced
+  rents and sent reimbursement requests;
+- receipts, partial payments, accepted differences and refunds;
+- manual reconciliation without bank movements;
+- undated manual receipts shown as "Fecha desconocida";
+- opening balances and isolation between successive contracts;
+- a contract and property selector filtered by the
+  selected starting date;
+- separate obligation and receipt/refund tables;
+- a one-line economic summary;
+- browser printing without navigation or form controls.
 
-The database migration has been applied and checked.
+The statement is read-only and requires no new database
+fields or migrations.
 
-The complete test suite and the relevant manual visual checks passed
-at the end of this implementation block.
+The user interface was visually reviewed with actual data.
+Focused tests and the full pytest suite passed at the end
+of this implementation block.
+
+The screen keeps the user's preferred field order:
+"Desde", "Inmueble", "Contrato", then actions.
+
+The summary labels are:
+
+- "Total a ingresar".
+- "Total ingresado".
+- "Saldo pendiente".
 
 ## Next change
 
-No immediate implementation work is required for negative entries.
+No further changes are currently required for the first
+contract economic statement screen.
 
-Continue development according to the next real operational need,
-using small changes protected by tests.
+Update the documentation, commit the completed work,
+and continue with the next real operational need.
 
-Known deferred items:
+A possible later development is an overview across contracts,
+but it should be designed and tested separately rather
+than expanding the completed individual statement screen.
 
-- Negative `FACTURAR` entries.
+Continue using small, verified changes.
+
+Known deferred items include:
+
+- Negative FACTURAR entries.
 - Rectifying invoices.
 - Creating accounting entries prefilled from bank movements.
 
-Do not implement these items merely because they are listed here.
+Do not implement deferred items merely because they are listed.

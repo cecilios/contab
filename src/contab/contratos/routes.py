@@ -4,14 +4,17 @@ from datetime import datetime, date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import Blueprint, redirect, render_template, request, url_for
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from contab.context import get_database_name, get_session_factory
 from contab.formato import (
     fecha_a_texto,
+    importe_a_texto,
     texto_a_fecha,
 )
-
+from contab.contabilidad.situacion_contrato import (
+    calcular_situacion_contrato,
+)
 from contab.contratos.services import (
     ContratoError,
     crear_anexo_carencia,
@@ -472,9 +475,6 @@ def _resolver_titulares(
     return titulares
 
 
-
-
-"""Rutas ------------------------------------------------------------------------------"""
 
 @bp.get("/")
 def listar_contratos():
@@ -1439,6 +1439,136 @@ def historico_anexos(contrato_id: int):
             "contratos/anexos.html",
             contrato=contrato,
             anexos=anexos,
+            database_name=get_database_name(),
+        )
+
+
+@bp.get("/situacion")
+def situacion_contrato():
+    """Muestra la situación económica de un contrato hasta hoy."""
+
+    hoy = date.today()
+    fecha_desde_predeterminada = date(hoy.year, 1, 1)
+
+    inmueble_id = request.args.get(
+        "inmueble_id",
+        default=None,
+        type=int,
+    )
+
+    contrato_id = request.args.get(
+        "contrato_id",
+        default=None,
+        type=int,
+    )
+
+    fecha_desde_texto = request.args.get(
+        "fecha_desde",
+        "",
+    ).strip()
+
+    try:
+        fecha_desde = (
+            texto_a_fecha(fecha_desde_texto)
+            if fecha_desde_texto
+            else fecha_desde_predeterminada
+        )
+    except ValueError as exc:
+        return str(exc), 400
+
+    if fecha_desde > hoy:
+        return (
+            "La fecha inicial no puede ser posterior a hoy.",
+            400,
+        )
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        inmuebles = session.scalars(
+            select(Inmueble)
+            .where(Inmueble.tipo != "T")
+            .order_by(Inmueble.referencia)
+        ).all()
+
+
+        # Ofrecer únicamente los contratos que estuvieron vigentes en algún momento
+        # entre la fecha inicial seleccionada y hoy.
+        consulta_contratos = (
+            select(Contrato)
+            .where(
+                Contrato.fecha_inicio <= hoy,
+                or_(
+                    Contrato.fecha_fin.is_(None),
+                    Contrato.fecha_fin >= fecha_desde,
+                ),
+            )
+            .order_by(
+                Contrato.fecha_inicio.desc(),
+                Contrato.id.desc(),
+            )
+        )
+
+        # Si se ha seleccionado un inmueble,
+        # mostrar solo sus contratos vigentes.
+        if inmueble_id is not None:
+            if not any(
+                inmueble.id == inmueble_id
+                for inmueble in inmuebles
+            ):
+                return "Inmueble no encontrado.", 404
+
+            consulta_contratos = consulta_contratos.where(
+                Contrato.inmueble_id == inmueble_id
+            )
+
+        contratos = session.scalars(
+            consulta_contratos
+        ).all()
+
+        # Sin contrato seleccionado, se muestra
+        # únicamente el formulario de consulta.
+        contrato = None
+        situacion = None
+
+        if contrato_id is not None:
+            contrato = session.get(
+                Contrato,
+                contrato_id,
+            )
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
+            if (
+                inmueble_id is not None
+                and contrato.inmueble_id != inmueble_id
+            ):
+                return (
+                    "El contrato no pertenece al inmueble "
+                    "seleccionado.",
+                    400,
+                )
+
+            # Se utiliza el servicio económico ya probado.
+            situacion = calcular_situacion_contrato(
+                session,
+                contrato_id=contrato.id,
+                fecha_desde=fecha_desde,
+                fecha_hasta=hoy,
+            )
+
+        return render_template(
+            "contratos/situacion.html",
+            inmuebles=inmuebles,
+            contratos=contratos,
+            inmueble_id=inmueble_id,
+            contrato_id=contrato_id,
+            contrato=contrato,
+            fecha_desde=fecha_a_texto(fecha_desde),
+            fecha_hasta=fecha_a_texto(hoy),
+            situacion=situacion,
+            importe_a_texto=importe_a_texto,
             database_name=get_database_name(),
         )
 

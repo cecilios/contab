@@ -1,0 +1,311 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+    Situación económica del contrato - Contab
+{% endblock %}
+
+{% block content %}
+
+<section class="situacion-contrato">
+
+    <h1 class="situacion-contrato__titulo no-imprimir">
+        Situación económica del contrato,
+        a fecha {{ fecha_hasta }}
+    </h1>
+
+    <form
+        method="get"
+        class="situacion-contrato__filtros no-imprimir"
+    >
+
+        <div class="situacion-contrato__campo">
+            <label for="fecha_desde">
+                Desde:
+            </label>
+
+            <input
+                id="fecha_desde"
+                name="fecha_desde"
+                type="text"
+                value="{{ fecha_desde }}"
+                placeholder="dd/mm/aaaa"
+                class="situacion-contrato__fecha-desde"
+            >
+        </div>
+
+        <div class="situacion-contrato__campo">
+            <label for="inmueble_id">
+                Inmueble:
+            </label>
+
+            <select
+                id="inmueble_id"
+                name="inmueble_id"
+                class="situacion-contrato__selector-inmueble"
+                onchange="
+                    this.form.elements['contrato_id'].value = '';
+                    this.form.requestSubmit();
+                "
+            >
+                <option value="">Todos</option>
+
+                {% for inmueble in inmuebles %}
+                    <option
+                        value="{{ inmueble.id }}"
+                        {% if inmueble.id == inmueble_id %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ inmueble.referencia }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="situacion-contrato__campo">
+            <label for="contrato_id">
+                Contrato:
+            </label>
+
+            <select
+                id="contrato_id"
+                name="contrato_id"
+                class="situacion-contrato__selector-contrato"
+            >
+                <option value="">Seleccionar</option>
+
+                {% for contrato_opcion in contratos %}
+                    <option
+                        value="{{ contrato_opcion.id }}"
+                        {% if contrato_opcion.id == contrato_id %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ contrato_opcion.inmueble.referencia }}
+                        -
+                        {{ contrato_opcion.fecha_inicio.strftime(
+                            '%d/%m/%Y'
+                        ) }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="situacion-contrato__acciones">
+            <button
+                type="submit"
+                class="situacion-contrato__boton-consultar"
+            >
+                Consultar
+            </button>
+
+            <a
+                href="{{ url_for(
+                    'contratos.situacion_contrato'
+                ) }}"
+                class="situacion-contrato__enlace-limpiar"
+            >
+                Limpiar
+            </a>
+
+            <a
+                href="#"
+                class="situacion-contrato__enlace-imprimir"
+                onclick="window.print(); return false;"
+            >
+                Imprimir
+            </a>
+        </div>
+    </form>
+
+    {% if contrato and situacion %}
+
+        <section class="situacion-contrato__resultado">
+
+            <h2 class="situacion-contrato__contrato">
+                {{ contrato.inmueble.referencia }}
+                -
+                Contrato desde
+                {{ contrato.fecha_inicio.strftime('%d/%m/%Y') }}
+            </h2>
+
+            <p class="situacion-contrato__saldo-anterior">
+                <strong>Saldo anterior:</strong>
+                <span class="situacion-contrato__importe-anterior">
+                    {{ importe_a_texto(
+                        situacion.saldo_anterior
+                    ) }} €
+                </span>
+            </p>
+
+            <div class="situacion-contrato__tablas">
+
+                <section class="situacion-contrato__grupo-exigibles">
+                    <h3 class="situacion-contrato__subtitulo">
+                        Exigibles
+                    </h3>
+
+                    <table class="situacion-contrato__tabla
+                                  situacion-contrato__tabla-exigibles">
+                        <thead>
+                            <tr>
+                                <th class="situacion-contrato__columna-fecha">
+                                    Fecha
+                                </th>
+                                <th class="situacion-contrato__columna-concepto">
+                                    Concepto
+                                </th>
+                                <th class="situacion-contrato__columna-importe">
+                                    Importe
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for movimiento in situacion.exigibles %}
+                                <tr class="situacion-contrato__fila-exigible">
+                                    <td class="situacion-contrato__fecha">
+                                        {{ movimiento.fecha.strftime(
+                                            '%d/%m/%Y'
+                                        ) }}
+                                    </td>
+
+                                    <td class="situacion-contrato__concepto">
+                                        {{ movimiento.concepto }}
+                                    </td>
+
+                                    <td class="situacion-contrato__importe">
+                                        {{ importe_a_texto(
+                                            movimiento.importe
+                                        ) }} €
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr class="situacion-contrato__fila-vacia">
+                                    <td colspan="3">
+                                        No hay exigibles en el período.
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </section>
+
+                <section class="situacion-contrato__grupo-cobros">
+                    <h3 class="situacion-contrato__subtitulo">
+                        Cobros y devoluciones
+                    </h3>
+
+                    <table class="situacion-contrato__tabla
+                                  situacion-contrato__tabla-cobros">
+                        <thead>
+                            <tr>
+                                <th class="situacion-contrato__columna-fecha">
+                                    Fecha
+                                </th>
+                                <th class="situacion-contrato__columna-concepto">
+                                    Concepto
+                                </th>
+                                <th class="situacion-contrato__columna-importe">
+                                    Importe
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for movimiento in situacion.cobros %}
+                                <tr class="situacion-contrato__fila-cobro">
+                                    <td class="situacion-contrato__fecha">
+                                        {% if movimiento.fecha %}
+                                            {{ movimiento.fecha.strftime(
+                                                '%d/%m/%Y'
+                                            ) }}
+                                        {% else %}
+                                            Fecha desconocida
+                                        {% endif %}
+                                    </td>
+
+                                    <td class="situacion-contrato__concepto">
+                                        {{ movimiento.concepto }}
+                                    </td>
+
+                                    <td class="situacion-contrato__importe">
+                                        {{ importe_a_texto(
+                                            movimiento.importe
+                                        ) }} €
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr class="situacion-contrato__fila-vacia">
+                                    <td colspan="3">
+                                        No hay cobros ni devoluciones
+                                        en el período.
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </section>
+
+            </div>
+
+            <div class="situacion-contrato__totales">
+
+                <div class="situacion-contrato__total
+                            situacion-contrato__total-exigible">
+                    <strong>Total a ingresar:</strong>
+                    <span>
+                        {{ importe_a_texto(
+                            situacion.total_exigible
+                        ) }} €
+                    </span>
+                </div>
+
+                <div class="situacion-contrato__total
+                            situacion-contrato__total-cobrado">
+                    <strong>Total ingresado:</strong>
+                    <span>
+                        {{ importe_a_texto(
+                            situacion.total_cobrado
+                        ) }} €
+                    </span>
+                </div>
+
+                <div class="situacion-contrato__total
+                            situacion-contrato__total-saldo">
+                    <strong>Saldo pendiente:</strong>
+                    <span>
+                        {{ importe_a_texto(
+                            situacion.saldo
+                        ) }} €
+                    </span>
+                </div>
+
+            </div>
+
+        </section>
+
+    {% else %}
+
+        <p class="situacion-contrato__sin-seleccion">
+            Selecciona un contrato para consultar
+            su situación económica.
+        </p>
+
+    {% endif %}
+
+    <nav class="situacion-contrato__navegacion no-imprimir">
+        <a
+            href="{{ url_for(
+                'contratos.listar_contratos'
+            ) }}"
+            class="situacion-contrato__volver"
+        >
+            Volver a contratos
+        </a>
+    </nav>
+
+</section>
+
+{% endblock %}
