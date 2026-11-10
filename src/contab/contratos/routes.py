@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import Blueprint, redirect, render_template, request, url_for
 from sqlalchemy import or_, select
+from sqlalchemy.orm import selectinload
 
 from contab.context import get_database_name, get_session_factory
 from contab.formato import (
@@ -12,6 +13,7 @@ from contab.formato import (
     importe_a_texto,
     texto_a_fecha,
 )
+from contab.conciliacion.services import saldo_movimiento_previsto
 from contab.contabilidad.situacion_contrato import (
     calcular_situacion_contrato,
 )
@@ -29,6 +31,7 @@ from contab.models import (
     ContratoInquilino,
     Inmueble,
     Inquilino,
+    MovimientoPrevisto,
     RentaContrato,
     RevisionRenta,
 )
@@ -1572,4 +1575,156 @@ def situacion_contrato():
             database_name=get_database_name(),
         )
 
+
+@bp.get("/resumen")
+def resumen_contratos():
+    """Muestra el resumen económico anual de los contratos."""
+
+    hoy = date.today()
+    anio_actual=hoy.year,
+
+    ejercicio_texto = request.args.get(
+        "ejercicio",
+        str(hoy.year),
+    ).strip()
+
+    try:
+        ejercicio = int(ejercicio_texto)
+    except ValueError:
+        return "El ejercicio indicado no es válido.", 400
+
+    if ejercicio < 1 or ejercicio > hoy.year:
+        return "El ejercicio indicado no es válido.", 400
+
+    fecha_desde = date(ejercicio, 1, 1)
+    fecha_hasta = min(
+        date(ejercicio, 12, 31),
+        hoy,
+    )
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        contratos = session.scalars(
+            select(Contrato)
+            .where(Contrato.fecha_inicio <= fecha_hasta)
+            .order_by(
+                Contrato.fecha_inicio,
+                Contrato.id,
+            )
+        ).all()
+
+        # La conciliación pendiente se consulta en su
+        # estado actual, independientemente del ejercicio.
+        movimientos_pendientes = session.scalars(
+            select(MovimientoPrevisto)
+            .options(
+                selectinload(MovimientoPrevisto.conciliaciones)
+            )
+            .where(
+                MovimientoPrevisto.contrato_id.is_not(None),
+                MovimientoPrevisto.estado.in_(
+                    ("PENDIENTE", "PARCIAL")
+                ),
+            )
+        ).all()
+
+        pendiente_por_contrato = {}
+
+        for movimiento in movimientos_pendientes:
+            _, importe_pendiente = saldo_movimiento_previsto(
+                movimiento
+            )
+
+            contrato_id = movimiento.contrato_id
+
+            pendiente_por_contrato[contrato_id] = (
+                pendiente_por_contrato.get(contrato_id, 0)
+                + importe_pendiente
+            )
+
+        filas = []
+
+        total_a_ingresar = 0
+        total_ingresado = 0
+        saldo_pendiente = 0
+        total_pendiente_conciliar = 0
+
+        for contrato in contratos:
+            situacion = calcular_situacion_contrato(
+                session,
+                contrato_id=contrato.id,
+                fecha_desde=fecha_desde,
+                fecha_hasta=fecha_hasta,
+            )
+            pendiente_conciliar = pendiente_por_contrato.get(
+                contrato.id,
+                0,
+            )
+
+            # Contratos cuya vigencia se solapa
+            # con el ejercicio consultado.
+            vigente_en_periodo = (
+                contrato.fecha_fin is None
+                or contrato.fecha_fin >= fecha_desde
+            )
+
+            # También se incluyen contratos antiguos
+            # si mantienen movimientos o saldo pendiente.
+            tiene_actividad = (
+                bool(situacion.exigibles)
+                or bool(situacion.cobros)
+            )
+
+            if not (
+                vigente_en_periodo
+                or tiene_actividad
+                or situacion.saldo != 0
+                or pendiente_conciliar != 0
+            ):
+                continue
+
+            filas.append(
+                {
+                    "contrato": contrato,
+                    "total_a_ingresar": (
+                        situacion.total_exigible
+                    ),
+                    "total_ingresado": (
+                        situacion.total_cobrado
+                    ),
+                    "saldo_pendiente": situacion.saldo,
+                    "pendiente_conciliar": pendiente_conciliar,
+                }
+            )
+
+            total_a_ingresar += situacion.total_exigible
+            total_ingresado += situacion.total_cobrado
+            saldo_pendiente += situacion.saldo
+            total_pendiente_conciliar += pendiente_conciliar
+
+        # Agrupar visualmente por inmueble y
+        # ordenar los contratos por fecha inicial.
+        filas.sort(
+            key=lambda fila: (
+                fila["contrato"].inmueble.referencia,
+                fila["contrato"].fecha_inicio,
+                fila["contrato"].id,
+            )
+        )
+
+        return render_template(
+            "contratos/resumen.html",
+            filas=filas,
+            ejercicio=ejercicio,
+            fecha_desde=fecha_a_texto(fecha_desde),
+            fecha_hasta=fecha_a_texto(fecha_hasta),
+            total_a_ingresar=total_a_ingresar,
+            total_ingresado=total_ingresado,
+            saldo_pendiente=saldo_pendiente,
+            importe_a_texto=importe_a_texto,
+            database_name=get_database_name(),
+            anio_actual=anio_actual,
+            total_pendiente_conciliar=total_pendiente_conciliar,
+        )
 

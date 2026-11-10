@@ -938,3 +938,107 @@ input[type="checkbox"] {
         display: none;
     }
 }
+
+
+
+/* Resumen económico de todos los contratos */
+
+.resumen-contratos__titulo {
+    margin-bottom: 1.5rem;
+}
+
+.resumen-contratos__filtros {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.resumen-contratos__ejercicio {
+    width: 7rem;
+    min-width: 0;
+}
+
+.resumen-contratos__subtitulo {
+    margin-bottom: 1rem;
+}
+
+.resumen-contratos__tabla {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.resumen-contratos__tabla th,
+.resumen-contratos__tabla td {
+    border: 1px solid #999;
+    padding: 0.5rem 0.7rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.resumen-contratos__tabla thead th {
+    background-color: #eee;
+}
+
+.resumen-contratos__tabla tbody tr:nth-child(even) {
+    background-color: #f8f8f8;
+}
+
+.resumen-contratos__columna-contrato {
+    width: 32%;
+}
+
+
+.resumen-contratos__columna-importe,
+.resumen-contratos__tabla .resumen-contratos__importe {
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
+}
+
+
+.resumen-contratos__vigencia {
+    display: inline;
+    margin-left: 0.5rem;
+    color: #555;
+    font-size: 0.9rem;
+}
+
+.resumen-contratos__detalle {
+    white-space: nowrap;
+}
+
+.resumen-contratos__fila-totales th {
+    border-top: 2px solid #666;
+    background-color: #eee;
+    font-weight: bold;
+}
+
+.resumen-contratos__fila-vacia {
+    color: #666;
+}
+
+.resumen-contratos__navegacion {
+    margin-top: 2rem;
+}
+
+/* Impresión del resumen económico */
+
+
+
+@media print {
+    .resumen-contratos__filtros.no-imprimir {
+        display: none;
+    }
+
+    .resumen-contratos__tabla {
+        width: 100%;
+        table-layout: auto;
+        font-size: 10pt;
+    }
+
+    .resumen-contratos__tabla th,
+    .resumen-contratos__tabla td {
+        padding: 0.3rem 0.5rem;
+    }
+}

@@ -1,0 +1,231 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+    Resumen económico de contratos - Contab
+{% endblock %}
+
+{% block content %}
+
+<section class="resumen-contratos">
+
+    <h1 class="resumen-contratos__titulo no-imprimir">
+        Resumen económico de contratos,
+        a fecha {{ fecha_hasta }}
+    </h1>
+
+    <form
+        method="get"
+        class="resumen-contratos__filtros no-imprimir"
+    >
+        <label
+            for="ejercicio"
+            class="resumen-contratos__etiqueta"
+        >
+            Ejercicio:
+        </label>
+
+        <input
+            type="number"
+            id="ejercicio"
+            name="ejercicio"
+            min="1"
+            max="{{ anio_actual }}"
+            value="{{ ejercicio }}"
+            class="resumen-contratos__ejercicio"
+        >
+
+        <button
+            type="submit"
+            class="resumen-contratos__boton-consultar"
+        >
+            Consultar
+        </button>
+
+        <a
+            href="{{ url_for('contratos.resumen_contratos') }}"
+            class="resumen-contratos__enlace-limpiar"
+        >
+            Limpiar
+        </a>
+
+        <a
+            href="#"
+            class="resumen-contratos__enlace-imprimir"
+            onclick="window.print(); return false;"
+        >
+            Imprimir
+        </a>
+
+        <a
+            href="{{ url_for('conciliacion.revisar_conciliacion') }}"
+            class="resumen-contratos__enlace-conciliacion"
+        >
+            Revisar conciliación
+        </a>
+
+    </form>
+
+    <section class="resumen-contratos__resultado">
+
+        <h2 class="resumen-contratos__subtitulo">
+            Ejercicio {{ ejercicio }}
+            — hasta {{ fecha_hasta }}
+        </h2>
+
+        <table class="resumen-contratos__tabla">
+            <thead>
+                <tr>
+                    <th class="resumen-contratos__columna-contrato">
+                        Inmueble / contrato
+                    </th>
+
+                    <th class="resumen-contratos__columna-importe">
+                        Total a ingresar
+                    </th>
+
+                    <th class="resumen-contratos__columna-importe">
+                        Total ingresado
+                    </th>
+
+                    <th class="resumen-contratos__columna-importe">
+                        Saldo pendiente
+                    </th>
+
+                    <th class="resumen-contratos__columna-importe">
+                        Pendiente de conciliar
+                    </th>
+
+                    <th class="resumen-contratos__columna-detalle no-imprimir">
+                        Detalle
+                    </th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for fila in filas %}
+
+                    {% set contrato = fila.contrato %}
+
+                    <tr
+                        class="resumen-contratos__fila"
+                        data-contrato-id="{{ contrato.id }}"
+                    >
+                        <td class="resumen-contratos__contrato">
+
+                            <strong class="resumen-contratos__inmueble">
+                                {{ contrato.inmueble.referencia }}
+                            </strong>
+
+                            <span class="resumen-contratos__vigencia">
+                                Desde
+                                {{ contrato.fecha_inicio.strftime(
+                                    '%d/%m/%Y'
+                                ) }}
+
+                                {% if contrato.fecha_fin %}
+                                    — Finalizado
+                                    {{ contrato.fecha_fin.strftime(
+                                        '%d/%m/%Y'
+                                    ) }}
+                                {% endif %}
+                            </span>
+                        </td>
+
+                        <td class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                fila.total_a_ingresar
+                            ) }} €
+                        </td>
+
+                        <td class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                fila.total_ingresado
+                            ) }} €
+                        </td>
+
+                        <td class="resumen-contratos__importe
+                                   resumen-contratos__saldo">
+                            {{ importe_a_texto(
+                                fila.saldo_pendiente
+                            ) }} €
+                        </td>
+
+                        <td class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                fila.pendiente_conciliar
+                            ) }} €
+                        </td>
+
+                        <td class="resumen-contratos__detalle no-imprimir">
+                            <a
+                                href="{{ url_for(
+                                    'contratos.situacion_contrato',
+                                    inmueble_id=contrato.inmueble_id,
+                                    contrato_id=contrato.id,
+                                    fecha_desde=fecha_desde
+                                ) }}"
+                            >
+                                Ver detalle
+                            </a>
+                        </td>
+                    </tr>
+
+                {% else %}
+
+                    <tr class="resumen-contratos__fila-vacia">
+                        <td colspan="6">
+                            No hay contratos para el ejercicio
+                            seleccionado.
+                        </td>
+                    </tr>
+
+                {% endfor %}
+            </tbody>
+
+            {% if filas %}
+                <tfoot>
+                    <tr class="resumen-contratos__fila-totales">
+                        <th>Total general</th>
+
+                        <th class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                total_a_ingresar
+                            ) }} €
+                        </th>
+
+                        <th class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                total_ingresado
+                            ) }} €
+                        </th>
+
+                        <th class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                saldo_pendiente
+                            ) }} €
+                        </th>
+
+                        <th class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                total_pendiente_conciliar
+                            ) }} €
+                        </th>
+
+                        <th class="no-imprimir"></th>
+                    </tr>
+                </tfoot>
+            {% endif %}
+        </table>
+
+    </section>
+
+    <nav class="resumen-contratos__navegacion no-imprimir">
+        <a href="{{ url_for('contratos.listar_contratos') }}">
+            Volver a contratos
+        </a>
+    </nav>
+
+</section>
+
+{% endblock %}

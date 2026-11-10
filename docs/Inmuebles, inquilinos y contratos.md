@@ -336,18 +336,24 @@ Actualmente Contab permite:
 - evitar la preparación de facturas ordinarias durante una carencia contractual;
 - consultar el histórico de anexos del contrato;
 - utilizar estos datos en contabilidad e informes.
-- consultar e imprimir la situación económica de cada contrato,
-  con exigibles, cobros, devoluciones y saldo acumulado;
+- consultar e imprimir la situación económica individual
+  y el resumen de todos los contratos;
 
-## Situación económica del contrato
------------------------------------
+## Situación económica de los contratos
 
-Contab permite consultar la situación económica de cada contrato
-de alquiler, comparando los importes exigibles al inquilino con
-los cobros y devoluciones efectivamente realizados.
+Desde el listado de contratos se puede acceder a dos consultas:
 
-La pantalla se abre desde el listado de contratos mediante el
-enlace **Situación económica**.
+- **Situación económica:** muestra los importes exigibles,
+  los cobros, las devoluciones y el saldo pendiente de un
+  contrato, con el detalle de sus movimientos.
+- **Resumen económico:** muestra la situación de todos los
+  contratos para el ejercicio seleccionado, incluyendo
+  los saldos acumulados y los importes pendientes de conciliar.
+
+Ambas consultas se pueden imprimir.
+
+Desde el resumen se puede acceder al detalle de cada contrato
+y a la pantalla **Revisar conciliación**.
 
 
 ## Evolución prevista

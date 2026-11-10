@@ -8,25 +8,16 @@ It is written primarily for the development assistant. It should contain enough 
 
 Before proposing changes or code:
 
-1. inspect the latest `develop` branch;
-2. read completely:
 
-   * `docs/PROJECT.md`
-   * `docs/DEVELOPMENT.md`
-   * `docs/Inmuebles, inquilinos y contratos.md`
-   * `docs/Apuntes-contables.md`
-   * `docs/Informes-contables.md`
-   * `docs/Importacion-bancaria.md`
-   * `docs/Conciliacion.md`
-   * `docs/Facturacion.md`
+Before proposing changes or code:
 
-3. inspect the current project structure and the code relevant to the next change;
-4. briefly summarize:
-
-   * project purpose and principles;
-   * implemented state;
-   * exact stopping point;
-   * next proposed small change.
+1. Inspect the latest `develop` branch.
+2. Read `docs/PROJECT.md`, `docs/DEVELOPMENT.md`,
+   and the functional documentation relevant to the task.
+3. Inspect the code and tests affected by the proposed change.
+4. Identify the existing behavior, relevant design decisions,
+   and the smallest safe modification.
+5. Agree on the intended behavior before implementing it.
 
 Repository:
 
@@ -1386,6 +1377,92 @@ Route tests:
 They cover initial access, empty statements, contract selection,
 period-based filtering and the report structure.
 
+
+### Contract economic summary screen
+
+The annual economic summary of all contracts is implemented.
+
+Route:
+
+`GET /contratos/resumen`
+
+Implementation:
+
+`src/contab/contratos/routes.py`
+
+Template:
+
+`src/contab/contratos/templates/contratos/resumen.html`
+
+Styles:
+
+`src/contab/static/css/contab.css`
+
+Tests:
+
+`tests/test_resumen_contratos_routes.py`
+
+The screen is accessible from the contracts listing.
+
+It shows one row per contract, including contracts that
+ended during the selected year and older contracts with
+outstanding economic balances or reconciliation work.
+
+The selected year defaults to the current year.
+For previous years, the reporting period ends on December 31;
+for the current year, it ends today.
+
+The summary reuses `calcular_situacion_contrato()` for
+each contract. It displays:
+
+- Total a ingresar: obligations in the selected year.
+- Total ingresado: net receipts in the selected year.
+- Saldo pendiente: accumulated economic balance, including
+  previous years.
+- Pendiente de conciliar: current reconciliation work remaining.
+
+The last column is deliberately independent of the
+selected accounting year.
+
+Pending reconciliation is calculated using
+`saldo_movimiento_previsto()` from
+`contab.conciliacion.services`.
+
+Only expected movements in states `PENDIENTE` and `PARCIAL`
+contribute to this amount. Their unassociated balances
+are summed by contract.
+
+Movements closed with an accepted difference do not
+contribute to pending reconciliation, although their
+economic differences may remain in the contract balance.
+
+The screen includes general totals and links to:
+
+- the individual contract statement, preserving the
+  selected year's starting date;
+- the existing `conciliacion.revisar_conciliacion` route.
+
+The summary supports browser printing.
+Form controls, navigation and detail links are excluded
+from the printed report.
+
+Amounts and reconciliation work are never transferred
+between successive contracts of the same property.
+
+No database changes or migrations were necessary.
+
+Focused integration tests cover:
+
+- an empty summary;
+- independent balances for successive contracts;
+- partial reconciliation balances;
+- differences accepted on closed reconciliations;
+- older contracts with pending reconciliation;
+- access to the reconciliation review screen.
+
+The summary screen was visually reviewed with real data.
+
+
 ### Remaining work
 
 - Optionally extend automatic grouped-proposal detection
@@ -1989,58 +2066,3 @@ The current HTML/printing workflow is sufficient.
 Further document-generation work should be driven by real use.
 
 
-## Current stopping point
-
-The first contract economic statement screen is complete.
-
-The implemented functionality includes:
-
-- economic obligations from emitted invoices, non-invoiced
-  rents and sent reimbursement requests;
-- receipts, partial payments, accepted differences and refunds;
-- manual reconciliation without bank movements;
-- undated manual receipts shown as "Fecha desconocida";
-- opening balances and isolation between successive contracts;
-- a contract and property selector filtered by the
-  selected starting date;
-- separate obligation and receipt/refund tables;
-- a one-line economic summary;
-- browser printing without navigation or form controls.
-
-The statement is read-only and requires no new database
-fields or migrations.
-
-The user interface was visually reviewed with actual data.
-Focused tests and the full pytest suite passed at the end
-of this implementation block.
-
-The screen keeps the user's preferred field order:
-"Desde", "Inmueble", "Contrato", then actions.
-
-The summary labels are:
-
-- "Total a ingresar".
-- "Total ingresado".
-- "Saldo pendiente".
-
-## Next change
-
-No further changes are currently required for the first
-contract economic statement screen.
-
-Update the documentation, commit the completed work,
-and continue with the next real operational need.
-
-A possible later development is an overview across contracts,
-but it should be designed and tested separately rather
-than expanding the completed individual statement screen.
-
-Continue using small, verified changes.
-
-Known deferred items include:
-
-- Negative FACTURAR entries.
-- Rectifying invoices.
-- Creating accounting entries prefilled from bank movements.
-
-Do not implement deferred items merely because they are listed.
