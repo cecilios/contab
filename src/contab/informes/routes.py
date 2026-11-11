@@ -1,11 +1,13 @@
 """Define las rutas web para informes y exportaciones."""
 
 from datetime import date
+from io import BytesIO
 from flask import (
     Blueprint,
     Response,
     render_template,
     request,
+    send_file,
 )
 from sqlalchemy import select
 from werkzeug.utils import secure_filename
@@ -16,6 +18,7 @@ from decimal import (
 )
 
 from contab.formato import importe_a_texto
+from contab.informes.xlsx import generar_xlsx_resumen_iva
 from contab.context import (
     get_database_name,
     get_session_factory,
@@ -421,6 +424,21 @@ def ver_resumen_anual_iva():
             porcentaje_irpf_estimado=porcentaje_irpf_estimado,
             descontar_gastos=descontar_gastos,
         )
+
+        if request.args.get("exportar") == "xlsx":
+            contenido = generar_xlsx_resumen_iva(filas)
+
+            return send_file(
+                BytesIO(contenido),
+                as_attachment=True,
+                download_name=(
+                    f"iva-resumen-anual-{anio}.xlsx"
+                ),
+                mimetype=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+            )
 
         return render_template(
             "informes/iva_resumen_pantalla.html",

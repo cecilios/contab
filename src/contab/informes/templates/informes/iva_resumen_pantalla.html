@@ -73,6 +73,17 @@
             >
                 Imprimir
             </a>
+
+            <a href="{{ url_for(
+                'informes.ver_resumen_anual_iva',
+                anio=anio,
+                porcentaje_irpf_estimado=porcentaje_irpf_estimado,
+                descontar_gastos='1' if descontar_gastos else none,
+                exportar='xlsx'
+            ) }}">
+                Exportar Excel
+            </a>
+
         </div>
     </form>
 

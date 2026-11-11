@@ -682,3 +682,44 @@ def test_resumen_iva_aplica_criterio_hacienda():
     assert 'name="descontar_gastos"' in inicial.text
     assert "checked" in inicial.text
 
+
+def test_exportar_resumen_anual_iva_xlsx():
+    """La pantalla permite descargar el resumen en XLSX."""
+
+    from openpyxl import load_workbook
+
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    response = client.get(
+        "/informes/iva-resumen-anual/ver",
+        query_string={
+            "anio": "2026",
+            "porcentaje_irpf_estimado": "25,00",
+            "descontar_gastos": "1",
+            "exportar": "xlsx",
+        },
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        "iva-resumen-anual-2026.xlsx"
+        in response.headers["Content-Disposition"]
+    )
+
+    libro = load_workbook(BytesIO(response.data))
+    hoja = libro["Resumen anual IVA"]
+
+    assert hoja["A1"].value == "Resumen del año 2026"
+
+    assert any(
+        hoja.cell(fila, 1).value == "Totales del año 2026"
+        for fila in range(1, hoja.max_row + 1)
+    )
+
