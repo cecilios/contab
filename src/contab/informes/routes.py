@@ -15,6 +15,7 @@ from decimal import (
     ROUND_HALF_UP,
 )
 
+from contab.formato import importe_a_texto
 from contab.context import (
     get_database_name,
     get_session_factory,
@@ -23,6 +24,7 @@ from contab.informes.services import (
     generar_csv_iva,
     generar_csv_resumen_iva,
     generar_zip_iva,
+    preparar_resumen_anual_iva,
 )
 from contab.models import (
     ApunteContable,
@@ -343,4 +345,90 @@ def resumen_anual_iva():
 
     return response
 
+
+@bp.get("/iva-resumen-anual/ver")
+def ver_resumen_anual_iva():
+    """Consulta el resumen anual de IVA en pantalla."""
+
+    anio_texto = request.args.get(
+        "anio",
+        str(date.today().year),
+    ).strip()
+
+    porcentaje_texto = request.args.get(
+        "porcentaje_irpf_estimado",
+        "24,00",
+    ).strip()
+
+    # La primera visita utiliza el criterio predeterminado.
+    # En consultas posteriores, una casilla desmarcada
+    # no aparece entre los parámetros del formulario.
+    descontar_gastos = (
+        "descontar_gastos" in request.args
+        if request.args
+        else True
+    )
+
+    try:
+        anio = int(anio_texto)
+        porcentaje_irpf_estimado = _porcentaje_a_entero(
+            porcentaje_texto
+        )
+
+        if not 1 <= anio <= 9999:
+            raise ValueError
+
+        if not 0 <= porcentaje_irpf_estimado <= 10000:
+            raise ValueError
+
+    except ValueError:
+        return (
+            "Debe indicar un año y un porcentaje "
+            "IRPF / IRNR válidos.",
+            400,
+        )
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        inmuebles = session.scalars(
+            select(Inmueble).order_by(
+                Inmueble.referencia
+            )
+        ).all()
+
+        contratos = session.scalars(
+            select(Contrato)
+        ).all()
+
+        apuntes = session.scalars(
+            select(ApunteContable)
+            .where(
+                ApunteContable.fecha >= date(anio, 1, 1),
+                ApunteContable.fecha <= date(anio, 12, 31),
+            )
+            .order_by(
+                ApunteContable.fecha,
+                ApunteContable.id,
+            )
+        ).all()
+
+        filas = preparar_resumen_anual_iva(
+            inmuebles=inmuebles,
+            contratos=contratos,
+            apuntes=apuntes,
+            anio=anio,
+            porcentaje_irpf_estimado=porcentaje_irpf_estimado,
+            descontar_gastos=descontar_gastos,
+        )
+
+        return render_template(
+            "informes/iva_resumen_pantalla.html",
+            filas=filas,
+            anio=anio,
+            porcentaje_irpf_estimado=porcentaje_texto,
+            importe_a_texto=importe_a_texto,
+            database_name=get_database_name(),
+            descontar_gastos=descontar_gastos,
+        )
 

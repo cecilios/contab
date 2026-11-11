@@ -106,15 +106,22 @@ def _base_propietario_inmueble(
 def _importe_irpf_estimado(
     *,
     ingresos: int,
+    gastos: int,
     retencion: int,
     porcentaje_estimado: int,
+    descontar_gastos: bool,
+    solo_retencion_real: bool,
 ) -> int:
-    """Devuelve la retención real o estima el IRPF cuando no existe."""
-    if retencion:
+    """Devuelve la retención real o la estimación de Hacienda."""
+
+    if solo_retencion_real:
         return retencion
 
+    base = ingresos - gastos if descontar_gastos else ingresos
+    base = max(0, base)
+
     return (
-        ingresos * porcentaje_estimado + 5000
+        base * porcentaje_estimado + 5000
     ) // 10000
 
 
@@ -123,15 +130,9 @@ def _importe_neto_estimado(
     ingresos: int,
     gastos: int,
     iva: int,
-    retencion: int,
-    porcentaje_estimado: int,
+    impuesto: int,
 ) -> int:
-    """Calcula el ingreso neto después de gastos e impuestos."""
-    impuesto = _importe_irpf_estimado(
-        ingresos=ingresos,
-        retencion=retencion,
-        porcentaje_estimado=porcentaje_estimado,
-    )
+    """Calcula el neto utilizando el impuesto ya determinado."""
 
     return ingresos - gastos - iva - impuesto
 
@@ -156,6 +157,8 @@ def _totales_inmueble_trimestre(
     anio: int,
     trimestre: int,
     porcentaje_irpf_estimado: int,
+    descontar_gastos: bool,
+    solo_retencion_real: bool,
 ) -> tuple[int, int, int, int, int]:
     """Calcula ingresos, gastos, impuesto, IVA y neto de un trimestre."""
     apuntes_aplicables = [
@@ -211,20 +214,18 @@ def _totales_inmueble_trimestre(
 
     impuesto = _importe_irpf_estimado(
         ingresos=ingresos,
+        gastos=gastos,
         retencion=retencion,
-        porcentaje_estimado=(
-            porcentaje_irpf_estimado
-        ),
+        porcentaje_estimado=porcentaje_irpf_estimado,
+        descontar_gastos=descontar_gastos,
+        solo_retencion_real=solo_retencion_real,
     )
 
     neto = _importe_neto_estimado(
         ingresos=ingresos,
         gastos=gastos,
         iva=iva,
-        retencion=retencion,
-        porcentaje_estimado=(
-            porcentaje_irpf_estimado
-        ),
+        impuesto=impuesto,
     )
 
     return ingresos, gastos, impuesto, iva, neto
@@ -556,37 +557,28 @@ def generar_csv_iva(
     return salida.getvalue()
 
 
-def generar_csv_resumen_iva(
+def preparar_resumen_anual_iva(
     *,
     inmuebles: Sequence[Inmueble],
     contratos: Sequence[Contrato],
     apuntes: Sequence[ApunteContable],
     anio: int,
     porcentaje_irpf_estimado: int,
-) -> str:
-    """Genera el resumen anual de IVA de todos los inmuebles aplicables.
+    descontar_gastos: bool = True,
+) -> list[list[str | int]]:
+    """Prepara las filas del resumen anual de IVA.
 
-    - Incluye los inmuebles aplicables al ejercicio.
-    - Excluye los inmuebles T como contabilidad propia.
-    - Usa las distribuciones persistidas para atribuir gastos de inmuebles T.
-    - Aplica los tratamientos CONTABILIZAR, FACTURAR y REPERCUTIR.
-    - En REPERCUTIR excluye sólo la parte imputada a contratos.
-    - Genera cuatro bloques trimestrales.
-    - Separa los contratos facturables de los pisos y otros.
-    - Calcula ingresos, gastos, retención o IRPF estimado, IVA y neto.
-    - Utiliza la retención registrada cuando existe.
-    - Estima el IRPF con el porcentaje indicado cuando no existe retención.
-    - Calcula totales trimestrales y anuales.
-    - Utiliza punto y coma como separador y coma decimal.
-    - Genera valores calculados, no fórmulas.
+    Los importes se mantienen como enteros en céntimos.
+    No aplica formatos de presentación ni genera CSV.
     """
+
     seleccionados = seleccionar_inmuebles_exportacion_iva(
         inmuebles=inmuebles,
         apuntes=apuntes,
         anio=anio,
     )
 
-    filas: list[list[str]] = [
+    filas: list[list[str | int]] = [
         [
             f"Resumen del año {anio}",
             "",
@@ -617,10 +609,10 @@ def generar_csv_resumen_iva(
                 [
                     inmueble
                     for inmueble in seleccionados
-                        if _inmueble_genera_factura(
-                            inmueble=inmueble,
-                            contratos=contratos,
-                        )
+                    if _inmueble_genera_factura(
+                        inmueble=inmueble,
+                        contratos=contratos,
+                    )
                 ],
                 "Retención",
             ),
@@ -629,12 +621,16 @@ def generar_csv_resumen_iva(
                 [
                     inmueble
                     for inmueble in seleccionados
-                        if not _inmueble_genera_factura(
-                            inmueble=inmueble,
-                            contratos=contratos,
-                        )
+                    if not _inmueble_genera_factura(
+                        inmueble=inmueble,
+                        contratos=contratos,
+                    )
                 ],
-                f"Hacienda ({_formatear_importe(porcentaje_irpf_estimado)}%)",
+                (
+                    "Hacienda ("
+                    f"{_formatear_importe(porcentaje_irpf_estimado)}"
+                    "%)"
+                ),
             ),
         ]
 
@@ -663,15 +659,16 @@ def generar_csv_resumen_iva(
                     porcentaje_irpf_estimado=(
                         porcentaje_irpf_estimado
                     ),
+                    descontar_gastos=descontar_gastos,
+                    solo_retencion_real=(
+                        nombre_grupo == "Locales comerciales"
+                    ),
                 )
 
                 filas.append(
                     [
                         inmueble.referencia,
-                        *[
-                            _formatear_importe(importe)
-                            for importe in totales
-                        ],
+                        *totales,
                     ]
                 )
 
@@ -683,10 +680,7 @@ def generar_csv_resumen_iva(
             filas.append(
                 [
                     f"Totales {nombre_grupo}",
-                    *[
-                        _formatear_importe(importe)
-                        for importe in totales_grupo
-                    ],
+                    *totales_grupo,
                 ]
             )
             filas.append(_fila_vacia())
@@ -694,10 +688,7 @@ def generar_csv_resumen_iva(
         filas.append(
             [
                 f"Totales {trimestre}T",
-                *[
-                    _formatear_importe(importe)
-                    for importe in totales_trimestre
-                ],
+                *totales_trimestre,
             ]
         )
         filas.append(_fila_vacia())
@@ -705,21 +696,52 @@ def generar_csv_resumen_iva(
     filas.append(
         [
             f"Totales del año {anio}",
-            *[
-                _formatear_importe(importe)
-                for importe in totales_anuales
-            ],
+            *totales_anuales,
         ]
     )
 
+    return filas
+
+
+def generar_csv_resumen_iva(
+    *,
+    inmuebles: Sequence[Inmueble],
+    contratos: Sequence[Contrato],
+    apuntes: Sequence[ApunteContable],
+    anio: int,
+    porcentaje_irpf_estimado: int,
+) -> str:
+    """Genera el CSV histórico del resumen anual de IVA."""
+
+    filas = preparar_resumen_anual_iva(
+        inmuebles=inmuebles,
+        contratos=contratos,
+        apuntes=apuntes,
+        anio=anio,
+        porcentaje_irpf_estimado=porcentaje_irpf_estimado,
+    )
+
+    filas_csv = [
+        [
+            (
+                _formatear_importe(valor)
+                if isinstance(valor, int)
+                else valor
+            )
+            for valor in fila
+        ]
+        for fila in filas
+    ]
+
     salida = StringIO(newline="")
+
     escritor = csv.writer(
         salida,
         delimiter=";",
         quotechar='"',
         lineterminator="\n",
     )
-    escritor.writerows(filas)
+    escritor.writerows(filas_csv)
 
     return salida.getvalue()
 

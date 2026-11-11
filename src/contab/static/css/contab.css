@@ -1022,9 +1022,8 @@ input[type="checkbox"] {
     margin-top: 2rem;
 }
 
+
 /* Impresión del resumen económico */
-
-
 
 @media print {
     .resumen-contratos__filtros.no-imprimir {
@@ -1040,5 +1039,124 @@ input[type="checkbox"] {
     .resumen-contratos__tabla th,
     .resumen-contratos__tabla td {
         padding: 0.3rem 0.5rem;
+    }
+}
+
+
+/* IVA. Resumen anual */
+
+.iva-resumen__titulo {
+    margin-bottom: 1.5rem;
+}
+
+.iva-resumen__filtros {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.iva-resumen__campo,
+.iva-resumen__acciones {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+
+.iva-resumen__acciones {
+    gap: 1rem;
+}
+
+.iva-resumen__anio {
+    width: 7rem;
+    min-width: 0;
+}
+
+.iva-resumen__porcentaje {
+    width: 6rem;
+    min-width: 0;
+}
+
+.iva-resumen__campo input[type="checkbox"] {
+    width: auto;
+    min-width: 0;
+    margin: 0;
+}
+
+.iva-resumen__encabezado {
+    margin-bottom: 0.5rem;
+}
+
+.iva-resumen__nota {
+    margin-bottom: 1.5rem;
+    color: #555;
+}
+
+.iva-resumen__tabla {
+    width: max-content;
+    border-collapse: collapse;
+}
+
+.iva-resumen__tabla th:first-child,
+.iva-resumen__tabla td:first-child {
+    width: 50ch;
+    min-width: 50ch;
+    max-width: 50ch;
+    box-sizing: border-box;
+}
+
+.iva-resumen__tabla th,
+.iva-resumen__tabla td {
+    border: 1px solid #999;
+    padding: 0.1rem 0.6rem;
+    text-align: left;
+}
+
+.iva-resumen__tabla .iva-resumen__importe {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.iva-resumen__fila-cabecera th {
+    background-color: #ddd;
+}
+
+.iva-resumen__fila-total td {
+    background-color: #eee;
+    font-weight: bold;
+}
+
+.iva-resumen__separacion td {   /* Separación normal entre grupos */
+    height: 0.65rem;
+    padding: 0;
+    border: 0;
+}
+
+.iva-resumen__separacion-trimestre td {   /* Mayor separación entre trimestres */
+    height: 2.5rem;
+}
+
+.iva-resumen__navegacion {
+    margin-top: 2rem;
+}
+
+@media print {
+    .iva-resumen__filtros.no-imprimir {
+        display: none;
+    }
+
+    .iva-resumen__tabla {
+        font-size: 10pt;
+    }
+
+    .iva-resumen__tabla th,
+    .iva-resumen__tabla td {
+        padding: 0.3rem 0.5rem;
+    }
+
+    .iva-resumen__fila {
+        break-inside: avoid;
     }
 }

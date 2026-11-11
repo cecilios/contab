@@ -6,9 +6,11 @@ from io import BytesIO, StringIO
 from zipfile import ZipFile
 
 from contab.informes.services import (
+    _importe_irpf_estimado,
     generar_csv_iva,
     generar_csv_resumen_iva,
     generar_zip_iva,
+    preparar_resumen_anual_iva,
     seleccionar_inmuebles_exportacion_iva,
 )
 from contab.models import (
@@ -741,9 +743,9 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
         "PISO-1",
         "800,00",
         "140,00",
-        "200,00",
+        "165,00",
         "0,00",
-        "460,00",
+        "495,00",
     ] in filas
 
     # Un local subdividido no aparece pues toto se reparte entre sus locales
@@ -761,6 +763,63 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
     assert "Totales 1T" in contenido
     assert "Totales del año 2026" in contenido
     assert "Hacienda (25,00%)" in contenido
+
+
+    # La nueva preparación conserva importes numéricos.
+    datos = preparar_resumen_anual_iva(
+        inmuebles=[
+            local,
+            piso,
+            subdividido_sin_apuntes,
+            subdividido_con_apuntes,
+        ],
+        contratos=[
+            contrato_local,
+            contrato_piso,
+        ],
+        apuntes=apuntes,
+        anio=2026,
+        porcentaje_irpf_estimado=2500,
+    )
+
+    # El resultado preparado conserva los céntimos,
+    # sin transformarlos en cadenas para el CSV.
+    assert [
+        "LOCAL-1",
+        100000,
+        25000,
+        19000,
+        21000,
+        35000,
+    ] in datos
+
+    assert [
+        "PISO-1",
+        80000,
+        14000,
+        16500,
+        0,
+        49500,
+    ] in datos
+
+    # La exportación CSV debe seguir reproduciendo
+    # exactamente las mismas filas y cantidades.
+    def convertir_importe(valor):
+        if isinstance(valor, int):
+            euros, centimos = divmod(abs(valor), 100)
+            signo = "-" if valor < 0 else ""
+            return (
+                f"{signo}{euros:,}".replace(",", ".")
+                + f",{centimos:02d}"
+            )
+        return valor
+
+    filas_esperadas = [
+        [convertir_importe(valor) for valor in fila]
+        for fila in datos
+    ]
+
+    assert filas == filas_esperadas
 
 
 def test_generar_csv_iva_resta_apuntes_negativos_de_su_columna(
@@ -1707,5 +1766,112 @@ def test_generar_csv_resumen_iva_descuenta_importes_negativos(
         "189,00",
         "370,00",
     ] in filas
+
+
+def test_preparar_resumen_anual_iva_sin_apuntes():
+    """El resumen conserva cuatro trimestres vacíos."""
+
+    filas = preparar_resumen_anual_iva(
+        inmuebles=[],
+        contratos=[],
+        apuntes=[],
+        anio=2026,
+        porcentaje_irpf_estimado=2400,
+    )
+
+    assert filas[0][0] == "Resumen del año 2026"
+
+    for trimestre in range(1, 5):
+        assert any(
+            fila[0] == f"Totales {trimestre}T"
+            and fila[1:] == [0, 0, 0, 0, 0]
+            for fila in filas
+        )
+
+    assert [
+        "Totales del año 2026",
+        0,
+        0,
+        0,
+        0,
+        0,
+    ] == filas[-1]
+
+
+def test_hacienda_estimada_descontando_gastos():
+    """Calcula Hacienda sobre ingresos menos gastos."""
+
+    impuesto = _importe_irpf_estimado(
+        ingresos=595000,
+        gastos=315011,
+        retencion=0,
+        porcentaje_estimado=5000,
+        descontar_gastos=True,
+        solo_retencion_real=False,
+    )
+
+    assert impuesto == 139995
+
+
+def test_hacienda_estimada_sobre_bruto():
+    """Permite calcular Hacienda sin descontar gastos."""
+
+    impuesto = _importe_irpf_estimado(
+        ingresos=595000,
+        gastos=315011,
+        retencion=0,
+        porcentaje_estimado=5000,
+        descontar_gastos=False,
+        solo_retencion_real=False,
+    )
+
+    assert impuesto == 297500
+
+
+def test_hacienda_estimada_no_puede_ser_negativa():
+    """Los gastos superiores a los ingresos dan base cero."""
+
+    impuesto = _importe_irpf_estimado(
+        ingresos=10000,
+        gastos=20000,
+        retencion=0,
+        porcentaje_estimado=5000,
+        descontar_gastos=True,
+        solo_retencion_real=False,
+    )
+
+    assert impuesto == 0
+
+
+def test_local_conserva_retencion_real():
+    """La retención del local no depende de la estimación."""
+
+    for descontar_gastos in (True, False):
+        impuesto = _importe_irpf_estimado(
+            ingresos=100000,
+            gastos=20000,
+            retencion=19000,
+            porcentaje_estimado=5000,
+            descontar_gastos=descontar_gastos,
+            solo_retencion_real=True,
+        )
+
+        assert impuesto == 19000
+
+
+def test_local_sin_retencion_no_recibe_estimacion():
+    """Un local con retención cero mantiene ese importe."""
+
+    for descontar_gastos in (True, False):
+        impuesto = _importe_irpf_estimado(
+            ingresos=100000,
+            gastos=20000,
+            retencion=0,
+            porcentaje_estimado=5000,
+            descontar_gastos=descontar_gastos,
+            solo_retencion_real=True,
+        )
+
+        assert impuesto == 0
 
 

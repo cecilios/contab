@@ -17,6 +17,7 @@
             declaraciones de IVA.
         </dd>
     </dl>
+
     <dl>
         <dt>
             <a href="{{ url_for('informes.resumen_anual_iva') }}">
@@ -28,4 +29,18 @@
             y neto estimado de todos los inmuebles.
         </dd>
     </dl>
+
+    <dl>
+        <dt>
+            <a href="{{ url_for('informes.ver_resumen_anual_iva') }}">
+                Ver IVA. Resumen anual
+            </a>
+        </dt>
+        <dd>
+            Consulta en pantalla los ingresos, gastos,
+            impuestos y rendimiento neto de todos los
+            inmuebles, con posibilidad de imprimir.
+        </dd>
+    </dl>
+
 {% endblock %}

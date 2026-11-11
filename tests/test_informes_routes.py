@@ -489,3 +489,196 @@ def test_resumen_anual_iva_rechaza_datos_invalidos() -> None:
     assert "Generar CSV" in response.text
 
 
+def test_pantalla_resumen_anual_iva():
+    """Consulta el resumen en HTML sin alterar la exportación CSV."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="PISO-IVA",
+            tipo="P",
+            codigo_facturacion="PI",
+            descripcion="Piso de prueba",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=False,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=0,
+            direccion_facturacion="",
+            poblacion_facturacion="",
+            provincia_facturacion="",
+            concepto_factura="",
+        )
+
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 1, 5),
+            naturaleza="INGRESO",
+            categoria="ING_ALQUILER",
+            concepto="Alquiler enero",
+            base=80000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=80000,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Ingreso enero.pdf",
+        )
+
+        session.add_all([inmueble, contrato, apunte])
+        session.commit()
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # El usuario consulta el resumen con IRPF estimado del 25 %.
+    response = client.get(
+        "/informes/iva-resumen-anual/ver",
+        query_string={
+            "anio": "2026",
+            "porcentaje_irpf_estimado": "25,00",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/html"
+
+    assert "IVA. Resumen anual" in response.text
+    assert "PISO-IVA" in response.text
+    assert "1T - Pisos y otros" in response.text
+    assert "Hacienda (25,00%)" in response.text
+
+    # 800 euros de ingreso, 200 de impuesto estimado
+    # y 600 de rendimiento neto.
+    assert "800,00" in response.text
+    assert "200,00" in response.text
+    assert "600,00" in response.text
+
+    for trimestre in range(1, 5):
+        assert f"Totales {trimestre}T" in response.text
+
+    assert "Totales del año 2026" in response.text
+    assert "window.print()" in response.text
+    assert 'name="anio"' in response.text
+    assert 'name="porcentaje_irpf_estimado"' in response.text
+
+
+def test_pantalla_resumen_anual_iva_rechaza_parametros_invalidos():
+    """La consulta HTML no acepta años ni porcentajes inválidos."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/informes/iva-resumen-anual/ver",
+        query_string={
+            "anio": "2026",
+            "porcentaje_irpf_estimado": "abc",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_resumen_iva_aplica_criterio_hacienda():
+    """La casilla cambia la base de la estimación."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        piso = Inmueble(
+            referencia="PISO-PRUEBA",
+            tipo="P",
+            codigo_facturacion="PP",
+            descripcion="Piso de prueba",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        ingreso = ApunteContable(
+            inmueble=piso,
+            fecha=date(2026, 1, 5),
+            naturaleza="INGRESO",
+            categoria="ING_ALQUILER",
+            concepto="Alquiler",
+            base=80000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=80000,
+            tratamiento="CONTABILIZAR",
+        )
+
+        gasto = ApunteContable(
+            inmueble=piso,
+            fecha=date(2026, 2, 5),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad",
+            base=20000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=20000,
+            tratamiento="CONTABILIZAR",
+        )
+
+        session.add_all([piso, ingreso, gasto])
+        session.commit()
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    ruta = "/informes/iva-resumen-anual/ver"
+
+    # Con gastos descontados:
+    # (800 - 200) * 25 % = 150 de Hacienda.
+    con_descuento = client.get(
+        ruta,
+        query_string={
+            "anio": "2026",
+            "porcentaje_irpf_estimado": "25,00",
+            "descontar_gastos": "1",
+        },
+    )
+
+    assert con_descuento.status_code == 200
+    assert "PISO-PRUEBA" in con_descuento.text
+    assert "150,00" in con_descuento.text
+    assert "450,00" in con_descuento.text
+
+    # Sin descontar gastos:
+    # 800 * 25 % = 200 de Hacienda.
+    sin_descuento = client.get(
+        ruta,
+        query_string={
+            "anio": "2026",
+            "porcentaje_irpf_estimado": "25,00",
+        },
+    )
+
+    assert sin_descuento.status_code == 200
+    assert "PISO-PRUEBA" in sin_descuento.text
+    assert "200,00" in sin_descuento.text
+    assert "400,00" in sin_descuento.text
+
+    # La primera visita utiliza el criterio predeterminado.
+    inicial = client.get(ruta)
+
+    assert inicial.status_code == 200
+    assert 'name="descontar_gastos"' in inicial.text
+    assert "checked" in inicial.text
+
