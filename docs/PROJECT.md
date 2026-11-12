@@ -189,7 +189,24 @@ Los apuntes conservan la naturaleza económica del hecho. Los informes traducen 
 
 Un cambio en un formulario fiscal debe resolverse modificando la agrupación del informe, siempre que los datos originales tengan detalle suficiente, y no alterando o reconstruyendo los hechos contables.
 
-### 5.9. Preservación de las fuentes
+### 5.9. Presentación de los informes
+
+Los informes se consultarán normalmente en Contab, con
+opciones para imprimirlos y exportarlos a Excel (XLSX).
+
+La pantalla y la exportación utilizarán los mismos datos y
+cálculos, sin duplicar las reglas de negocio.
+
+Los importes calculados por Contab se exportarán como valores.
+Solo se utilizarán fórmulas en el XLSX cuando el resultado
+pueda obtenerse directamente de otras celdas de la misma
+hoja, sin aplicar reglas de negocio.
+
+No se desarrollará un sistema genérico de informes.
+Cada informe se implementará de forma sencilla, reutilizando
+únicamente el código cuya utilidad esté justificada.
+
+### 5.10. Preservación de las fuentes
 ....................................
 
 La información original debe conservarse cuando sea necesaria para verificar el resultado:
@@ -201,7 +218,7 @@ La información original debe conservarse cuando sea necesaria para verificar el
 
 Contab registra relaciones e interpretaciones, pero no debe destruir la evidencia que permite revisarlas.
 
-### 5.10. Operaciones coherentes
+### 5.11. Operaciones coherentes
 ...............................
 
 Las acciones que producen varios efectos deben completarse de forma conjunta.
@@ -210,7 +227,7 @@ Por ejemplo, una futura emisión de factura deberá coordinar la factura, sus l�
 
 Las correcciones deben respetar las relaciones ya confirmadas, especialmente cuando existan movimientos conciliados.
 
-### 5.11. Desarrollo guiado por casos reales
+### 5.12. Desarrollo guiado por casos reales
 .............................................
 
 Los algoritmos y automatizaciones se mejorarán a partir de datos reales del cliente.

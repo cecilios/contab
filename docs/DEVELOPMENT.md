@@ -953,7 +953,12 @@ annual CSV per property
 ZIP containing one CSV per applicable property
 IVA annual summary
 ```
+The intended design for new reports is:
 
+    HTML screen + browser printing + XLSX export
+
+Reports must remain simple and report-specific. Do not
+introduce a generic reporting framework.
 Reports consider:
 
 ```text

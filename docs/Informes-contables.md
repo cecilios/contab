@@ -26,13 +26,17 @@ Los apuntes se registran una sola vez, con una clasificación estable y suficien
 
 Cuando el usuario necesita preparar una declaración o revisar la contabilidad:
 
-1. Accede al apartado **Informes**.
-2. Elige el informe o exportación que necesita.
-3. Indica el ejercicio y, cuando corresponda, el inmueble.
-4. Contab selecciona y agrupa los apuntes adecuados.
-5. El usuario descarga el resultado y lo abre en LibreOffice Calc.
 
-Los informes deben ser sencillos de revisar y suficientemente flexibles para que una hoja de cálculo permita resolver necesidades nuevas mientras se decide si merece la pena incorporarlas a Contab.
+1. Accede al apartado **Informes**.
+2. Elige el informe que necesita.
+3. Indica el ejercicio y las opciones correspondientes.
+4. Consulta los resultados en pantalla.
+5. Si lo desea, imprime el informe o lo exporta a Excel
+   para trabajar con los datos en una hoja de cálculo.
+
+Los informes deben ser sencillos de revisar y suficientemente flexibles para que una
+hoja de cálculo permita resolver necesidades nuevas mientras se decide si merece la
+pena incorporarlas a Contab.
 
 ## Organización de los informes
 --------------------------------
@@ -49,17 +53,15 @@ No se crearán submenús de informes en Inmuebles, Inquilinos o Contratos. Son c
 ## Formato de exportación
 -------------------------
 
-Los primeros informes se generan en CSV para abrirlos con LibreOffice Calc.
+Los nuevos informes se consultan en pantalla y pueden
+imprimirse o exportarse a Excel (XLSX).
 
-El formato acordado utiliza:
+La exportación conserva los importes como valores numéricos
+y puede incluir fórmulas sencillas para totales y sumas.
 
-- codificación UTF-8;
-- punto y coma como separador de campos;
-- coma decimal;
-- importes mostrados en euros;
-- valores calculados, sin fórmulas de hoja de cálculo.
+Las exportaciones CSV anteriores permanecen disponibles
+temporalmente.
 
-El objetivo es producir archivos fáciles de inspeccionar, reutilizar y adaptar, sin depender de una plantilla compleja.
 
 ## Apuntes incluidos
 --------------------
@@ -162,7 +164,11 @@ Los inmuebles de tipo `T` no aparecen como contabilidad propia. Sus gastos se mu
 ## IVA. Resumen anual
 ---------------------
 
-El informe **IVA. Resumen anual** reúne en una única hoja los totales trimestrales de todos los inmuebles incluidos en el ejercicio.
+El informe **IVA. Resumen anual** reúne en una única hoja los totales trimestrales de
+todos los inmuebles incluidos en el ejercicio.
+
+El informe se consulta desde **Informes → Ver IVA. Resumen anual**,
+con opciones para imprimirlo y exportarlo a Excel.
 
 Dentro de cada trimestre separa:
 
@@ -178,13 +184,25 @@ El resumen incluye también los totales generales del trimestre y del año.
 ## Estimación del rendimiento neto
 ----------------------------------
 
-La estimación pretende aproximar el importe que conserva el propietario después de gastos e impuestos.
+La estimación pretende aproximar el importe que conserva el propietario después
+de gastos e impuestos.
 
-En contratos con retención se utiliza la retención real registrada.
+Para los locales comerciales utiliza las retenciones reales
+registradas.
 
-En los restantes inmuebles se aplica un porcentaje estimado de IRPF o IRNR sobre los ingresos. El formulario permite al usuario indicar ese porcentaje y propone inicialmente un 24 %.
+Para pisos y otros inmuebles permite indicar un porcentaje
+estimado de IRPF o IRNR, inicialmente del 24 %.
 
-Es una estimación orientativa, no un cálculo fiscal definitivo.
+Por defecto, el porcentaje se aplica a los ingresos menos
+los gastos. El usuario puede elegir aplicarlo a los ingresos
+brutos, sin descontar gastos.
+
+Cuando la base de estimación es negativa, Hacienda se
+estima en cero.
+
+Se trata de una estimación orientativa, no de un cálculo
+fiscal definitivo.
+
 
 ## Inmuebles subdivididos
 -------------------------
@@ -242,23 +260,9 @@ Actualmente están disponibles:
 - la pantalla índice de informes;
 - el CSV anual de apuntes para un inmueble;
 - la generación conjunta de los CSV de todos los inmuebles en un ZIP;
-- el informe **IVA. Resumen anual**;
-- la selección del año;
-- el porcentaje configurable para la estimación de IRPF o IRNR;
-- la aplicación de los tratamientos `CONTABILIZAR`, `FACTURAR` y `REPERCUTIR`;
-- la distribución de los gastos de inmuebles `T` entre sus locales mediante `DistribucionApunte`;
-- la exclusión, en gastos `REPERCUTIR`, de la parte persistida en `ImputacionContrato` como atribuida a contratos.
+- la consulta, impresión y exportación a Excel del informe
+  **IVA. Resumen anual**;
 
-Los informes utilizan las distribuciones e imputaciones persistidas y no reconstruyen históricamente los repartos a partir de los contratos o participaciones actuales.
+Los informes utilizan las distribuciones e imputaciones persistidas y no reconstruyen
+históricamente los repartos a partir de los contratos o participaciones actuales.
 
-## Evolución prevista
----------------------
-
-Los siguientes informes se decidirán a partir de necesidades fiscales reales. Las prioridades previsibles son:
-
-1. Informes básicos para la declaración trimestral del IVA.
-2. Informes anuales orientados al IRPF o IRNR.
-3. Nuevas agrupaciones cuando cambien los formularios de Hacienda.
-4. Integración de distribuciones e imputaciones en cualquier nuevo informe fiscal que las necesite.
-
-El criterio rector es conservar datos suficientemente detallados y generar sólo los informes que aporten utilidad comprobada, manteniendo el código y la interfaz lo más sencillos posible.
