@@ -703,49 +703,6 @@ def preparar_resumen_anual_iva(
     return filas
 
 
-def generar_csv_resumen_iva(
-    *,
-    inmuebles: Sequence[Inmueble],
-    contratos: Sequence[Contrato],
-    apuntes: Sequence[ApunteContable],
-    anio: int,
-    porcentaje_irpf_estimado: int,
-) -> str:
-    """Genera el CSV histórico del resumen anual de IVA."""
-
-    filas = preparar_resumen_anual_iva(
-        inmuebles=inmuebles,
-        contratos=contratos,
-        apuntes=apuntes,
-        anio=anio,
-        porcentaje_irpf_estimado=porcentaje_irpf_estimado,
-    )
-
-    filas_csv = [
-        [
-            (
-                _formatear_importe(valor)
-                if isinstance(valor, int)
-                else valor
-            )
-            for valor in fila
-        ]
-        for fila in filas
-    ]
-
-    salida = StringIO(newline="")
-
-    escritor = csv.writer(
-        salida,
-        delimiter=";",
-        quotechar='"',
-        lineterminator="\n",
-    )
-    escritor.writerows(filas_csv)
-
-    return salida.getvalue()
-
-
 def generar_zip_iva(
     *,
     inmuebles: Sequence[Inmueble],

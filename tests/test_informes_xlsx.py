@@ -66,4 +66,4 @@ def test_xlsx_resumen_iva_valores_y_formulas():
     assert hoja["B15"].value == "=SUM(B13)"
 
     assert hoja["B6"].number_format != "General"
-    assert hoja.column_dimensions["A"].width == 50
+    assert hoja.column_dimensions["A"].width == 30

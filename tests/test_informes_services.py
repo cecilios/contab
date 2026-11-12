@@ -8,7 +8,6 @@ from zipfile import ZipFile
 from contab.informes.services import (
     _importe_irpf_estimado,
     generar_csv_iva,
-    generar_csv_resumen_iva,
     generar_zip_iva,
     preparar_resumen_anual_iva,
     seleccionar_inmuebles_exportacion_iva,
@@ -510,7 +509,7 @@ def test_generar_zip_iva_contiene_un_csv_por_inmueble(
     assert "Alquiler enero" not in csv_piso
 
 
-def test_generar_csv_resumen_iva_clasifica_y_totaliza(
+def test_preparar_resumen_anual_iva_clasifica_y_totaliza(
     session,
 ) -> None:
     """Genera el resumen separando inmuebles facturables del resto."""
@@ -702,8 +701,9 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
     )
     session.commit()
 
-    # Generamos y leemos el resumen.
-    contenido = generar_csv_resumen_iva(
+
+    # Preparamos el resumen anual.
+    filas = preparar_resumen_anual_iva(
         inmuebles=[
             local,
             piso,
@@ -719,71 +719,9 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
         porcentaje_irpf_estimado=2500,
     )
 
-    filas = list(
-        csv.reader(
-            StringIO(contenido),
-            delimiter=";",
-        )
-    )
-
-    # El local usa su retención real:
-    # 1.000 - 200 - 210 - 190 = 400.
-    assert [
-        "LOCAL-1",
-        "1.000,00",
-        "250,00",
-        "190,00",
-        "210,00",
-        "350,00",
-    ] in filas
-
-    # El piso aplica la estimación indicada del 25 %:
-    # 800 - 140 - 200 = 460.
-    assert [
-        "PISO-1",
-        "800,00",
-        "140,00",
-        "165,00",
-        "0,00",
-        "495,00",
-    ] in filas
-
-    # Un local subdividido no aparece pues toto se reparte entre sus locales
-    assert (
-        "SUBDIVIDIDO-CON-APUNTES"
-        not in contenido
-    )
-    assert (
-        "SUBDIVIDIDO-SIN-APUNTES"
-        not in contenido
-    )
-
-    assert "1T - Locales comerciales" in contenido
-    assert "1T - Pisos y otros" in contenido
-    assert "Totales 1T" in contenido
-    assert "Totales del año 2026" in contenido
-    assert "Hacienda (25,00%)" in contenido
-
-
-    # La nueva preparación conserva importes numéricos.
-    datos = preparar_resumen_anual_iva(
-        inmuebles=[
-            local,
-            piso,
-            subdividido_sin_apuntes,
-            subdividido_con_apuntes,
-        ],
-        contratos=[
-            contrato_local,
-            contrato_piso,
-        ],
-        apuntes=apuntes,
-        anio=2026,
-        porcentaje_irpf_estimado=2500,
-    )
-
-    # El resultado preparado conserva los céntimos,
-    # sin transformarlos en cadenas para el CSV.
+    # El local conserva su retención real.
+    # Ingresos: 1.000 €, gastos: 250 €,
+    # retención: 190 €, IVA: 210 €.
     assert [
         "LOCAL-1",
         100000,
@@ -791,8 +729,11 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
         19000,
         21000,
         35000,
-    ] in datos
+    ] in filas
 
+    # El piso aplica el 25 % sobre ingresos menos gastos.
+    # Ingresos: 800 €, gastos: 140 €.
+    # Hacienda: (800 - 140) * 25 % = 165 €.
     assert [
         "PISO-1",
         80000,
@@ -800,26 +741,41 @@ def test_generar_csv_resumen_iva_clasifica_y_totaliza(
         16500,
         0,
         49500,
-    ] in datos
+    ] in filas
 
-    # La exportación CSV debe seguir reproduciendo
-    # exactamente las mismas filas y cantidades.
-    def convertir_importe(valor):
-        if isinstance(valor, int):
-            euros, centimos = divmod(abs(valor), 100)
-            signo = "-" if valor < 0 else ""
-            return (
-                f"{signo}{euros:,}".replace(",", ".")
-                + f",{centimos:02d}"
-            )
-        return valor
+    # Los inmuebles T no aparecen como contabilidad propia.
+    referencias = [fila[0] for fila in filas]
 
-    filas_esperadas = [
-        [convertir_importe(valor) for valor in fila]
-        for fila in datos
+    assert "SUBDIVIDIDO-CON-APUNTES" not in referencias
+    assert "SUBDIVIDIDO-SIN-APUNTES" not in referencias
+
+    # El resumen conserva ambos grupos y los cuatro trimestres.
+    assert "1T - Locales comerciales" in referencias
+    assert "1T - Pisos y otros" in referencias
+
+    for trimestre in range(1, 5):
+        assert f"Totales {trimestre}T" in referencias
+
+    # Comprobamos los totales del primer trimestre y del año.
+    # Ingresos: 1.800 €, gastos: 390 €,
+    # retención/Hacienda: 355 €, IVA: 210 €,
+    # neto: 845 €.
+    totales = [
+        180000,
+        39000,
+        35500,
+        21000,
+        84500,
     ]
 
-    assert filas == filas_esperadas
+    assert ["Totales 1T", *totales] in filas
+    assert ["Totales del año 2026", *totales] in filas
+
+    # Se conserva el encabezado del porcentaje seleccionado.
+    assert any(
+        fila[3] == "Hacienda (25,00%)"
+        for fila in filas
+    )
 
 
 def test_generar_csv_iva_resta_apuntes_negativos_de_su_columna(
@@ -1302,7 +1258,7 @@ def test_generar_csv_iva_repercutir_distribucion_incluye_resto_propietario(
     ] in filas
 
 
-def test_generar_csv_resumen_iva_usa_distribucion_de_inmueble_subdividido(
+def test_preparar_resumen_anual_iva_usa_distribucion_de_inmueble_subdividido(
     session,
 ) -> None:
     """El resumen atribuye al local hijo los gastos distribuidos de un T."""
@@ -1377,41 +1333,34 @@ def test_generar_csv_resumen_iva_usa_distribucion_de_inmueble_subdividido(
     )
     session.commit()
 
-    contenido = generar_csv_resumen_iva(
-        inmuebles=[
-            inmueble_total,
-            local,
-        ],
-        contratos=[
-            contrato,
-        ],
-        apuntes=[
-            apunte,
-        ],
+
+    filas = preparar_resumen_anual_iva(
+        inmuebles=[inmueble_total, local],
+        contratos=[contrato],
+        apuntes=[apunte],
         anio=2026,
         porcentaje_irpf_estimado=2500,
     )
 
-    filas = list(
-        csv.reader(
-            StringIO(contenido),
-            delimiter=";",
-        )
-    )
-
+    # El gasto del inmueble T se atribuye al local hijo
+    # según su distribución persistida: 100 * 60 % = 60 €.
     assert [
         "LOCAL-A",
-        "0,00",
-        "60,00",
-        "0,00",
-        "0,00",
-        "-60,00",
+        0,
+        6000,
+        0,
+        0,
+        -6000,
     ] in filas
 
-    assert "TOTAL-1" not in contenido
+    # El inmueble contenedor no aparece como contabilidad propia.
+    assert all(
+        fila[0] != "TOTAL-1"
+        for fila in filas
+    )
 
 
-def test_generar_csv_resumen_iva_repercutir_distribucion_incluye_resto_propietario(
+def test_preparar_resumen_anual_iva_repercutir_distribucion_incluye_resto_propietario(
     session,
 ) -> None:
     """El resumen excluye de una distribución sólo la parte repercutida."""
@@ -1496,41 +1445,34 @@ def test_generar_csv_resumen_iva_repercutir_distribucion_incluye_resto_propietar
     )
     session.commit()
 
-    contenido = generar_csv_resumen_iva(
-        inmuebles=[
-            inmueble_total,
-            local,
-        ],
-        contratos=[
-            contrato,
-        ],
-        apuntes=[
-            apunte,
-        ],
+
+    filas = preparar_resumen_anual_iva(
+        inmuebles=[inmueble_total, local],
+        contratos=[contrato],
+        apuntes=[apunte],
         anio=2026,
         porcentaje_irpf_estimado=2500,
     )
 
-    filas = list(
-        csv.reader(
-            StringIO(contenido),
-            delimiter=";",
-        )
-    )
-
+    # El local recibe 60 € del gasto del inmueble T.
+    # De ellos, 40 € se imputaron al contrato.
+    # Los 20 € restantes son gasto del propietario.
     assert [
         "LOCAL-A",
-        "0,00",
-        "20,00",
-        "0,00",
-        "0,00",
-        "-20,00",
+        0,
+        2000,
+        0,
+        0,
+        -2000,
     ] in filas
 
-    assert "TOTAL-1" not in contenido
+    assert all(
+        fila[0] != "TOTAL-1"
+        for fila in filas
+    )
 
 
-def test_generar_csv_resumen_iva_repercutir_distribucion_completa_deja_gasto_cero(
+def test_preparar_resumen_anual_iva_repercutir_distribucion_completa_deja_gasto_cero(
     session,
 ) -> None:
     """Una distribución totalmente repercutida no deja gasto al propietario."""
@@ -1615,39 +1557,34 @@ def test_generar_csv_resumen_iva_repercutir_distribucion_completa_deja_gasto_cer
     )
     session.commit()
 
-    contenido = generar_csv_resumen_iva(
-        inmuebles=[
-            inmueble_total,
-            local,
-        ],
-        contratos=[
-            contrato,
-        ],
-        apuntes=[
-            apunte,
-        ],
+
+    filas = preparar_resumen_anual_iva(
+        inmuebles=[inmueble_total, local],
+        contratos=[contrato],
+        apuntes=[apunte],
         anio=2026,
         porcentaje_irpf_estimado=2500,
     )
 
-    filas = list(
-        csv.reader(
-            StringIO(contenido),
-            delimiter=";",
-        )
-    )
-
+    # Los 60 € distribuidos al local se han imputado
+    # íntegramente al contrato.
+    # No queda ningún gasto para el propietario.
     assert [
         "LOCAL-A",
-        "0,00",
-        "0,00",
-        "0,00",
-        "0,00",
-        "0,00",
+        0,
+        0,
+        0,
+        0,
+        0,
     ] in filas
 
+    assert all(
+        fila[0] != "TOTAL-1"
+        for fila in filas
+    )
 
-def test_generar_csv_resumen_iva_descuenta_importes_negativos(
+
+def test_preparar_resumen_anual_iva_descuenta_importes_negativos(
     session,
     inmueble,
     contrato,
@@ -1718,8 +1655,8 @@ def test_generar_csv_resumen_iva_descuenta_importes_negativos(
     ])
     session.commit()
 
-    # El usuario genera el resumen anual.
-    contenido = generar_csv_resumen_iva(
+
+    filas = preparar_resumen_anual_iva(
         inmuebles=[inmueble],
         contratos=[contrato],
         apuntes=[
@@ -1732,39 +1669,41 @@ def test_generar_csv_resumen_iva_descuenta_importes_negativos(
         porcentaje_irpf_estimado=1900,
     )
 
-    filas = list(
-        csv.reader(
-            StringIO(contenido),
-            delimiter=";",
-        )
-    )
-
     # Cuarto trimestre:
     # Ingresos: 1.000 - 100 = 900 €
     # Gastos: 200 - 30 = 170 €
     # Retención: 190 - 19 = 171 €
     # IVA: 210 - 21 = 189 €
-    # Neto: 900 - 170 - 171 - 189 = 370 €
+    # Neto: 900 - 170 - 171 - 189 = 370 €.
     fila_esperada = [
         inmueble.referencia,
-        "900,00",
-        "170,00",
-        "171,00",
-        "189,00",
-        "370,00",
+        90000,
+        17000,
+        17100,
+        18900,
+        37000,
     ]
 
     assert fila_esperada in filas
 
-    # Solo tenemos movimientos en el cuarto trimestre,
-    # por lo que el total anual debe coincidir.
+    # Los importes acumulados del cuarto trimestre
+    # coinciden con el total anual.
+    assert [
+        "Totales 4T",
+        90000,
+        17000,
+        17100,
+        18900,
+        37000,
+    ] in filas
+
     assert [
         "Totales del año 2026",
-        "900,00",
-        "170,00",
-        "171,00",
-        "189,00",
-        "370,00",
+        90000,
+        17000,
+        17100,
+        18900,
+        37000,
     ] in filas
 
 

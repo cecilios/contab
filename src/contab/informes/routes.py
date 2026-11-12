@@ -25,7 +25,6 @@ from contab.context import (
 )
 from contab.informes.services import (
     generar_csv_iva,
-    generar_csv_resumen_iva,
     generar_zip_iva,
     preparar_resumen_anual_iva,
 )
@@ -74,24 +73,6 @@ def _render_formulario_iva(
         "informes/iva.html",
         inmuebles=inmuebles,
         anio=anio,
-        error=error,
-        database_name=get_database_name(),
-    )
-
-
-def _render_formulario_resumen_anual_iva(
-    *,
-    anio,
-    porcentaje_irpf_estimado,
-    error: str | None,
-):
-    """Muestra el formulario del resumen anual de IVA."""
-    return render_template(
-        "informes/iva_resumen_anual.html",
-        anio=anio,
-        porcentaje_irpf_estimado=(
-            porcentaje_irpf_estimado
-        ),
         error=error,
         database_name=get_database_name(),
     )
@@ -249,108 +230,8 @@ def exportar_iva():
         return response
 
 
-@bp.route(
-    "/iva-resumen-anual",
-    methods=["GET", "POST"],
-)
+@bp.get("/iva-resumen-anual")
 def resumen_anual_iva():
-    """Prepara y descarga el resumen anual de IVA."""
-    if request.method == "GET":
-        return _render_formulario_resumen_anual_iva(
-            anio=date.today().year,
-            porcentaje_irpf_estimado="24,00",
-            error=None,
-        )
-
-    try:
-        anio = int(request.form["anio"])
-        porcentaje_texto = request.form[
-            "porcentaje_irpf_estimado"
-        ]
-        porcentaje_irpf_estimado = (
-            _porcentaje_a_entero(
-                porcentaje_texto
-            )
-        )
-
-        if not 1 <= anio <= 9999:
-            raise ValueError
-
-        if not 0 <= porcentaje_irpf_estimado <= 10000:
-            raise ValueError
-
-    except (KeyError, ValueError):
-        return (
-            _render_formulario_resumen_anual_iva(
-                anio=request.form.get(
-                    "anio",
-                    date.today().year,
-                ),
-                porcentaje_irpf_estimado=(
-                    request.form.get(
-                        "porcentaje_irpf_estimado",
-                        "24,00",
-                    )
-                ),
-                error=(
-                    "Debe indicar un año y un porcentaje "
-                    "IRPF / IRNR válidos."
-                ),
-            ),
-            400,
-        )
-
-    session_factory = get_session_factory()
-
-    with session_factory() as session:
-        inmuebles = session.scalars(
-            select(Inmueble).order_by(
-                Inmueble.referencia
-            )
-        ).all()
-
-        contratos = session.scalars(
-            select(Contrato)
-        ).all()
-
-        apuntes = session.scalars(
-            select(ApunteContable)
-            .where(
-                ApunteContable.fecha
-                >= date(anio, 1, 1),
-                ApunteContable.fecha
-                <= date(anio, 12, 31),
-            )
-            .order_by(
-                ApunteContable.fecha,
-                ApunteContable.id,
-            )
-        ).all()
-
-        contenido = generar_csv_resumen_iva(
-            inmuebles=inmuebles,
-            contratos=contratos,
-            apuntes=apuntes,
-            anio=anio,
-            porcentaje_irpf_estimado=(
-                porcentaje_irpf_estimado
-            ),
-        )
-
-    response = Response(
-        contenido,
-        content_type="text/csv; charset=utf-8",
-    )
-    response.headers["Content-Disposition"] = (
-        f'attachment; filename="'
-        f'iva-resumen-anual-{anio}.csv"'
-    )
-
-    return response
-
-
-@bp.get("/iva-resumen-anual/ver")
-def ver_resumen_anual_iva():
     """Consulta el resumen anual de IVA en pantalla."""
 
     anio_texto = request.args.get(
@@ -441,7 +322,7 @@ def ver_resumen_anual_iva():
             )
 
         return render_template(
-            "informes/iva_resumen_pantalla.html",
+            "informes/iva_resumen_anual.html",
             filas=filas,
             anio=anio,
             porcentaje_irpf_estimado=porcentaje_texto,

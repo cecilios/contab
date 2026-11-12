@@ -167,7 +167,7 @@ Los inmuebles de tipo `T` no aparecen como contabilidad propia. Sus gastos se mu
 El informe **IVA. Resumen anual** reúne en una única hoja los totales trimestrales de
 todos los inmuebles incluidos en el ejercicio.
 
-El informe se consulta desde **Informes → Ver IVA. Resumen anual**,
+El informe se consulta desde **Informes → IVA. Resumen anual**,
 con opciones para imprimirlo y exportarlo a Excel.
 
 Dentro de cada trimestre separa:
