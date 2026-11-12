@@ -20,6 +20,7 @@ from contab.formato import (
 )
 from contab.models import (
     Conciliacion,
+    Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
 )
@@ -576,6 +577,14 @@ def listar_movimientos_previstos():
     if estado not in estados_validos:
         estado = "PENDIENTE"
 
+    inmueble_id = request.args.get(
+        "inmueble_id",
+        default=0,
+        type=int,
+    )
+
+    inmueble_id = max(inmueble_id, 0)
+
     pagina = request.args.get(
         "pagina",
         default=1,
@@ -603,9 +612,25 @@ def listar_movimientos_previstos():
             )
         )
 
+    if inmueble_id:
+        consulta_total = consulta_total.where(
+            MovimientoPrevisto.inmueble_id == inmueble_id
+        )
+        consulta_movimientos = (
+            consulta_movimientos.where(
+                MovimientoPrevisto.inmueble_id == inmueble_id
+            )
+        )
+
     session_factory = get_session_factory()
 
     with session_factory() as session:
+        inmuebles = session.scalars(
+            select(Inmueble).order_by(
+                Inmueble.referencia
+            )
+        ).all()
+
         total = session.scalar(
             consulta_total
         ) or 0
@@ -642,6 +667,8 @@ def listar_movimientos_previstos():
             total_paginas=total_paginas,
             estado_seleccionado=estado,
             estados=ESTADOS_MOVIMIENTO_PREVISTO,
+            inmuebles=inmuebles,
+            inmueble_id_seleccionado=inmueble_id,
             naturalezas=NATURALEZAS_MOVIMIENTO,
             importe_a_texto=importe_a_texto,
             intervalo_a_texto=_intervalo_a_texto,

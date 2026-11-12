@@ -906,6 +906,175 @@ def test_listar_movimientos_previstos() -> None:
     assert "Previsión independiente" in response.text
 
 
+def test_listar_movimientos_previstos_filtra_por_inmueble() -> None:
+    """Permite filtrar los movimientos por inmueble y estado."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        local = Inmueble(
+            referencia="LOCAL-FILTRO",
+            tipo="L",
+            codigo_facturacion="LF",
+            descripcion="Local",
+            direccion="Dirección local",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        piso = Inmueble(
+            referencia="PISO-FILTRO",
+            tipo="P",
+            codigo_facturacion="PF",
+            descripcion="Piso",
+            direccion="Dirección piso",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        movimientos = [
+            MovimientoPrevisto(
+                inmueble=local,
+                fecha_prevista_desde=date(2026, 9, 1),
+                naturaleza="GASTO",
+                concepto="Gasto local pendiente",
+                importe_esperado=10000,
+                estado="PENDIENTE",
+            ),
+            MovimientoPrevisto(
+                inmueble=piso,
+                fecha_prevista_desde=date(2026, 9, 2),
+                naturaleza="GASTO",
+                concepto="Gasto piso pendiente",
+                importe_esperado=20000,
+                estado="PENDIENTE",
+            ),
+            MovimientoPrevisto(
+                inmueble=local,
+                fecha_prevista_desde=date(2026, 9, 3),
+                naturaleza="GASTO",
+                concepto="Gasto local cancelado",
+                importe_esperado=30000,
+                estado="CANCELADO",
+            ),
+        ]
+
+        session.add_all([local, piso, *movimientos])
+        session.commit()
+
+        local_id = local.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # Sin filtro de inmueble se muestran los movimientos
+    # pendientes de ambos inmuebles.
+    response = client.get("/conciliacion/previstos")
+
+    assert response.status_code == 200
+    assert "Gasto local pendiente" in response.text
+    assert "Gasto piso pendiente" in response.text
+    assert "Gasto local cancelado" not in response.text
+
+    # El filtro selecciona únicamente el inmueble indicado.
+    response = client.get(
+        "/conciliacion/previstos",
+        query_string={
+            "estado": "TODOS",
+            "inmueble_id": local_id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Gasto local pendiente" in response.text
+    assert "Gasto local cancelado" in response.text
+    assert "Gasto piso pendiente" not in response.text
+
+    # Los filtros por estado e inmueble se combinan.
+    response = client.get(
+        "/conciliacion/previstos",
+        query_string={
+            "estado": "PENDIENTE",
+            "inmueble_id": local_id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Gasto local pendiente" in response.text
+    assert "Gasto local cancelado" not in response.text
+    assert "Gasto piso pendiente" not in response.text
+
+
+def test_paginacion_previstos_conserva_filtro_inmueble() -> None:
+    """Los enlaces de paginación conservan el inmueble elegido."""
+
+    app = crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-PAGINACION",
+            tipo="L",
+            codigo_facturacion="LP",
+            descripcion="Local",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        movimientos = [
+            MovimientoPrevisto(
+                inmueble=inmueble,
+                fecha_prevista_desde=date(2026, 9, 1),
+                naturaleza="GASTO",
+                concepto=f"Movimiento {indice}",
+                importe_esperado=10000,
+                estado="PENDIENTE",
+            )
+            for indice in range(26)
+        ]
+
+        session.add_all([inmueble, *movimientos])
+        session.commit()
+
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/conciliacion/previstos",
+        query_string={
+            "estado": "PENDIENTE",
+            "inmueble_id": inmueble_id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Página 1 de 2" in response.text
+    assert (
+        f"inmueble_id={inmueble_id}"
+        in response.text
+    )
+
+    response = client.get(
+        "/conciliacion/previstos",
+        query_string={
+            "estado": "PENDIENTE",
+            "inmueble_id": inmueble_id,
+            "pagina": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Página 2 de 2" in response.text
+
+
 def test_cancelar_movimiento_previsto_desde_interfaz() -> None:
     """Cancela desde el listado un movimiento previsto pendiente."""
 

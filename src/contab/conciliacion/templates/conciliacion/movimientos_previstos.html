@@ -51,6 +51,28 @@
                 {% endfor %}
             </select>
 
+            <label for="inmueble_id">Inmueble:</label>
+
+            <select
+                id="inmueble_id"
+                name="inmueble_id"
+            >
+                <option value="0">
+                    Todos los inmuebles
+                </option>
+
+                {% for inmueble in inmuebles %}
+                    <option
+                        value="{{ inmueble.id }}"
+                        {% if inmueble_id_seleccionado == inmueble.id %}
+                            selected
+                        {% endif %}
+                    >
+                        {{ inmueble.referencia }}
+                    </option>
+                {% endfor %}
+            </select>
+
             <button type="submit">
                 Filtrar
             </button>
@@ -211,7 +233,7 @@
         </table>
     {% else %}
         <p>
-            No hay movimientos previstos con el estado seleccionado.
+            No hay movimientos previstos con los filtros seleccionados.
         </p>
     {% endif %}
 
@@ -221,6 +243,7 @@
                 <a href="{{ url_for(
                     'conciliacion.listar_movimientos_previstos',
                     estado=estado_seleccionado,
+                    inmueble_id=inmueble_id_seleccionado,
                     pagina=pagina - 1
                 ) }}">
                     Página anterior
@@ -235,6 +258,7 @@
                 <a href="{{ url_for(
                     'conciliacion.listar_movimientos_previstos',
                     estado=estado_seleccionado,
+                    inmueble_id=inmueble_id_seleccionado,
                     pagina=pagina + 1
                 ) }}">
                     Página siguiente
