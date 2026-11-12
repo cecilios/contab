@@ -728,7 +728,7 @@ def test_preparar_resumen_anual_iva_clasifica_y_totaliza(
         25000,
         19000,
         21000,
-        35000,
+        56000,
     ] in filas
 
     # El piso aplica el 25 % sobre ingresos menos gastos.
@@ -758,14 +758,14 @@ def test_preparar_resumen_anual_iva_clasifica_y_totaliza(
 
     # Comprobamos los totales del primer trimestre y del año.
     # Ingresos: 1.800 €, gastos: 390 €,
-    # retención/Hacienda: 355 €, IVA: 210 €,
-    # neto: 845 €.
+    # retención/Hacienda: 355 €, IVA: 210 €.
+    # Neto: 1.800 - 390 - 355 = 1.055 €.
     totales = [
         180000,
         39000,
         35500,
         21000,
-        84500,
+        105500,
     ]
 
     assert ["Totales 1T", *totales] in filas
@@ -1674,14 +1674,14 @@ def test_preparar_resumen_anual_iva_descuenta_importes_negativos(
     # Gastos: 200 - 30 = 170 €
     # Retención: 190 - 19 = 171 €
     # IVA: 210 - 21 = 189 €
-    # Neto: 900 - 170 - 171 - 189 = 370 €.
+    # Neto: 900 - 170 - 171 = 559 €.
     fila_esperada = [
         inmueble.referencia,
         90000,
         17000,
         17100,
         18900,
-        37000,
+        55900,
     ]
 
     assert fila_esperada in filas
@@ -1694,7 +1694,7 @@ def test_preparar_resumen_anual_iva_descuenta_importes_negativos(
         17000,
         17100,
         18900,
-        37000,
+        55900,
     ] in filas
 
     assert [
@@ -1703,7 +1703,7 @@ def test_preparar_resumen_anual_iva_descuenta_importes_negativos(
         17000,
         17100,
         18900,
-        37000,
+        55900,
     ] in filas
 
 

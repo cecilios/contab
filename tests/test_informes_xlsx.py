@@ -17,7 +17,7 @@ def test_xlsx_resumen_iva_valores_y_formulas():
         [
             "Notas:",
             "Neto significa Ingr. Bruto - Gastos "
-            "- Retención/Hacienda - IVA",
+            "- Retención/Hacienda",
             "", "", "", "",
         ],
         ["", "", "", "", "", ""],
@@ -26,8 +26,8 @@ def test_xlsx_resumen_iva_valores_y_formulas():
             "Ingr. Bruto", "Gastos",
             "Retención", "IVA", "Neto",
         ],
-        ["LOCAL-1", 100000, 20000, 19000, 21000, 40000],
-        ["Totales Locales comerciales", 100000, 20000, 19000, 21000, 40000],
+        ["LOCAL-1", 100000, 20000, 19000, 21000, 61000],
+        ["Totales Locales comerciales", 100000, 20000, 19000, 21000, 61000],
         ["", "", "", "", "", ""],
         [
             "1T - Pisos y otros",
@@ -57,8 +57,8 @@ def test_xlsx_resumen_iva_valores_y_formulas():
     assert hoja["D10"].value == 150
 
     # Neto y totales como fórmulas.
-    assert hoja["F6"].value == "=B6-C6-D6-E6"
-    assert hoja["F10"].value == "=B10-C10-D10-E10"
+    assert hoja["F6"].value == "=B6-C6-D6"
+    assert hoja["F10"].value == "=B10-C10-D10"
 
     assert hoja["B7"].value == "=SUM(B6:B6)"
     assert hoja["B11"].value == "=SUM(B10:B10)"

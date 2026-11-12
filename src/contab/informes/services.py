@@ -129,12 +129,11 @@ def _importe_neto_estimado(
     *,
     ingresos: int,
     gastos: int,
-    iva: int,
     impuesto: int,
 ) -> int:
-    """Calcula el neto utilizando el impuesto ya determinado."""
+    """Calcula el neto sin descontar el IVA."""
 
-    return ingresos - gastos - iva - impuesto
+    return ingresos - gastos - impuesto
 
 
 def _inmueble_genera_factura(
@@ -224,7 +223,6 @@ def _totales_inmueble_trimestre(
     neto = _importe_neto_estimado(
         ingresos=ingresos,
         gastos=gastos,
-        iva=iva,
         impuesto=impuesto,
     )
 
@@ -591,7 +589,7 @@ def preparar_resumen_anual_iva(
         [
             "Notas:",
             "Neto significa Ingr. Bruto - Gastos "
-            "- Retención/Hacienda - IVA",
+            "- Retención/Hacienda",
             "",
             "",
             "",

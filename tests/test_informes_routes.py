@@ -427,6 +427,9 @@ def test_pantalla_resumen_anual_iva():
     assert 'name="anio"' in response.text
     assert 'name="porcentaje_irpf_estimado"' in response.text
 
+    assert "Retención/Hacienda." in response.text
+    assert "Retención/Hacienda - IVA" not in response.text
+
 
 def test_pantalla_resumen_anual_iva_rechaza_parametros_invalidos():
     """La consulta HTML no acepta años ni porcentajes inválidos."""

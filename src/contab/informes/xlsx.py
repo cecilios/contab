@@ -100,14 +100,14 @@ def generar_xlsx_resumen_iva(
             inicio_detalle = numero_fila + 1
 
         if es_detalle:
-            # El neto es una operación directa entre
-            # celdas: ingresos - gastos - impuesto - IVA.
+            # El neto excluye el IVA:
+            # ingresos - gastos - retención/Hacienda.
             hoja.cell(
                 row=numero_fila,
                 column=6,
                 value=(
                     f"=B{numero_fila}-C{numero_fila}"
-                    f"-D{numero_fila}-E{numero_fila}"
+                    f"-D{numero_fila}"
                 ),
             )
 

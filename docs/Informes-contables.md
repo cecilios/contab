@@ -203,6 +203,9 @@ estima en cero.
 Se trata de una estimación orientativa, no de un cálculo
 fiscal definitivo.
 
+El neto se calcula restando a los ingresos brutos los gastos y la retención real
+o Hacienda estimada. El IVA se muestra por separado y no se descuenta del neto.
+
 
 ## Inmuebles subdivididos
 -------------------------
