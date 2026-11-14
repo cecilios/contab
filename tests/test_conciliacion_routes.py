@@ -22,6 +22,22 @@ from contab.models import (
 
 
 
+def crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye un inmueble válido para las pruebas."""
+
+    propiedad = {
+        "porcentaje_titular": 10000,
+        "tipo_derecho": "PLENA_PROPIEDAD",
+        "porcentaje_derecho": 10000,
+        "fecha_adquisicion": date(2020, 1, 1),
+        "tipo_adquisicion": "ONEROSA",
+        "importe_adquisicion": 0,
+        "gastos_adquisicion": 0,
+    }
+
+    return Inmueble(**{**propiedad, **datos})
+
+
 
 @pytest.fixture(autouse=True)
 def limpiar_motores_prueba(monkeypatch):
@@ -97,7 +113,7 @@ def crear_escenario_aceptacion_individual():
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -213,7 +229,7 @@ def crear_escenario_rechazo_agrupado():
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-RECHAZO",
             tipo="L",
             codigo_facturacion="LR",
@@ -316,7 +332,7 @@ def crear_escenario_seleccion_manual(
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-SELECCION-MANUAL",
             tipo="L",
             codigo_facturacion="LSM",
@@ -386,7 +402,7 @@ def crear_escenario_movimientos_parciales():
     ]["test"]
 
     with session_factory() as db_session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-PARCIAL",
             tipo="L",
             codigo_facturacion="LP",
@@ -856,7 +872,7 @@ def test_listar_movimientos_previstos() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -915,7 +931,7 @@ def test_listar_movimientos_previstos_filtra_por_inmueble() -> None:
     ]["test"]
 
     with session_factory() as session:
-        local = Inmueble(
+        local = crear_inmueble_prueba(
             referencia="LOCAL-FILTRO",
             tipo="L",
             codigo_facturacion="LF",
@@ -925,7 +941,7 @@ def test_listar_movimientos_previstos_filtra_por_inmueble() -> None:
             provincia="Pontevedra",
         )
 
-        piso = Inmueble(
+        piso = crear_inmueble_prueba(
             referencia="PISO-FILTRO",
             tipo="P",
             codigo_facturacion="PF",
@@ -1017,7 +1033,7 @@ def test_paginacion_previstos_conserva_filtro_inmueble() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-PAGINACION",
             tipo="L",
             codigo_facturacion="LP",
@@ -1084,7 +1100,7 @@ def test_cancelar_movimiento_previsto_desde_interfaz() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -1145,7 +1161,7 @@ def test_restaurar_movimiento_previsto_desde_interfaz() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -1207,7 +1223,7 @@ def test_acciones_movimientos_previstos_segun_estado() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -1300,7 +1316,7 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -1817,7 +1833,7 @@ def test_conciliar_movimiento_previsto_manualmente_desde_interfaz() -> None:
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -1923,7 +1939,7 @@ def test_formulario_conciliacion_manual_muestra_movimiento() -> None:
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -2001,7 +2017,7 @@ def test_conciliacion_manual_desde_interfaz_rechaza_notas_vacias() -> None:
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -2109,7 +2125,7 @@ def test_deshacer_conciliacion_manual_desde_interfaz() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -2382,7 +2398,7 @@ def test_deshacer_asociacion_bancaria_desde_interfaz() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -2462,7 +2478,7 @@ def test_deshacer_asociacion_bancaria_conserva_las_otras() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -2586,7 +2602,7 @@ def test_deshacer_asociacion_bancaria_rechaza_previsto_ajeno() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="L1",
@@ -2680,7 +2696,7 @@ def test_revisar_conciliacion_presenta_propuestas_agrupadas(
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-GRUPOS",
             tipo="L",
             codigo_facturacion="LG",
@@ -2841,7 +2857,7 @@ def test_aceptar_propuesta_agrupada_desde_revision(
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-AGRUPADO",
             tipo="L",
             codigo_facturacion="LA",
@@ -3467,7 +3483,7 @@ def test_confirmar_seleccion_manual_cardinalidades(
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-MANUAL",
             tipo="L",
             codigo_facturacion="LM",

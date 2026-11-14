@@ -1,10 +1,21 @@
 """Pruebas de la jerarquía de inmuebles."""
 
 import pytest
+from datetime import date
 from sqlalchemy.exc import IntegrityError
 
 from contab.models import Inmueble
 
+
+DATOS_PROPIEDAD = {
+    "porcentaje_titular": 10000,
+    "tipo_derecho": "PLENA_PROPIEDAD",
+    "porcentaje_derecho": 10000,
+    "fecha_adquisicion": date(2020, 1, 1),
+    "tipo_adquisicion": "ONEROSA",
+    "importe_adquisicion": 0,
+    "gastos_adquisicion": 0,
+}
 
 
 def test_inmueble_subdividido_contiene_locales(
@@ -19,6 +30,7 @@ def test_inmueble_subdividido_contiene_locales(
         poblacion="Pontevedra",
         provincia="Pontevedra",
         participacion=10000,
+        **DATOS_PROPIEDAD,
     )
 
     local_1 = Inmueble(
@@ -62,6 +74,12 @@ def test_inmueble_subdividido_contiene_locales(
         "ALOPEZ-LOCAL1",
         "ALOPEZ-LOCAL2",
     }
+    assert inmueble_subdividido.porcentaje_titular == 10000
+    assert local_1.porcentaje_titular is None
+    assert local_2.porcentaje_titular is None
+
+    assert local_1.inmueble_padre is inmueble_subdividido
+    assert local_2.inmueble_padre is inmueble_subdividido
 
 
 def test_inmueble_subdividido_exige_participacion_completa(
@@ -76,6 +94,7 @@ def test_inmueble_subdividido_exige_participacion_completa(
         poblacion="Pontevedra",
         provincia="Pontevedra",
         participacion=5000,
+        **DATOS_PROPIEDAD,
     )
 
     session.add(inmueble_subdividido)

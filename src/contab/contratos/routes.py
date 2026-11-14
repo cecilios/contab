@@ -478,6 +478,25 @@ def _resolver_titulares(
     return titulares
 
 
+def _numero_anexo_formulario() -> int:
+    """Obtiene y valida el número del anexo."""
+
+    try:
+        numero = int(request.form.get("numero", "").strip())
+    except ValueError as exc:
+        raise ValueError(
+            "Debe indicar un número de anexo válido."
+        ) from exc
+
+    if numero <= 0:
+        raise ValueError(
+            "El número de anexo debe ser positivo."
+        )
+
+    return numero
+
+
+
 
 @bp.get("/")
 def listar_contratos():
@@ -1071,6 +1090,7 @@ def formulario_anexo_carencia(contrato_id: int):
             )
 
     try:
+        numero = _numero_anexo_formulario()
         fecha = texto_a_fecha(
             request.form["fecha"]
         )
@@ -1113,6 +1133,7 @@ def formulario_anexo_carencia(contrato_id: int):
 
                 anexo = crear_anexo_carencia(
                     contrato=contrato,
+                    numero=numero,
                     fecha=fecha,
                     fecha_desde=fecha_desde,
                     fecha_hasta=fecha_hasta,
@@ -1173,6 +1194,7 @@ def formulario_anexo_prorroga(contrato_id: int):
             )
 
     try:
+        numero = _numero_anexo_formulario()
         fecha = texto_a_fecha(request.form["fecha"])
         nueva_fecha_vencimiento = texto_a_fecha(
             request.form["nueva_fecha_vencimiento"]
@@ -1203,6 +1225,7 @@ def formulario_anexo_prorroga(contrato_id: int):
 
                 anexo = crear_anexo_prorroga(
                     contrato=contrato,
+                    numero=numero,
                     fecha=fecha,
                     nueva_fecha_vencimiento=nueva_fecha_vencimiento,
                     descripcion=(
@@ -1256,6 +1279,7 @@ def formulario_anexo_renta_permanente(contrato_id: int):
             )
 
     try:
+        numero = _numero_anexo_formulario()
         fecha = texto_a_fecha(request.form["fecha"])
         fecha_desde = texto_a_fecha(request.form["fecha_desde"])
         importe = _importe_a_centimos(
@@ -1290,6 +1314,7 @@ def formulario_anexo_renta_permanente(contrato_id: int):
 
                 anexo, renta = crear_anexo_renta_permanente(
                     contrato=contrato,
+                    numero=numero,
                     fecha=fecha,
                     fecha_desde=fecha_desde,
                     importe=importe,
@@ -1344,6 +1369,7 @@ def formulario_anexo_renta_temporal(contrato_id: int):
             )
 
     try:
+        numero = _numero_anexo_formulario()
         fecha = texto_a_fecha(request.form["fecha"])
         fecha_desde = texto_a_fecha(request.form["fecha_desde"])
         fecha_hasta = texto_a_fecha(request.form["fecha_hasta"])
@@ -1385,6 +1411,7 @@ def formulario_anexo_renta_temporal(contrato_id: int):
 
                 anexo, ajuste = crear_anexo_renta_temporal(
                     contrato=contrato,
+                    numero=numero,
                     fecha=fecha,
                     fecha_desde=fecha_desde,
                     fecha_hasta=fecha_hasta,

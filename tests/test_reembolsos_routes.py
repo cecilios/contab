@@ -90,6 +90,13 @@ def _crear_contrato(
         direccion="Dirección",
         poblacion="Pontevedra",
         provincia="Pontevedra",
+        porcentaje_titular=10000,
+        tipo_derecho="PLENA_PROPIEDAD",
+        porcentaje_derecho=10000,
+        fecha_adquisicion=date(2020, 1, 1),
+        tipo_adquisicion="ONEROSA",
+        importe_adquisicion=0,
+        gastos_adquisicion=0,
     )
 
     contrato = Contrato(

@@ -72,6 +72,43 @@ def crear_app_test():
     return app
 
 
+def _crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye un inmueble con datos de propiedad válidos."""
+
+    es_hijo = (
+        datos.get("inmueble_padre") is not None
+        or datos.get("inmueble_padre_id") is not None
+    )
+
+    if es_hijo:
+        propiedad = {
+            "porcentaje_titular": None,
+            "tipo_derecho": None,
+            "porcentaje_derecho": None,
+            "fecha_adquisicion": None,
+            "tipo_adquisicion": None,
+            "importe_adquisicion": None,
+            "gastos_adquisicion": None,
+            "fecha_transmision": None,
+        }
+    else:
+        propiedad = {
+            "porcentaje_titular": 10000,
+            "tipo_derecho": "PLENA_PROPIEDAD",
+            "porcentaje_derecho": 10000,
+            "fecha_adquisicion": date(2020, 1, 1),
+            "tipo_adquisicion": "ONEROSA",
+            "importe_adquisicion": 0,
+            "gastos_adquisicion": 0,
+            "fecha_transmision": None,
+        }
+
+    return Inmueble(**{**propiedad, **datos})
+
+
+
+
+
 def test_listado_apuntes_vacio() -> None:
     app = crear_app_test()
     client = app.test_client()
@@ -96,7 +133,7 @@ def test_listado_muestra_apuntes_ordenados() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -171,7 +208,7 @@ def test_listado_muestra_importes_negativos() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -263,7 +300,7 @@ def test_listado_filtra_por_inmueble_y_fecha_desde() -> None:
     ]["test"]
 
     with session_factory() as session:
-        local_1 = Inmueble(
+        local_1 = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -273,7 +310,7 @@ def test_listado_filtra_por_inmueble_y_fecha_desde() -> None:
             provincia="Pontevedra",
         )
 
-        local_2 = Inmueble(
+        local_2 = _crear_inmueble_prueba(
             referencia="LOCAL-2",
             tipo="L",
             codigo_facturacion="A2",
@@ -546,7 +583,7 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -767,7 +804,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -883,7 +920,7 @@ def test_crear_apunte_repercutir_crea_movimiento_previsto(
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="EDIFICIO-COMUN",
             tipo="T",
             codigo_facturacion="EC",
@@ -894,7 +931,7 @@ def test_crear_apunte_repercutir_crea_movimiento_previsto(
             participacion=10000,
         )
 
-        local_a = Inmueble(
+        local_a = _crear_inmueble_prueba(
             referencia="LOCAL-A",
             tipo="L",
             codigo_facturacion="LA",
@@ -906,7 +943,7 @@ def test_crear_apunte_repercutir_crea_movimiento_previsto(
             inmueble_padre=inmueble,
         )
 
-        local_b = Inmueble(
+        local_b = _crear_inmueble_prueba(
             referencia="LOCAL-B",
             tipo="L",
             codigo_facturacion="LB",
@@ -1012,7 +1049,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1115,7 +1152,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1188,7 +1225,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1260,7 +1297,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1358,7 +1395,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1429,7 +1466,7 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1501,7 +1538,7 @@ GAS_TRIBUTOS.IBI = Impuesto sobre Bienes Inmuebles
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1629,7 +1666,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1721,7 +1758,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2020,7 +2057,7 @@ def test_eliminar_apunte_desde_interfaz() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2179,7 +2216,7 @@ def test_documento_duplicado_en_otro_inmueble_avisa(
         referencia_documento="F-125",
     )
 
-    otro_inmueble = Inmueble(
+    otro_inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-2",
         tipo="L",
         codigo_facturacion="A2",
@@ -2219,7 +2256,7 @@ def test_eliminar_apunte_conciliado_desde_interfaz_muestra_error() -> None:
 
     # Preparamos un apunte con un movimiento ya conciliado.
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2304,7 +2341,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2408,7 +2445,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2512,7 +2549,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2594,7 +2631,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2886,7 +2923,7 @@ def test_modificar_apunte_conciliado_rechaza_cambios_economicos(
         ),
     }
 
-    otro_inmueble = Inmueble(
+    otro_inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-2",
         tipo="L",
         codigo_facturacion="A2",
@@ -3026,7 +3063,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3182,7 +3219,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3336,7 +3373,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3592,7 +3629,7 @@ GAS_TRIBUTOS.IBI = IBI
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3978,7 +4015,7 @@ GAS_SERVICIOS_SUMINISTROS.AGUA = Agua
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",

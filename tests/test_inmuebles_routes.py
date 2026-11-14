@@ -3,6 +3,7 @@
 import pytest
 import re
 
+from datetime import date
 from sqlalchemy import select
 
 from contab.app import create_app
@@ -73,6 +74,41 @@ def crear_app_test():
     return app
 
 
+def crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye un inmueble con datos de propiedad válidos."""
+
+    es_hijo = (
+        datos.get("inmueble_padre") is not None
+        or datos.get("inmueble_padre_id") is not None
+    )
+
+    if es_hijo:
+        propiedad = {
+            "porcentaje_titular": None,
+            "tipo_derecho": None,
+            "porcentaje_derecho": None,
+            "fecha_adquisicion": None,
+            "tipo_adquisicion": None,
+            "importe_adquisicion": None,
+            "gastos_adquisicion": None,
+            "fecha_transmision": None,
+        }
+    else:
+        propiedad = {
+            "porcentaje_titular": 10000,
+            "tipo_derecho": "PLENA_PROPIEDAD",
+            "porcentaje_derecho": 10000,
+            "fecha_adquisicion": date(2020, 1, 1),
+            "tipo_adquisicion": "ONEROSA",
+            "importe_adquisicion": 0,
+            "gastos_adquisicion": 0,
+            "fecha_transmision": None,
+        }
+
+    return Inmueble(**{**propiedad, **datos})
+
+
+
 def test_listado_inmuebles_vacio() -> None:
     """Comprueba que el listado informa cuando no existen inmuebles."""
     app = crear_app_test()
@@ -106,7 +142,7 @@ def test_listado_muestra_inmuebles_registrados() -> None:
 
     with session_factory() as session:
         session.add(
-            Inmueble(
+            crear_inmueble_prueba(
                 referencia="LOCAL-1",
                 tipo="L",
                 codigo_facturacion="A1",
@@ -436,7 +472,7 @@ def test_formulario_editar_inmueble_muestra_datos_actuales() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -469,7 +505,7 @@ def test_editar_inmueble_guarda_cambios() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -536,7 +572,7 @@ def test_editar_inmueble_rechaza_referencia_de_otro_inmueble() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        primero = Inmueble(
+        primero = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -545,7 +581,7 @@ def test_editar_inmueble_rechaza_referencia_de_otro_inmueble() -> None:
             poblacion="Pontevedra",
             provincia="Pontevedra",
         )
-        segundo = Inmueble(
+        segundo = crear_inmueble_prueba(
             referencia="LOCAL-2",
             tipo="L",
             codigo_facturacion="A2",
@@ -592,7 +628,7 @@ def test_confirmar_desactivacion_inmueble() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -625,7 +661,7 @@ def test_desactivar_inmueble() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -663,7 +699,7 @@ def test_confirmar_activacion_inmueble() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -695,7 +731,7 @@ def test_activar_inmueble() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -762,7 +798,7 @@ def test_crear_local_perteneciente_a_inmueble_subdividido() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble_subdividido = Inmueble(
+        inmueble_subdividido = crear_inmueble_prueba(
             referencia="ALOPEZ-COMUN",
             tipo="T",
             codigo_facturacion="ALC",
@@ -827,7 +863,7 @@ def test_formulario_inmueble_muestra_totales() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble_subdividido = Inmueble(
+        inmueble_subdividido = crear_inmueble_prueba(
             referencia="ALOPEZ-COMUN",
             tipo="T",
             codigo_facturacion="ALC",
@@ -858,7 +894,7 @@ def test_error_conserva_inmueble_padre_seleccionado() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble_subdividido = Inmueble(
+        inmueble_subdividido = crear_inmueble_prueba(
             referencia="ALOPEZ-COMUN",
             tipo="T",
             codigo_facturacion="ALC",
@@ -919,7 +955,7 @@ def test_listado_muestra_jerarquia_inmuebles() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble_subdividido = Inmueble(
+        inmueble_subdividido = crear_inmueble_prueba(
             referencia="ALOPEZ-COMUN",
             tipo="T",
             codigo_facturacion="ALC",
@@ -929,7 +965,7 @@ def test_listado_muestra_jerarquia_inmuebles() -> None:
             provincia="Pontevedra",
         )
 
-        local = Inmueble(
+        local = crear_inmueble_prueba(
             referencia="ALOPEZ-LOCAL1",
             tipo="L",
             codigo_facturacion="AL1",
@@ -941,7 +977,7 @@ def test_listado_muestra_jerarquia_inmuebles() -> None:
             inmueble_padre=inmueble_subdividido,
         )
 
-        independiente = Inmueble(
+        independiente = crear_inmueble_prueba(
             referencia="PISO-1",
             tipo="P",
             codigo_facturacion="P1",
@@ -989,7 +1025,7 @@ def test_crear_local_rechaza_padre_que_no_es_total() -> None:
     ]["test"]
 
     with session_factory() as session:
-        padre_incorrecto = Inmueble(
+        padre_incorrecto = crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",

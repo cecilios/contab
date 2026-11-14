@@ -8,7 +8,19 @@ from contab.database import Base
 from contab.models import Contrato, Inmueble
 
 
-def crear_app_test():
+DATOS_PROPIEDAD = {
+    "porcentaje_titular": 10000,
+    "tipo_derecho": "PLENA_PROPIEDAD",
+    "porcentaje_derecho": 10000,
+    "fecha_adquisicion": date(2020, 1, 1),
+    "tipo_adquisicion": "ONEROSA",
+    "importe_adquisicion": 0,
+    "gastos_adquisicion": 0,
+}
+
+
+
+def _crear_app_test():
     """Crea una aplicación aislada con SQLite en memoria."""
 
     app = create_app(
@@ -32,7 +44,7 @@ def crear_app_test():
 def test_situacion_contrato_muestra_selector():
     """El usuario puede abrir la pantalla sin elegir contrato."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     # El usuario selecciona la base de datos de trabajo.
@@ -54,7 +66,7 @@ def test_situacion_contrato_muestra_selector():
 def test_situacion_contrato_sin_movimientos():
     """Un contrato sin movimientos muestra saldo cero."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -70,6 +82,7 @@ def test_situacion_contrato_sin_movimientos():
             direccion="Dirección de prueba",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
 
         contrato = Contrato(
@@ -126,7 +139,7 @@ def test_situacion_contrato_sin_movimientos():
 def test_selector_solo_muestra_contratos_del_inmueble_y_periodo():
     """El selector no mezcla contratos ni ofrece finalizados."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
@@ -140,6 +153,7 @@ def test_selector_solo_muestra_contratos_del_inmueble_y_periodo():
             direccion="Dirección 1",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
 
         local_2 = Inmueble(
@@ -150,6 +164,7 @@ def test_selector_solo_muestra_contratos_del_inmueble_y_periodo():
             direccion="Dirección 2",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
 
         def crear_contrato(inmueble, inicio, fin=None):
@@ -224,7 +239,7 @@ def test_selector_solo_muestra_contratos_del_inmueble_y_periodo():
 def test_situacion_tiene_tablas_y_totales_fuera_de_ellas():
     """La pantalla dispone del detalle y resumen definitivos."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     client.post("/", data={"database": "test"})
@@ -261,6 +276,7 @@ def test_situacion_tiene_tablas_y_totales_fuera_de_ellas():
             direccion="Dirección",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
 
         contrato = Contrato(
@@ -310,7 +326,7 @@ def test_situacion_tiene_tablas_y_totales_fuera_de_ellas():
 def test_selector_incluye_contratos_vigentes_desde_fecha():
     """Incluye contratos anteriores que seguían vigentes en el período."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     session_factory = app.extensions["contab_databases"]["test"]
 
     hoy = date.today()
@@ -325,6 +341,7 @@ def test_selector_incluye_contratos_vigentes_desde_fecha():
             direccion="Dirección",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
 
         def crear_contrato(inicio, fin=None):

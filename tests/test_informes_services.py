@@ -22,6 +22,42 @@ from contab.models import (
 
 
 
+def _crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye un inmueble con datos de propiedad válidos."""
+
+    es_hijo = (
+        datos.get("inmueble_padre") is not None
+        or datos.get("inmueble_padre_id") is not None
+    )
+
+    if es_hijo:
+        propiedad = {
+            "porcentaje_titular": None,
+            "tipo_derecho": None,
+            "porcentaje_derecho": None,
+            "fecha_adquisicion": None,
+            "tipo_adquisicion": None,
+            "importe_adquisicion": None,
+            "gastos_adquisicion": None,
+            "fecha_transmision": None,
+        }
+    else:
+        propiedad = {
+            "porcentaje_titular": 10000,
+            "tipo_derecho": "PLENA_PROPIEDAD",
+            "porcentaje_derecho": 10000,
+            "fecha_adquisicion": date(2020, 1, 1),
+            "tipo_adquisicion": "ONEROSA",
+            "importe_adquisicion": 0,
+            "gastos_adquisicion": 0,
+            "fecha_transmision": None,
+        }
+
+    return Inmueble(**{**propiedad, **datos})
+
+
+
+
 def test_generar_csv_iva_clasifica_y_totaliza_apuntes(
     session,
     inmueble,
@@ -207,7 +243,7 @@ def test_generar_csv_iva_no_mezcla_inmuebles(
     """Comprueba que sólo se exportan apuntes del inmueble indicado."""
 
     # Creamos otro inmueble y un apunte que no debe exportarse.
-    otro_inmueble = Inmueble(
+    otro_inmueble = _crear_inmueble_prueba(
         referencia="PISO-2",
         tipo="P",
         codigo_facturacion="P2",
@@ -292,7 +328,7 @@ def test_seleccionar_inmuebles_exportacion_iva(
     """Selecciona activos e inactivos con apuntes en el año."""
 
     # Preparamos inmuebles con diferentes situaciones.
-    activo_sin_apuntes = Inmueble(
+    activo_sin_apuntes = _crear_inmueble_prueba(
         referencia="ACTIVO-SIN-APUNTES",
         tipo="L",
         codigo_facturacion="ASA",
@@ -302,7 +338,7 @@ def test_seleccionar_inmuebles_exportacion_iva(
         provincia="Pontevedra",
     )
 
-    inactivo_con_apuntes = Inmueble(
+    inactivo_con_apuntes = _crear_inmueble_prueba(
         referencia="INACTIVO-CON-APUNTES",
         tipo="L",
         codigo_facturacion="ICA",
@@ -313,7 +349,7 @@ def test_seleccionar_inmuebles_exportacion_iva(
         activo=False,
     )
 
-    inactivo_otro_anio = Inmueble(
+    inactivo_otro_anio = _crear_inmueble_prueba(
         referencia="INACTIVO-OTRO-ANIO",
         tipo="L",
         codigo_facturacion="IOA",
@@ -324,7 +360,7 @@ def test_seleccionar_inmuebles_exportacion_iva(
         activo=False,
     )
 
-    inactivo_con_facturable = Inmueble(
+    inactivo_con_facturable = _crear_inmueble_prueba(
         referencia="INACTIVO-CON-FACTURABLE",
         tipo="L",
         codigo_facturacion="ICF",
@@ -427,7 +463,7 @@ def test_generar_zip_iva_contiene_un_csv_por_inmueble(
     """Genera un ZIP con los CSV de los inmuebles aplicables."""
 
     # Preparamos otro inmueble con un gasto.
-    segundo = Inmueble(
+    segundo = _crear_inmueble_prueba(
         referencia="PISO-2",
         tipo="P",
         codigo_facturacion="P2",
@@ -515,7 +551,7 @@ def test_preparar_resumen_anual_iva_clasifica_y_totaliza(
     """Genera el resumen separando inmuebles facturables del resto."""
 
     # Creamos un local facturable y un piso sin factura.
-    local = Inmueble(
+    local = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -524,7 +560,7 @@ def test_preparar_resumen_anual_iva_clasifica_y_totaliza(
         poblacion="Pontevedra",
         provincia="Pontevedra",
     )
-    piso = Inmueble(
+    piso = _crear_inmueble_prueba(
         referencia="PISO-1",
         tipo="P",
         codigo_facturacion="P1",
@@ -533,7 +569,7 @@ def test_preparar_resumen_anual_iva_clasifica_y_totaliza(
         poblacion="Pontevedra",
         provincia="Pontevedra",
     )
-    subdividido_sin_apuntes = Inmueble(
+    subdividido_sin_apuntes = _crear_inmueble_prueba(
         referencia="SUBDIVIDIDO-SIN-APUNTES",
         tipo="T",
         codigo_facturacion="SSA",
@@ -542,7 +578,7 @@ def test_preparar_resumen_anual_iva_clasifica_y_totaliza(
         poblacion="Pontevedra",
         provincia="Pontevedra",
     )
-    subdividido_con_apuntes = Inmueble(
+    subdividido_con_apuntes = _crear_inmueble_prueba(
         referencia="SUBDIVIDIDO-CON-APUNTES",
         tipo="T",
         codigo_facturacion="SCA",
@@ -981,7 +1017,7 @@ def test_generar_csv_iva_usa_distribucion_de_inmueble_subdividido(
 ) -> None:
     """Un gasto de un T se informa en el local hijo según su distribución."""
 
-    inmueble_total = Inmueble(
+    inmueble_total = _crear_inmueble_prueba(
         referencia="TOTAL-1",
         tipo="T",
         codigo_facturacion="T1",
@@ -991,7 +1027,7 @@ def test_generar_csv_iva_usa_distribucion_de_inmueble_subdividido(
         provincia="Pontevedra",
     )
 
-    local = Inmueble(
+    local = _crear_inmueble_prueba(
         inmueble_padre=inmueble_total,
         referencia="LOCAL-A",
         tipo="L",
@@ -1146,7 +1182,7 @@ def test_generar_csv_iva_repercutir_distribucion_incluye_resto_propietario(
 ) -> None:
     """REPERCUTIR sobre un T excluye sólo la parte imputada al contrato."""
 
-    inmueble_total = Inmueble(
+    inmueble_total = _crear_inmueble_prueba(
         referencia="TOTAL-1",
         tipo="T",
         codigo_facturacion="T1",
@@ -1156,7 +1192,7 @@ def test_generar_csv_iva_repercutir_distribucion_incluye_resto_propietario(
         provincia="Pontevedra",
     )
 
-    local = Inmueble(
+    local = _crear_inmueble_prueba(
         inmueble_padre=inmueble_total,
         referencia="LOCAL-A",
         tipo="L",
@@ -1263,7 +1299,7 @@ def test_preparar_resumen_anual_iva_usa_distribucion_de_inmueble_subdividido(
 ) -> None:
     """El resumen atribuye al local hijo los gastos distribuidos de un T."""
 
-    inmueble_total = Inmueble(
+    inmueble_total = _crear_inmueble_prueba(
         referencia="TOTAL-1",
         tipo="T",
         codigo_facturacion="T1",
@@ -1273,7 +1309,7 @@ def test_preparar_resumen_anual_iva_usa_distribucion_de_inmueble_subdividido(
         provincia="Pontevedra",
     )
 
-    local = Inmueble(
+    local = _crear_inmueble_prueba(
         inmueble_padre=inmueble_total,
         referencia="LOCAL-A",
         tipo="L",
@@ -1365,7 +1401,7 @@ def test_preparar_resumen_anual_iva_repercutir_distribucion_incluye_resto_propie
 ) -> None:
     """El resumen excluye de una distribución sólo la parte repercutida."""
 
-    inmueble_total = Inmueble(
+    inmueble_total = _crear_inmueble_prueba(
         referencia="TOTAL-1",
         tipo="T",
         codigo_facturacion="T1",
@@ -1375,7 +1411,7 @@ def test_preparar_resumen_anual_iva_repercutir_distribucion_incluye_resto_propie
         provincia="Pontevedra",
     )
 
-    local = Inmueble(
+    local = _crear_inmueble_prueba(
         inmueble_padre=inmueble_total,
         referencia="LOCAL-A",
         tipo="L",
@@ -1477,7 +1513,7 @@ def test_preparar_resumen_anual_iva_repercutir_distribucion_completa_deja_gasto_
 ) -> None:
     """Una distribución totalmente repercutida no deja gasto al propietario."""
 
-    inmueble_total = Inmueble(
+    inmueble_total = _crear_inmueble_prueba(
         referencia="TOTAL-1",
         tipo="T",
         codigo_facturacion="T1",
@@ -1487,7 +1523,7 @@ def test_preparar_resumen_anual_iva_repercutir_distribucion_completa_deja_gasto_
         provincia="Pontevedra",
     )
 
-    local = Inmueble(
+    local = _crear_inmueble_prueba(
         inmueble_padre=inmueble_total,
         referencia="LOCAL-A",
         tipo="L",

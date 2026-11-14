@@ -53,6 +53,27 @@ def _es_ultimo_dia_del_mes(fecha: date) -> bool:
     return fecha.day == ultimo_dia
 
 
+def _validar_numero_anexo(
+    contrato: Contrato,
+    numero: int,
+) -> None:
+    """Comprueba que el número sea válido y no esté utilizado."""
+
+    if numero <= 0:
+        raise ContratoError(
+            "El número de anexo debe ser positivo."
+        )
+
+    if any(
+        anexo.numero == numero
+        for anexo in contrato.anexos
+    ):
+        raise ContratoError(
+            "Ya existe un anexo con ese número para el contrato."
+        )
+
+
+
 
 def renta_vigente(contrato: Contrato, fecha: date) -> RentaContrato:
     """Devuelve la renta ordinaria vigente de un contrato en una fecha."""
@@ -469,6 +490,7 @@ def crear_anexo_prorroga(
     contrato: Contrato,
     fecha: date,
     nueva_fecha_vencimiento: date,
+    numero: int,
     descripcion: str | None = None,
 ) -> AnexoContrato:
     """Crea un anexo de prórroga y actualiza el vencimiento del contrato."""
@@ -483,8 +505,11 @@ def crear_anexo_prorroga(
             "al vencimiento actual."
         )
 
+    _validar_numero_anexo(contrato, numero)
+
     anexo = AnexoContrato(
         contrato=contrato,
+        numero=numero,
         fecha=fecha,
         tipo="PRORROGA",
         nueva_fecha_vencimiento=nueva_fecha_vencimiento,
@@ -501,6 +526,7 @@ def crear_anexo_renta_permanente(
     fecha: date,
     fecha_desde: date,
     importe: int,
+    numero: int,
     descripcion: str | None = None,
 ) -> tuple[AnexoContrato, RentaContrato]:
     """Crea un anexo que establece una nueva renta permanente."""
@@ -509,8 +535,11 @@ def crear_anexo_renta_permanente(
             "La fecha del anexo no puede ser anterior al inicio del contrato."
         )
 
+    _validar_numero_anexo(contrato, numero)
+
     anexo = AnexoContrato(
         contrato=contrato,
+        numero=numero,
         fecha=fecha,
         tipo="CAMBIO_RENTA",
         descripcion=descripcion,
@@ -537,6 +566,7 @@ def crear_anexo_renta_temporal(
     fecha_hasta: date,
     tipo: str,
     valor: int,
+    numero: int,
     descripcion: str | None = None,
 ) -> tuple[AnexoContrato, AjusteRenta]:
     """Crea un anexo que establece una modificación temporal de la renta."""
@@ -545,8 +575,11 @@ def crear_anexo_renta_temporal(
             "La fecha del anexo no puede ser anterior al inicio del contrato."
         )
 
+    _validar_numero_anexo(contrato, numero)
+
     anexo = AnexoContrato(
         contrato=contrato,
+        numero=numero,
         fecha=fecha,
         tipo="CAMBIO_RENTA",
         descripcion=descripcion,
@@ -573,6 +606,7 @@ def crear_anexo_carencia(
     fecha: date,
     fecha_desde: date,
     fecha_hasta: date,
+    numero: int,
     descripcion: str | None = None,
 ) -> AnexoContrato:
     """Crea un anexo que establece un período temporal de carencia."""
@@ -623,8 +657,11 @@ def crear_anexo_carencia(
                 "La carencia se solapa con otro período de carencia."
             )
 
+        _validar_numero_anexo(contrato, numero)
+
     return AnexoContrato(
         contrato=contrato,
+        numero=numero,
         fecha=fecha,
         tipo="CARENCIA",
         fecha_desde=fecha_desde,

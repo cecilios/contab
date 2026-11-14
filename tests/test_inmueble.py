@@ -1,9 +1,22 @@
 """Pruebas del modelo ORM Inmueble."""
 
 import pytest
+from datetime import date
 from sqlalchemy.exc import IntegrityError
 
 from contab.models import Inmueble
+
+
+
+DATOS_PROPIEDAD = {
+    "porcentaje_titular": 10000,
+    "tipo_derecho": "PLENA_PROPIEDAD",
+    "porcentaje_derecho": 10000,
+    "fecha_adquisicion": date(2020, 1, 1),
+    "tipo_adquisicion": "ONEROSA",
+    "importe_adquisicion": 0,
+    "gastos_adquisicion": 0,
+}
 
 
 def test_referencia_no_puede_repetirse(session) -> None:
@@ -17,6 +30,7 @@ def test_referencia_no_puede_repetirse(session) -> None:
             direccion="Dirección 1",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
     )
     session.commit()
@@ -30,6 +44,7 @@ def test_referencia_no_puede_repetirse(session) -> None:
             direccion="Dirección 2",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
     )
 
@@ -49,6 +64,7 @@ def test_participacion_no_puede_superar_100_por_ciento(session) -> None:
             poblacion="Pontevedra",
             provincia="Pontevedra",
             participacion=10001,
+            **DATOS_PROPIEDAD,
         )
     )
 
@@ -66,6 +82,7 @@ def test_inmueble_acepta_tipos_validos(session, tipo) -> None:
         direccion="Dirección",
         poblacion="Pontevedra",
         provincia="Pontevedra",
+        **DATOS_PROPIEDAD,
     )
 
     session.add(inmueble)
@@ -83,6 +100,7 @@ def test_inmueble_rechaza_tipo_invalido(session) -> None:
         direccion="Dirección",
         poblacion="Pontevedra",
         provincia="Pontevedra",
+        **DATOS_PROPIEDAD,
     )
 
     session.add(inmueble)
@@ -101,6 +119,7 @@ def test_crear_inmueble(session) -> None:
         direccion="Rúa Michelena, 18",
         poblacion="Pontevedra",
         provincia="Pontevedra",
+        **DATOS_PROPIEDAD,
     )
 
     session.add(inmueble)

@@ -36,6 +36,7 @@ def session():
 @pytest.fixture
 def inmueble(session) -> Inmueble:
     """Crea un inmueble válido reutilizable por los tests."""
+
     inmueble = Inmueble(
         referencia="LOCAL-1",
         tipo="L",
@@ -44,6 +45,13 @@ def inmueble(session) -> Inmueble:
         direccion="Dirección de prueba",
         poblacion="Pontevedra",
         provincia="Pontevedra",
+        porcentaje_titular=10000,
+        tipo_derecho="PLENA_PROPIEDAD",
+        porcentaje_derecho=10000,
+        fecha_adquisicion=date(2020, 1, 1),
+        tipo_adquisicion="ONEROSA",
+        importe_adquisicion=0,
+        gastos_adquisicion=0,
     )
 
     session.add(inmueble)
@@ -87,6 +95,29 @@ def categorias() -> dict[str, CategoriaContable]:
             subcategorias=(),
         ),
     }
+
+
+def crear_inmueble_prueba(**datos) -> Inmueble:
+    """Crea un inmueble con datos fiscales válidos."""
+
+    valores = {
+        "porcentaje_titular": 10000,
+        "tipo_derecho": "PLENA_PROPIEDAD",
+        "porcentaje_derecho": 10000,
+        "fecha_adquisicion": date(2020, 1, 1),
+        "tipo_adquisicion": "ONEROSA",
+        "importe_adquisicion": 0,
+        "gastos_adquisicion": 0,
+    }
+
+    if datos.get("inmueble_padre") is not None or (
+        datos.get("inmueble_padre_id") is not None
+    ):
+        valores = dict.fromkeys(valores)
+
+    valores.update(datos)
+
+    return Inmueble(**valores)
 
 
 

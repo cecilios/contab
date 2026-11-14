@@ -41,6 +41,20 @@
     {% endif %}
 
     <form method="post">
+
+        <p class="form-field">
+            <label for="numero">Número de anexo (*)</label>
+            <input
+                id="numero"
+                name="numero"
+                type="number"
+                min="1"
+                step="1"
+                required
+                value="{{ datos.get('numero', '') }}"
+            >
+        </p>
+
         <p class="form-field">
             <label for="fecha">Fecha del anexo (*)</label>
             <input

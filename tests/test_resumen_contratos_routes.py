@@ -17,7 +17,19 @@ from contab.models import (
 )
 
 
-def crear_app_test():
+DATOS_PROPIEDAD = {
+    "porcentaje_titular": 10000,
+    "tipo_derecho": "PLENA_PROPIEDAD",
+    "porcentaje_derecho": 10000,
+    "fecha_adquisicion": date(2020, 1, 1),
+    "tipo_adquisicion": "ONEROSA",
+    "importe_adquisicion": 0,
+    "gastos_adquisicion": 0,
+}
+
+
+
+def _crear_app_test():
     """Crea una aplicación aislada para las pruebas."""
 
     app = create_app(
@@ -36,7 +48,7 @@ def crear_app_test():
     return app
 
 
-def crear_contrato_prueba(
+def _crear_contrato_prueba(
     session,
     inmueble,
     *,
@@ -65,7 +77,7 @@ def crear_contrato_prueba(
     return contrato
 
 
-def registrar_alquiler_prueba(
+def _registrar_alquiler_prueba(
     session,
     contrato,
     *,
@@ -120,7 +132,7 @@ def registrar_alquiler_prueba(
 def test_resumen_contratos_sin_datos():
     """El usuario abre el resumen aunque no haya contratos."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     # El usuario selecciona su base de datos.
@@ -144,7 +156,7 @@ def test_resumen_contratos_sin_datos():
 def test_resumen_separa_contratos_y_acumula_saldos():
     """Dos contratos de un inmueble conservan sus propias deudas."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
@@ -161,17 +173,18 @@ def test_resumen_separa_contratos_y_acumula_saldos():
             direccion="Dirección",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
 
         # El inmueble tuvo dos contratos sucesivos.
-        anterior = crear_contrato_prueba(
+        anterior = _crear_contrato_prueba(
             session,
             inmueble,
             inicio=date(anio_anterior, 1, 1),
             fin=date(ejercicio, 6, 30),
         )
 
-        nuevo = crear_contrato_prueba(
+        nuevo = _crear_contrato_prueba(
             session,
             inmueble,
             inicio=date(ejercicio, 7, 1),
@@ -179,7 +192,7 @@ def test_resumen_separa_contratos_y_acumula_saldos():
 
         # El contrato anterior arrastra una deuda
         # de 200 euros del ejercicio precedente.
-        registrar_alquiler_prueba(
+        _registrar_alquiler_prueba(
             session,
             anterior,
             fecha=date(anio_anterior, 12, 10),
@@ -206,7 +219,7 @@ def test_resumen_separa_contratos_y_acumula_saldos():
 
         # En el ejercicio seleccionado, el contrato
         # anterior tiene otros 500 euros exigibles.
-        registrar_alquiler_prueba(
+        _registrar_alquiler_prueba(
             session,
             anterior,
             fecha=date(ejercicio, 1, 10),
@@ -232,7 +245,7 @@ def test_resumen_separa_contratos_y_acumula_saldos():
 
         # El nuevo contrato tiene 700 euros exigibles,
         # íntegramente cobrados.
-        registrar_alquiler_prueba(
+        _registrar_alquiler_prueba(
             session,
             nuevo,
             fecha=date(ejercicio, 8, 10),
@@ -307,7 +320,7 @@ def test_resumen_separa_contratos_y_acumula_saldos():
 def test_resumen_calcula_pendiente_de_conciliar():
     """Suma saldos pendientes y excluye diferencias aceptadas."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
@@ -323,9 +336,10 @@ def test_resumen_calcula_pendiente_de_conciliar():
             direccion="Dirección",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
 
-        contrato = crear_contrato_prueba(
+        contrato = _crear_contrato_prueba(
             session,
             inmueble,
             inicio=date(hoy.year - 1, 1, 1),
@@ -442,7 +456,7 @@ def test_resumen_calcula_pendiente_de_conciliar():
 def test_resumen_incluye_contrato_antiguo_con_conciliacion_pendiente():
     """Un contrato antiguo aparece si aún necesita conciliación."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
@@ -458,10 +472,11 @@ def test_resumen_incluye_contrato_antiguo_con_conciliacion_pendiente():
             direccion="Dirección",
             poblacion="Pontevedra",
             provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
         )
 
         # Finalizó antes del ejercicio actual.
-        contrato = crear_contrato_prueba(
+        contrato = _crear_contrato_prueba(
             session,
             inmueble,
             inicio=date(ejercicio - 3, 1, 1),

@@ -64,10 +64,45 @@ def _contrato(
     )
 
 
+def _crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye inmuebles válidos para las pruebas."""
+
+    es_hijo = (
+        datos.get("inmueble_padre") is not None
+        or datos.get("inmueble_padre_id") is not None
+    )
+
+    if es_hijo:
+        propiedad = {
+            "porcentaje_titular": None,
+            "tipo_derecho": None,
+            "porcentaje_derecho": None,
+            "fecha_adquisicion": None,
+            "tipo_adquisicion": None,
+            "importe_adquisicion": None,
+            "gastos_adquisicion": None,
+            "fecha_transmision": None,
+        }
+    else:
+        propiedad = {
+            "porcentaje_titular": 10000,
+            "tipo_derecho": "PLENA_PROPIEDAD",
+            "porcentaje_derecho": 10000,
+            "fecha_adquisicion": date(2020, 1, 1),
+            "tipo_adquisicion": "ONEROSA",
+            "importe_adquisicion": 0,
+            "gastos_adquisicion": 0,
+            "fecha_transmision": None,
+        }
+
+    return Inmueble(**{**propiedad, **datos})
+
+
+
 def test_preparar_solicitud_reembolso_un_gasto(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -133,7 +168,7 @@ def test_preparar_solicitud_reembolso_compensa_apuntes_negativos(
     devolucion: int,
     total_esperado: int,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -223,7 +258,7 @@ def test_preparar_solicitud_reembolso_compensa_apuntes_negativos(
 def test_preparar_solicitud_reembolso_subdividido_usa_importe_distribuido(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="EDIFICIO",
         tipo="T",
         codigo_facturacion="E",
@@ -233,7 +268,7 @@ def test_preparar_solicitud_reembolso_subdividido_usa_importe_distribuido(
         provincia="Pontevedra",
     )
 
-    local_a = Inmueble(
+    local_a = _crear_inmueble_prueba(
         referencia="LOCAL-A",
         tipo="L",
         codigo_facturacion="A",
@@ -245,7 +280,7 @@ def test_preparar_solicitud_reembolso_subdividido_usa_importe_distribuido(
         inmueble_padre=inmueble,
     )
 
-    Inmueble(
+    _crear_inmueble_prueba(
         referencia="LOCAL-B",
         tipo="L",
         codigo_facturacion="B",
@@ -309,7 +344,7 @@ def test_preparar_solicitud_reembolso_subdividido_usa_importe_distribuido(
 def test_preparar_solicitud_reembolso_suma_gastos_seleccionados(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -380,7 +415,7 @@ def test_preparar_solicitud_reembolso_rechaza_seleccion_vacia(
 def test_preparar_solicitud_reembolso_rechaza_otro_contrato(
     session,
 ) -> None:
-    inmueble_1 = Inmueble(
+    inmueble_1 = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -390,7 +425,7 @@ def test_preparar_solicitud_reembolso_rechaza_otro_contrato(
         provincia="Pontevedra",
     )
 
-    inmueble_2 = Inmueble(
+    inmueble_2 = _crear_inmueble_prueba(
         referencia="LOCAL-2",
         tipo="L",
         codigo_facturacion="L2",
@@ -441,7 +476,7 @@ def test_preparar_solicitud_reembolso_rechaza_otro_contrato(
 def test_preparar_solicitud_reembolso_rechaza_gasto_duplicado(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -492,7 +527,7 @@ def test_preparar_solicitud_reembolso_rechaza_gasto_duplicado(
 def test_solicitud_reembolso_persiste_linea_de_apunte(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -554,7 +589,7 @@ def test_solicitud_reembolso_persiste_linea_de_apunte(
 def test_solicitud_reembolso_persiste_linea_de_distribucion(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="EDIFICIO",
         tipo="T",
         codigo_facturacion="E",
@@ -564,7 +599,7 @@ def test_solicitud_reembolso_persiste_linea_de_distribucion(
         provincia="Pontevedra",
     )
 
-    local_a = Inmueble(
+    local_a = _crear_inmueble_prueba(
         referencia="LOCAL-A",
         tipo="L",
         codigo_facturacion="A",
@@ -576,7 +611,7 @@ def test_solicitud_reembolso_persiste_linea_de_distribucion(
         inmueble_padre=inmueble,
     )
 
-    Inmueble(
+    _crear_inmueble_prueba(
         referencia="LOCAL-B",
         tipo="L",
         codigo_facturacion="B",
@@ -647,7 +682,7 @@ def test_linea_solicitud_reembolso_exige_un_origen(
     session,
     usar_ambos: bool,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="EDIFICIO",
         tipo="T",
         codigo_facturacion="E",
@@ -657,7 +692,7 @@ def test_linea_solicitud_reembolso_exige_un_origen(
         provincia="Pontevedra",
     )
 
-    local_a = Inmueble(
+    local_a = _crear_inmueble_prueba(
         referencia="LOCAL-A",
         tipo="L",
         codigo_facturacion="A",
@@ -803,7 +838,7 @@ def test_solicitud_reembolso_no_duplica_apunte(
 def test_preparar_solicitud_explica_prorrateo_por_frontera_contrato(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-A",
         tipo="L",
         codigo_facturacion="A",
@@ -877,7 +912,7 @@ def test_preparar_solicitud_explica_prorrateo_por_frontera_contrato(
 def test_preparar_solicitud_no_explica_periodo_completamente_cubierto(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-A",
         tipo="L",
         codigo_facturacion="A",
@@ -936,7 +971,7 @@ def test_preparar_solicitud_no_explica_periodo_completamente_cubierto(
 def test_confirmar_solicitud_reembolso_prepara_todos_los_efectos(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1055,7 +1090,7 @@ def test_confirmar_solicitud_reembolso_con_apuntes_negativos(
     saldo: int,
     naturaleza_prevista: str | None,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1219,7 +1254,7 @@ def test_confirmar_reembolso_genera_concepto_descriptivo(
     conceptos,
     concepto_esperado,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-REEMBOLSO-CONCEPTO",
         tipo="L",
         codigo_facturacion="LRC",
@@ -1297,7 +1332,7 @@ def test_confirmar_reembolso_genera_concepto_descriptivo(
 def test_preparar_eliminacion_solicitud_reembolso(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1371,7 +1406,7 @@ def test_preparar_eliminacion_solicitud_reembolso(
 def test_preparar_eliminacion_solicitud_reembolso_permite_cancelado(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1452,7 +1487,7 @@ def test_preparar_eliminacion_solicitud_reembolso_rechaza_conciliacion(
     estado: str,
     mensaje: str,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1518,7 +1553,7 @@ def test_preparar_eliminacion_solicitud_reembolso_rechaza_conciliacion(
 def test_preparar_eliminacion_solicitud_reembolso_exige_movimiento(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1554,7 +1589,7 @@ def test_preparar_eliminacion_solicitud_reembolso_exige_movimiento(
 def test_eliminar_solicitud_hace_que_el_gasto_vuelva_a_estar_pendiente(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1663,7 +1698,7 @@ def test_confirmar_reembolso_un_gasto_incluye_periodo(
     hasta,
     concepto_esperado,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-REEMBOLSO-PERIODO",
         tipo="L",
         codigo_facturacion="LRP",

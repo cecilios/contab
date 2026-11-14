@@ -36,7 +36,7 @@ from contab.models import (
 
 
 def _inmueble_subdividido_para_distribuir():
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="EDIFICIO-COMUN",
         tipo="T",
         codigo_facturacion="EC",
@@ -47,7 +47,7 @@ def _inmueble_subdividido_para_distribuir():
         participacion=10000,
     )
 
-    local_a = Inmueble(
+    local_a = _crear_inmueble_prueba(
         referencia="LOCAL-A",
         tipo="L",
         codigo_facturacion="LA",
@@ -59,7 +59,7 @@ def _inmueble_subdividido_para_distribuir():
         inmueble_padre=inmueble,
     )
 
-    local_b = Inmueble(
+    local_b = _crear_inmueble_prueba(
         referencia="LOCAL-B",
         tipo="L",
         codigo_facturacion="LB",
@@ -109,6 +109,40 @@ def _contrato_para_imputacion(
         provincia_facturacion="Pontevedra",
         concepto_factura="Alquiler",
     )
+
+
+def _crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye un inmueble con datos de propiedad válidos."""
+
+    es_hijo = (
+        datos.get("inmueble_padre") is not None
+        or datos.get("inmueble_padre_id") is not None
+    )
+
+    if es_hijo:
+        propiedad = {
+            "porcentaje_titular": None,
+            "tipo_derecho": None,
+            "porcentaje_derecho": None,
+            "fecha_adquisicion": None,
+            "tipo_adquisicion": None,
+            "importe_adquisicion": None,
+            "gastos_adquisicion": None,
+            "fecha_transmision": None,
+        }
+    else:
+        propiedad = {
+            "porcentaje_titular": 10000,
+            "tipo_derecho": "PLENA_PROPIEDAD",
+            "porcentaje_derecho": 10000,
+            "fecha_adquisicion": date(2020, 1, 1),
+            "tipo_adquisicion": "ONEROSA",
+            "importe_adquisicion": 0,
+            "gastos_adquisicion": 0,
+            "fecha_transmision": None,
+        }
+
+    return Inmueble(**{**propiedad, **datos})
 
 
 
@@ -1062,7 +1096,7 @@ def test_crear_apunte_rechaza_dia_hasta_incluido_invalido(
 
 
 def test_crear_apunte_rechaza_excluir_unico_dia() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1547,7 +1581,7 @@ def test_eliminar_apunte_elimina_sus_distribuciones(
 
 
 def test_reparto_contratos_sin_periodo_usa_contrato_vigente() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1579,7 +1613,7 @@ def test_reparto_contratos_sin_periodo_usa_contrato_vigente() -> None:
 
 
 def test_reparto_contratos_sin_periodo_sin_contrato_es_propietario() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1603,7 +1637,7 @@ def test_reparto_contratos_sin_periodo_sin_contrato_es_propietario() -> None:
 
 
 def test_reparto_contratos_prorratea_periodo_entre_dos_contratos() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1642,7 +1676,7 @@ def test_reparto_contratos_prorratea_periodo_entre_dos_contratos() -> None:
 
 
 def test_reparto_contratos_deja_dias_sin_contrato_al_propietario() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1699,7 +1733,7 @@ def test_reparto_contratos_respeta_dia_hasta_incluido(
     dia_hasta_incluido: bool,
     esperado,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -1743,7 +1777,7 @@ def test_reparto_contratos_respeta_dia_hasta_incluido(
 
 
 def test_reparto_contratos_rechaza_periodo_sin_dias_efectivos() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2053,7 +2087,7 @@ def test_imputacion_contrato_no_duplica_contrato_en_distribucion(
 
 
 def test_preparar_imputaciones_apunte_normal_contrato_completo() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2095,7 +2129,7 @@ def test_preparar_imputaciones_apunte_normal_contrato_completo() -> None:
 
 
 def test_preparar_imputaciones_apunte_normal_deja_resto_propietario() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2267,7 +2301,7 @@ def test_preparar_imputaciones_subdividido_sin_contrato_deja_parte_propietario()
 def test_buscar_gastos_repercutibles_pendientes_apunte_normal(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2325,7 +2359,7 @@ def test_buscar_gastos_repercutibles_pendientes_apunte_normal(
 def test_buscar_gastos_repercutibles_pendientes_ignora_otros_tratamientos(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2436,7 +2470,7 @@ def test_buscar_gastos_repercutibles_pendientes_subdividido_muestra_apunte_origi
 def test_gasto_repercutible_puede_estar_gestionado_para_un_contrato_y_pendiente_para_otro(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2518,7 +2552,7 @@ def test_gasto_repercutible_puede_estar_gestionado_para_un_contrato_y_pendiente_
 
 
 def test_reparto_detallado_conserva_dias_del_prorrateo() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2558,7 +2592,7 @@ def test_reparto_detallado_conserva_dias_del_prorrateo() -> None:
 
 
 def test_reparto_detallado_sin_periodo_no_tiene_dias() -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2596,7 +2630,7 @@ def test_reparto_detallado_sin_periodo_no_tiene_dias() -> None:
 def test_modificar_apunte_con_imputacion_persistida_rechaza_cambio_economico(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2693,7 +2727,7 @@ def test_modificar_apunte_con_imputacion_persistida_rechaza_cambios_de_reparto(
     session,
     cambios,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2779,7 +2813,7 @@ def test_modificar_apunte_con_imputacion_persistida_rechaza_cambios_de_reparto(
 def test_modificar_apunte_con_imputacion_persistida_permite_cambiar_notas(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",
@@ -2921,7 +2955,7 @@ def test_modificar_apunte_subdividido_con_imputacion_persistida_rechaza_cambio_e
 def test_eliminar_apunte_con_imputacion_persistida_se_rechaza(
     session,
 ) -> None:
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="L1",

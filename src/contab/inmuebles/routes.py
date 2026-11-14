@@ -9,6 +9,8 @@ from flask import (
 )
 from sqlalchemy import select
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from datetime import date
+
 from contab.models import Inmueble
 from contab.context import get_database_name, get_session_factory
 
@@ -152,6 +154,37 @@ def _validar_datos_inmueble(datos) -> tuple[dict, str | None]:
     return valores, None
 
 
+def _datos_propiedad_iniciales(
+    inmueble_padre_id: int | None,
+) -> dict:
+    """Prepara los datos de propiedad para un inmueble nuevo."""
+
+    campos = (
+        "porcentaje_titular",
+        "tipo_derecho",
+        "porcentaje_derecho",
+        "fecha_adquisicion",
+        "tipo_adquisicion",
+        "importe_adquisicion",
+        "gastos_adquisicion",
+        "fecha_transmision",
+    )
+
+    if inmueble_padre_id is not None:
+        return dict.fromkeys(campos)
+
+    return {
+        "porcentaje_titular": 10000,
+        "tipo_derecho": "PLENA_PROPIEDAD",
+        "porcentaje_derecho": 10000,
+        "fecha_adquisicion": date.today(),
+        "tipo_adquisicion": "ONEROSA",
+        "importe_adquisicion": 0,
+        "gastos_adquisicion": 0,
+        "fecha_transmision": None,
+    }
+
+
 def _buscar_duplicado(
     session,
     referencia: str,
@@ -260,7 +293,6 @@ def _render_formulario_inmueble(
         titulo=titulo,
         database_name=get_database_name(),
     )
-
 
 
 
@@ -395,6 +427,12 @@ def nuevo_inmueble():
                     400,
                 )
 
+            valores.update(
+                _datos_propiedad_iniciales(
+                    valores["inmueble_padre_id"]
+                )
+            )
+
             inmueble = Inmueble(**valores)
             session.add(inmueble)
 
@@ -505,6 +543,23 @@ def editar_inmueble(inmueble_id: int):
                        session,
                         datos=request.form,
                         error=error_duplicado,
+                        titulo="Editar inmueble",
+                    ),
+                    400,
+                )
+
+            if (inmueble.inmueble_padre_id
+                != valores["inmueble_padre_id"]
+            ):
+                return (
+                    _render_formulario_inmueble(
+                        session,
+                        datos=request.form,
+                        error=(
+                            "Por ahora no se puede cambiar "
+                            "la pertenencia de un inmueble "
+                            "a una propiedad subdividida."
+                        ),
                         titulo="Editar inmueble",
                     ),
                     400,

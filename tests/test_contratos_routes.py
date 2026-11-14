@@ -28,6 +28,40 @@ from contab.contratos.services import (
 
 
 
+def _crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye inmuebles válidos para las pruebas."""
+
+    es_hijo = (
+        datos.get("inmueble_padre") is not None
+        or datos.get("inmueble_padre_id") is not None
+    )
+
+    if es_hijo:
+        propiedad = {
+            "porcentaje_titular": None,
+            "tipo_derecho": None,
+            "porcentaje_derecho": None,
+            "fecha_adquisicion": None,
+            "tipo_adquisicion": None,
+            "importe_adquisicion": None,
+            "gastos_adquisicion": None,
+            "fecha_transmision": None,
+        }
+    else:
+        propiedad = {
+            "porcentaje_titular": 10000,
+            "tipo_derecho": "PLENA_PROPIEDAD",
+            "porcentaje_derecho": 10000,
+            "fecha_adquisicion": date(2020, 1, 1),
+            "tipo_adquisicion": "ONEROSA",
+            "importe_adquisicion": 0,
+            "gastos_adquisicion": 0,
+            "fecha_transmision": None,
+        }
+
+    return Inmueble(**{**propiedad, **datos})
+
+
 def _datos_nuevo_contrato_valido(
     inmueble_id: int,
 ) -> dict[str, str]:
@@ -66,7 +100,7 @@ def _preparar_alta_contrato():
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -97,7 +131,7 @@ def _crear_contrato_para_test(
     genera_factura: bool = True,
 ) -> Contrato:
     """Crea y persiste un contrato completo para pruebas de rutas."""
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-ANEXO",
         tipo="L",
         codigo_facturacion="AX",
@@ -206,7 +240,7 @@ def test_formulario_nuevo_contrato_muestra_inmuebles_e_inquilinos() -> None:
 
     with session_factory() as session:
         session.add(
-            Inmueble(
+            _crear_inmueble_prueba(
                 referencia="LOCAL-1",
                 tipo="L",
                 codigo_facturacion="A1",
@@ -245,7 +279,7 @@ def test_formulario_nuevo_contrato_no_muestra_inmuebles_inactivos() -> None:
 
     with session_factory() as session:
         session.add(
-            Inmueble(
+            _crear_inmueble_prueba(
                 referencia="INACTIVO-1",
                 tipo="L",
                 codigo_facturacion="I1",
@@ -273,7 +307,7 @@ def test_crear_contrato_desde_formulario() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -378,7 +412,7 @@ def test_crear_contrato_rechaza_fecha_inexistente() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -450,7 +484,7 @@ def test_crear_contrato_rechaza_error_metodo_actualizacion() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -520,7 +554,7 @@ def test_formulario_editar_contrato_muestra_datos_actuales() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -583,7 +617,7 @@ def test_editar_contrato_guarda_cambios() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -673,7 +707,7 @@ def test_editar_contrato_permite_reordenar_titulares() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -779,7 +813,7 @@ def test_formulario_finalizar_contrato_responde() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -840,7 +874,7 @@ def test_finalizar_contrato_guarda_fecha_fin() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -909,7 +943,7 @@ def test_finalizar_contrato_rechaza_fecha_anterior_al_inicio() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -979,7 +1013,7 @@ def test_finalizar_contrato_rechaza_fecha_invalida() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1055,7 +1089,7 @@ def test_formulario_editar_contrato_muestra_fecha_fin() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1112,7 +1146,7 @@ def test_editar_contrato_permite_eliminar_fecha_fin() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1199,7 +1233,7 @@ def test_seleccionar_tipo_anexo_responde() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1343,6 +1377,7 @@ def test_guardar_anexo_prorroga() -> None:
     response = client.post(
         f"/contratos/{contrato_id}/anexo/prorroga",
         data={
+            "numero": "1",
             "fecha": "01/06/2031",
             "nueva_fecha_vencimiento": "14/09/2036",
             "descripcion": "Prórroga por cinco años",
@@ -1380,6 +1415,7 @@ def test_guardar_anexo_renta_permanente() -> None:
     response = client.post(
         f"/contratos/{contrato_id}/anexo/renta-permanente",
         data={
+            "numero": "1",
             "fecha": "20/05/2028",
             "fecha_desde": "01/06/2028",
             "importe": "1750,00",
@@ -1425,6 +1461,7 @@ def test_guardar_anexo_renta_temporal() -> None:
     response = client.post(
         f"/contratos/{contrato_id}/anexo/renta-temporal",
         data={
+            "numero": "1",
             "fecha": "20/05/2028",
             "fecha_desde": "01/06/2028",
             "fecha_hasta": "31/12/2028",
@@ -1489,6 +1526,7 @@ def test_historico_anexos_muestra_prorroga_y_cambios_renta() -> None:
         with session.begin_nested():
             anexo_prorroga = crear_anexo_prorroga(
                 contrato=contrato,
+                numero=1,
                 fecha=date(2028, 5, 10),
                 nueva_fecha_vencimiento=date(2036, 9, 14),
                 descripcion="Prórroga acordada",
@@ -1496,6 +1534,7 @@ def test_historico_anexos_muestra_prorroga_y_cambios_renta() -> None:
 
             anexo_renta, renta = crear_anexo_renta_permanente(
                 contrato=contrato,
+                numero=2,
                 fecha=date(2028, 6, 15),
                 fecha_desde=date(2028, 7, 1),
                 importe=175000,
@@ -1504,6 +1543,7 @@ def test_historico_anexos_muestra_prorroga_y_cambios_renta() -> None:
 
             anexo_temporal, ajuste = crear_anexo_renta_temporal(
                 contrato=contrato,
+                numero=3,
                 fecha=date(2029, 1, 15),
                 fecha_desde=date(2029, 2, 1),
                 fecha_hasta=date(2029, 4, 30),
@@ -1568,6 +1608,7 @@ def test_anexo_prorroga_rechaza_vencimiento_no_posterior() -> None:
     response = client.post(
         f"/contratos/{contrato_id}/anexo/prorroga",
         data={
+            "numero": "1",
             "fecha": "01/06/2031",
             "nueva_fecha_vencimiento": "14/09/2031",
             "descripcion": "",
@@ -1603,6 +1644,7 @@ def test_anexo_renta_permanente_rechaza_fecha_que_no_es_dia_uno() -> None:
     response = client.post(
         f"/contratos/{contrato_id}/anexo/renta-permanente",
         data={
+            "numero": "1",
             "fecha": "20/05/2028",
             "fecha_desde": "15/06/2028",
             "importe": "1750,00",
@@ -1638,6 +1680,7 @@ def test_anexo_renta_temporal_rechaza_fecha_hasta_que_no_es_fin_de_mes() -> None
     response = client.post(
         f"/contratos/{contrato_id}/anexo/renta-temporal",
         data={
+            "numero": "1",
             "fecha": "20/05/2028",
             "fecha_desde": "01/06/2028",
             "fecha_hasta": "29/11/2028",
@@ -1677,6 +1720,7 @@ def test_anexo_renta_temporal_rechaza_porcentaje_superior_a_cien() -> None:
     response = client.post(
         f"/contratos/{contrato_id}/anexo/renta-temporal",
         data={
+            "numero": "1",
             "fecha": "20/05/2028",
             "fecha_desde": "01/06/2028",
             "fecha_hasta": "30/11/2028",
@@ -1749,7 +1793,7 @@ def test_lista_contratos_separa_y_ordena_por_inmueble() -> None:
         fecha_inicio: date,
         fecha_fin: date | None = None,
     ) -> Contrato:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia=referencia,
             tipo="L",
             codigo_facturacion=codigo_facturacion,
@@ -1962,6 +2006,7 @@ def test_editar_contrato_rechaza_vencimiento_anterior_a_prorroga() -> None:
 
         anexo = crear_anexo_prorroga(
             contrato=contrato,
+            numero=1,
             fecha=date(2030, 6, 1),
             nueva_fecha_vencimiento=date(2036, 9, 14),
             descripcion="Prórroga",
@@ -2019,6 +2064,7 @@ def test_editar_contrato_rechaza_inicio_posterior_a_ajuste() -> None:
 
         anexo, ajuste = crear_anexo_renta_temporal(
             contrato=contrato,
+            numero=1,
             fecha=date(2028, 5, 20),
             fecha_desde=date(2028, 6, 1),
             fecha_hasta=date(2028, 8, 31),
@@ -2224,7 +2270,7 @@ def test_nuevo_contrato_crea_inquilino_desde_formulario() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-NUEVO",
             tipo="L",
             codigo_facturacion="N1",
@@ -2297,7 +2343,7 @@ def test_nuevo_contrato_reutiliza_inquilino_por_nif() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-EXISTENTE",
             tipo="L",
             codigo_facturacion="E1",
@@ -2374,7 +2420,7 @@ def test_formulario_contrato_muestra_metodos_revision() -> None:
 
     with session_factory() as session:
         session.add(
-            Inmueble(
+            _crear_inmueble_prueba(
                 referencia="LOCAL-1",
                 tipo="L",
                 codigo_facturacion="A1",
@@ -2573,7 +2619,7 @@ def test_crear_contrato_sin_factura_no_exige_datos_facturacion() -> None:
     session_factory = app.extensions["contab_databases"]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             tipo="P",
             referencia="PISO-1",
             codigo_facturacion="P1",
@@ -2768,7 +2814,7 @@ def test_formulario_contrato_excluye_inmuebles_subdivididos() -> None:
     ]["test"]
 
     with session_factory() as session:
-        inmueble_subdividido = Inmueble(
+        inmueble_subdividido = _crear_inmueble_prueba(
             referencia="ALOPEZ-COMUN",
             tipo="T",
             codigo_facturacion="ALC",
@@ -2778,7 +2824,7 @@ def test_formulario_contrato_excluye_inmuebles_subdivididos() -> None:
             provincia="Pontevedra",
         )
 
-        local = Inmueble(
+        local = _crear_inmueble_prueba(
             referencia="ALOPEZ-LOCAL1",
             tipo="L",
             codigo_facturacion="AL1",
@@ -2815,7 +2861,7 @@ def test_nuevo_contrato_muestra_error_si_nif_tiene_otro_nombre() -> None:
 
     # Preparamos un inmueble y un inquilino ya existente.
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3178,6 +3224,7 @@ def test_crear_anexo_carencia_desde_formulario() -> None:
     response = client.post(
         f"/contratos/{contrato_id}/anexo/carencia",
         data={
+            "numero": "1",
             "fecha": "15/10/2026",
             "fecha_desde": "01/11/2026",
             "fecha_hasta": "31/01/2027",
@@ -3249,6 +3296,7 @@ def test_historico_anexos_muestra_carencia() -> None:
 
         anexo = crear_anexo_carencia(
             contrato=contrato,
+            numero=1,
             fecha=date(2026, 10, 15),
             fecha_desde=date(2026, 11, 1),
             fecha_hasta=date(2027, 1, 31),
@@ -3269,5 +3317,66 @@ def test_historico_anexos_muestra_carencia() -> None:
     assert "01/11/2026" in response.text
     assert "31/01/2027" in response.text
     assert "Carencia de tres meses" in response.text
+
+
+def test_anexo_rechaza_numero_duplicado() -> None:
+    """No permite repetir el número de anexo de un contrato."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+        contrato_id = contrato.id
+
+    # Primer anexo: número 1.
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/prorroga",
+        data={
+            "numero": "1",
+            "fecha": "01/06/2031",
+            "nueva_fecha_vencimiento": "14/09/2036",
+            "descripcion": "Primera prórroga",
+        },
+    )
+
+    assert response.status_code == 302
+
+    # Segundo anexo: mismo número, aunque con otras fechas.
+    response = client.post(
+        f"/contratos/{contrato_id}/anexo/prorroga",
+        data={
+            "numero": "1",
+            "fecha": "01/06/2032",
+            "nueva_fecha_vencimiento": "14/09/2041",
+            "descripcion": "Segunda prórroga",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "Ya existe un anexo con ese número"
+        in response.text
+    )
+
+    # El intento fallido no debe alterar el contrato.
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        assert len(contrato.anexos) == 1
+
+        anexo = contrato.anexos[0]
+
+        assert anexo.numero == 1
+        assert anexo.descripcion == "Primera prórroga"
+
+        assert contrato.fecha_vencimiento == date(
+            2036, 9, 14
+        )
 
 

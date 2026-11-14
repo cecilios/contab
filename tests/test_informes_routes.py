@@ -14,7 +14,7 @@ from contab.models import (
 
 
 
-def crear_app_test():
+def _crear_app_test():
     """Crea una aplicación aislada para las pruebas."""
     app = create_app(
         databases={
@@ -34,9 +34,26 @@ def crear_app_test():
     return app
 
 
+def _crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye un inmueble válido para las pruebas."""
+
+    propiedad = {
+        "porcentaje_titular": 10000,
+        "tipo_derecho": "PLENA_PROPIEDAD",
+        "porcentaje_derecho": 10000,
+        "fecha_adquisicion": date(2020, 1, 1),
+        "tipo_adquisicion": "ONEROSA",
+        "importe_adquisicion": 0,
+        "gastos_adquisicion": 0,
+        "fecha_transmision": None,
+    }
+
+    return Inmueble(**{**propiedad, **datos})
+
+
 def test_indice_de_informes() -> None:
     """Comprueba que se muestra el índice de informes."""
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     client.post(
@@ -59,7 +76,7 @@ def test_indice_de_informes() -> None:
 
 def test_formulario_exportacion_iva_muestra_inmuebles() -> None:
     """Comprueba las opciones del formulario de exportación."""
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -67,7 +84,7 @@ def test_formulario_exportacion_iva_muestra_inmuebles() -> None:
 
     # Preparamos dos inmuebles, incluido uno inactivo.
     with session_factory() as session:
-        primero = Inmueble(
+        primero = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -76,7 +93,7 @@ def test_formulario_exportacion_iva_muestra_inmuebles() -> None:
             poblacion="Pontevedra",
             provincia="Pontevedra",
         )
-        segundo = Inmueble(
+        segundo = _crear_inmueble_prueba(
             referencia="PISO-2",
             tipo="P",
             codigo_facturacion="P2",
@@ -117,7 +134,7 @@ def test_formulario_exportacion_iva_muestra_inmuebles() -> None:
 
 def test_exportar_iva_descarga_csv() -> None:
     """Comprueba la descarga del CSV solicitado."""
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -125,7 +142,7 @@ def test_exportar_iva_descarga_csv() -> None:
 
     # Preparamos el inmueble y uno de sus apuntes.
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -190,7 +207,7 @@ def test_exportar_iva_descarga_csv() -> None:
 
 def test_exportar_iva_todos_descarga_zip() -> None:
     """Descarga los CSV aplicables dentro de un único ZIP."""
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -199,7 +216,7 @@ def test_exportar_iva_todos_descarga_zip() -> None:
     # Preparamos un activo, un inactivo con apuntes
     # y otro inactivo sin apuntes.
     with session_factory() as session:
-        activo = Inmueble(
+        activo = _crear_inmueble_prueba(
             referencia="ACTIVO",
             tipo="L",
             codigo_facturacion="ACT",
@@ -208,7 +225,7 @@ def test_exportar_iva_todos_descarga_zip() -> None:
             poblacion="Pontevedra",
             provincia="Pontevedra",
         )
-        inactivo_con_apuntes = Inmueble(
+        inactivo_con_apuntes = _crear_inmueble_prueba(
             referencia="INACTIVO-CON-APUNTES",
             tipo="L",
             codigo_facturacion="ICA",
@@ -218,7 +235,7 @@ def test_exportar_iva_todos_descarga_zip() -> None:
             provincia="Pontevedra",
             activo=False,
         )
-        inactivo_sin_apuntes = Inmueble(
+        inactivo_sin_apuntes = _crear_inmueble_prueba(
             referencia="INACTIVO-SIN-APUNTES",
             tipo="L",
             codigo_facturacion="ISA",
@@ -292,7 +309,7 @@ def test_exportar_iva_todos_descarga_zip() -> None:
 
 def test_exportar_iva_rechaza_formulario_incompleto() -> None:
     """Comprueba que inmueble y año son obligatorios."""
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     client.post(
@@ -320,7 +337,7 @@ def test_exportar_iva_rechaza_formulario_incompleto() -> None:
 
 def test_exportar_iva_rechaza_inmueble_inexistente() -> None:
     """Comprueba que el inmueble solicitado debe existir."""
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     client.post(
@@ -347,13 +364,13 @@ def test_exportar_iva_rechaza_inmueble_inexistente() -> None:
 def test_pantalla_resumen_anual_iva():
     """Consulta el resumen en HTML"""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="PISO-IVA",
             tipo="P",
             codigo_facturacion="PI",
@@ -434,7 +451,7 @@ def test_pantalla_resumen_anual_iva():
 def test_pantalla_resumen_anual_iva_rechaza_parametros_invalidos():
     """La consulta HTML no acepta años ni porcentajes inválidos."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
     client.post("/", data={"database": "test"})
 
@@ -452,13 +469,13 @@ def test_pantalla_resumen_anual_iva_rechaza_parametros_invalidos():
 def test_resumen_iva_aplica_criterio_hacienda():
     """La casilla cambia la base de la estimación."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        piso = Inmueble(
+        piso = _crear_inmueble_prueba(
             referencia="PISO-PRUEBA",
             tipo="P",
             codigo_facturacion="PP",
@@ -546,7 +563,7 @@ def test_exportar_resumen_anual_iva_xlsx():
 
     from openpyxl import load_workbook
 
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     client.post(

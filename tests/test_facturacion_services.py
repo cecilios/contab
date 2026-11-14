@@ -143,7 +143,7 @@ def _emitir_factura_para_eliminacion(
 
 
 def _inmueble_subdividido_para_facturacion():
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="EDIFICIO-COMUN",
         tipo="T",
         codigo_facturacion="EC",
@@ -154,7 +154,7 @@ def _inmueble_subdividido_para_facturacion():
         participacion=10000,
     )
 
-    local_a = Inmueble(
+    local_a = _crear_inmueble_prueba(
         referencia="LOCAL-A",
         tipo="L",
         codigo_facturacion="LA",
@@ -166,7 +166,7 @@ def _inmueble_subdividido_para_facturacion():
         inmueble_padre=inmueble,
     )
 
-    local_b = Inmueble(
+    local_b = _crear_inmueble_prueba(
         referencia="LOCAL-B",
         tipo="L",
         codigo_facturacion="LB",
@@ -179,6 +179,41 @@ def _inmueble_subdividido_para_facturacion():
     )
 
     return inmueble, local_a, local_b
+
+
+def _crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye un inmueble con datos de propiedad válidos."""
+
+    es_hijo = (
+        datos.get("inmueble_padre") is not None
+        or datos.get("inmueble_padre_id") is not None
+    )
+
+    if es_hijo:
+        propiedad = {
+            "porcentaje_titular": None,
+            "tipo_derecho": None,
+            "porcentaje_derecho": None,
+            "fecha_adquisicion": None,
+            "tipo_adquisicion": None,
+            "importe_adquisicion": None,
+            "gastos_adquisicion": None,
+            "fecha_transmision": None,
+        }
+    else:
+        propiedad = {
+            "porcentaje_titular": 10000,
+            "tipo_derecho": "PLENA_PROPIEDAD",
+            "porcentaje_derecho": 10000,
+            "fecha_adquisicion": date(2020, 1, 1),
+            "tipo_adquisicion": "ONEROSA",
+            "importe_adquisicion": 0,
+            "gastos_adquisicion": 0,
+            "fecha_transmision": None,
+        }
+
+    return Inmueble(**{**propiedad, **datos})
+
 
 
 
@@ -2101,7 +2136,7 @@ def test_notas_automaticas_factura_anade_nota_retencion_24() -> None:
 def test_crear_factura_usa_datos_editados() -> None:
     """Crea una factura con las líneas y porcentajes editados."""
 
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="A1",
@@ -2515,7 +2550,7 @@ def test_preparar_periodo_facturacion_ordena_por_referencia(
         *,
         genera_factura: bool,
     ) -> Contrato:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia=referencia,
             tipo="L",
             codigo_facturacion=referencia,
@@ -3385,7 +3420,7 @@ def test_preparar_revisiones_renta_separa_y_ordena_por_inmueble(
 
     contrato.inmueble.referencia = "LOCAL-B"
 
-    inmueble_local_a = Inmueble(
+    inmueble_local_a = _crear_inmueble_prueba(
         referencia="LOCAL-A",
         tipo="L",
         codigo_facturacion="A2",
@@ -3408,7 +3443,7 @@ def test_preparar_revisiones_renta_separa_y_ordena_por_inmueble(
         concepto_factura="Alquiler",
     )
 
-    inmueble_otro = Inmueble(
+    inmueble_otro = _crear_inmueble_prueba(
         referencia="PISO-A",
         tipo="P",
         codigo_facturacion="B1",

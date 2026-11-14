@@ -42,7 +42,42 @@ class Inmueble(Base):
             "OR inmueble_padre_id != id",
             name="ck_inmueble_no_es_su_padre",
         ),
+        CheckConstraint(
+            "("
+            "inmueble_padre_id IS NULL "
+            "AND porcentaje_titular IS NOT NULL "
+            "AND porcentaje_titular BETWEEN 0 AND 10000 "
+            "AND tipo_derecho IS NOT NULL "
+            "AND tipo_derecho IN ('PLENA_PROPIEDAD', 'USUFRUCTO') "
+            "AND porcentaje_derecho IS NOT NULL "
+            "AND porcentaje_derecho BETWEEN 0 AND 10000 "
+            "AND fecha_adquisicion IS NOT NULL "
+            "AND tipo_adquisicion IS NOT NULL "
+            "AND tipo_adquisicion IN ('ONEROSA', 'LUCRATIVA') "
+            "AND importe_adquisicion IS NOT NULL "
+            "AND importe_adquisicion >= 0 "
+            "AND gastos_adquisicion IS NOT NULL "
+            "AND gastos_adquisicion >= 0"
+            ") OR ("
+            "inmueble_padre_id IS NOT NULL "
+            "AND porcentaje_titular IS NULL "
+            "AND tipo_derecho IS NULL "
+            "AND porcentaje_derecho IS NULL "
+            "AND fecha_adquisicion IS NULL "
+            "AND tipo_adquisicion IS NULL "
+            "AND importe_adquisicion IS NULL "
+            "AND gastos_adquisicion IS NULL "
+            "AND fecha_transmision IS NULL"
+            ")",
+            name="ck_inmueble_datos_propiedad",
+        ),
+        CheckConstraint(
+            "fecha_transmision IS NULL "
+            "OR fecha_transmision >= fecha_adquisicion",
+            name="ck_inmueble_fechas_propiedad",
+        ),
     )
+
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
@@ -74,6 +109,42 @@ class Inmueble(Base):
 
     ref_catastral: Mapped[str | None] = mapped_column(Text)
     seguro: Mapped[str | None] = mapped_column(Text)
+
+    # Los datos de propiedad corresponden al inmueble
+    # independiente o al contenedor T.
+    # En los locales hijos deben permanecer a NULL.
+
+    porcentaje_titular: Mapped[int | None] = mapped_column(
+        Integer,
+    )
+
+    tipo_derecho: Mapped[str | None] = mapped_column(
+        Text,
+    )
+
+    porcentaje_derecho: Mapped[int | None] = mapped_column(
+        Integer,
+    )
+
+    fecha_adquisicion: Mapped[date | None] = mapped_column(
+        Date,
+    )
+
+    tipo_adquisicion: Mapped[str | None] = mapped_column(
+        Text,
+    )
+
+    importe_adquisicion: Mapped[int | None] = mapped_column(
+        Integer,
+    )
+
+    gastos_adquisicion: Mapped[int | None] = mapped_column(
+        Integer,
+    )
+
+    fecha_transmision: Mapped[date | None] = mapped_column(
+        Date,
+    )
 
     ruta_documentos: Mapped[str] = mapped_column(
         Text,
@@ -126,6 +197,80 @@ class Inmueble(Base):
         passive_deletes="all",
     )
 
+    datos_fiscales: Mapped[
+        list["DatosFiscalesInmueble"]
+    ] = relationship(
+        back_populates="inmueble",
+        passive_deletes="all",
+    )
+
+
+class DatosFiscalesInmueble(Base):
+    """Conserva los datos fiscales de un inmueble y ejercicio."""
+
+    __tablename__ = "datos_fiscales_inmueble"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "inmueble_id",
+            "ejercicio",
+            name="uq_datos_fiscales_inmueble_ejercicio",
+        ),
+        CheckConstraint(
+            "ejercicio BETWEEN 1 AND 9999",
+            name="ck_datos_fiscales_inmueble_ejercicio",
+        ),
+        CheckConstraint(
+            "valor_catastral >= 0 "
+            "AND valor_suelo >= 0 "
+            "AND valor_construccion >= 0 "
+            "AND amortizacion_aplicada >= 0",
+            name="ck_datos_fiscales_inmueble_importes",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    inmueble_id: Mapped[int] = mapped_column(
+        ForeignKey("inmueble.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    ejercicio: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    valor_catastral: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    valor_suelo: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    valor_construccion: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    amortizacion_aplicada: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    inmueble: Mapped["Inmueble"] = relationship(
+        back_populates="datos_fiscales",
+    )
 
 
 class Inquilino(Base):
@@ -220,6 +365,11 @@ class Contrato(Base):
     poblacion_facturacion: Mapped[str] = mapped_column(Text, nullable=False)
     provincia_facturacion: Mapped[str] = mapped_column(Text, nullable=False)
     concepto_factura: Mapped[str] = mapped_column(Text, nullable=False)
+    destino: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+    )
     notas: Mapped[str | None] = mapped_column(Text)
     inmueble: Mapped["Inmueble"] = relationship(
         back_populates="contratos",
@@ -334,12 +484,26 @@ class AnexoContrato(Base):
             "OR fecha_hasta >= fecha_desde",
             name="ck_anexo_contrato_periodo",
         ),
+        CheckConstraint(
+            "numero > 0",
+            name="ck_anexo_contrato_numero",
+        ),
+        UniqueConstraint(
+            "contrato_id",
+            "numero",
+            name="uq_anexo_contrato_numero",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     contrato_id: Mapped[int] = mapped_column(
         ForeignKey("contrato.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    numero: Mapped[int] = mapped_column(
+        Integer,
         nullable=False,
     )
 

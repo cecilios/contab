@@ -41,6 +41,7 @@ def test_crear_anexo_prorroga(contrato) -> None:
 
     anexo = crear_anexo_prorroga(
         contrato=contrato,
+        numero=1,
         fecha=date(2030, 6, 1),
         nueva_fecha_vencimiento=date(2035, 9, 14),
         descripcion="Prórroga por cinco años",
@@ -65,23 +66,7 @@ def test_crear_anexo_prorroga_rechaza_vencimiento_no_posterior(
     ):
         crear_anexo_prorroga(
             contrato=contrato,
-            fecha=date(2030, 6, 1),
-            nueva_fecha_vencimiento=date(2030, 9, 14),
-        )
-
-
-def test_crear_anexo_prorroga_rechaza_vencimiento_no_posterior(
-    contrato,
-) -> None:
-    """Comprueba que una prórroga debe ampliar realmente el vencimiento."""
-    contrato.fecha_vencimiento = date(2030, 9, 14)
-
-    with pytest.raises(
-        ContratoError,
-        match="La nueva fecha de vencimiento debe ser posterior",
-    ):
-        crear_anexo_prorroga(
-            contrato=contrato,
+            numero=1,
             fecha=date(2030, 6, 1),
             nueva_fecha_vencimiento=date(2030, 9, 14),
         )
@@ -92,6 +77,7 @@ def test_crear_anexo_renta_permanente(contrato_con_renta) -> None:
     contrato = contrato_con_renta
     anexo, renta = crear_anexo_renta_permanente(
         contrato=contrato,
+        numero=1,
         fecha=date(2028, 5, 20),
         fecha_desde=date(2028, 6, 1),
         importe=175000,
@@ -116,8 +102,10 @@ def test_crear_anexo_renta_permanente_rechaza_fecha_no_mensual(
     with pytest.raises(
         ContratoError,
         match="día 1 del mes",
-    ):        crear_anexo_renta_permanente(
+    ):
+        crear_anexo_renta_permanente(
             contrato=contrato,
+            numero=1,
             fecha=date(2028, 5, 20),
             fecha_desde=date(2028, 6, 15),
             importe=175000,
@@ -131,6 +119,7 @@ def test_crear_anexo_renta_temporal(
     """Comprueba que un anexo temporal crea un ajuste vinculado."""
     anexo, ajuste = crear_anexo_renta_temporal(
         contrato=contrato,
+        numero=1,
         fecha=date(2028, 5, 20),
         fecha_desde=date(2028, 6, 1),
         fecha_hasta=date(2028, 12, 31),
@@ -158,6 +147,7 @@ def test_crear_anexo_renta_temporal_rechaza_solapamiento(
     contrato = contrato_con_renta
     crear_anexo_renta_temporal(
         contrato=contrato,
+        numero=1,
         fecha=date(2028, 1, 1),
         fecha_desde=date(2028, 2, 1),
         fecha_hasta=date(2028, 6, 30),
@@ -171,6 +161,7 @@ def test_crear_anexo_renta_temporal_rechaza_solapamiento(
     ):
         crear_anexo_renta_temporal(
             contrato=contrato,
+            numero=2,
             fecha=date(2028, 3, 1),
             fecha_desde=date(2028, 5, 1),
             fecha_hasta=date(2028, 9, 30),
@@ -273,6 +264,7 @@ def test_crear_anexo_carencia(contrato) -> None:
 
     anexo = crear_anexo_carencia(
         contrato=contrato,
+        numero=1,
         fecha=date(2026, 10, 15),
         fecha_desde=date(2026, 11, 1),
         fecha_hasta=date(2027, 1, 31),
@@ -300,6 +292,7 @@ def test_crear_anexo_carencia_rechaza_inicio_que_no_es_dia_uno(
     ):
         crear_anexo_carencia(
             contrato=contrato,
+            numero=1,
             fecha=date(2026, 10, 15),
             fecha_desde=date(2026, 11, 2),
             fecha_hasta=date(2027, 1, 31),
@@ -317,6 +310,7 @@ def test_crear_anexo_carencia_rechaza_fin_que_no_es_ultimo_dia_del_mes(
     ):
         crear_anexo_carencia(
             contrato=contrato,
+            numero=1,
             fecha=date(2026, 10, 15),
             fecha_desde=date(2026, 11, 1),
             fecha_hasta=date(2027, 1, 30),
@@ -334,6 +328,7 @@ def test_crear_anexo_carencia_rechaza_fin_anterior_al_inicio(
     ):
         crear_anexo_carencia(
             contrato=contrato,
+            numero=1,
             fecha=date(2026, 10, 15),
             fecha_desde=date(2027, 2, 1),
             fecha_hasta=date(2027, 1, 31),
@@ -351,6 +346,7 @@ def test_crear_anexo_carencia_rechaza_inicio_anterior_al_contrato(
     ):
         crear_anexo_carencia(
             contrato=contrato,
+            numero=1,
             fecha=date(2026, 2, 1),
             fecha_desde=date(2026, 1, 1),
             fecha_hasta=date(2026, 1, 31),
@@ -364,6 +360,7 @@ def test_crear_anexo_carencia_rechaza_solapamiento(
 
     contrato.anexos.append(
         AnexoContrato(
+            numero=1,
             fecha=date(2026, 9, 15),
             tipo="CARENCIA",
             fecha_desde=date(2026, 11, 1),
@@ -377,6 +374,7 @@ def test_crear_anexo_carencia_rechaza_solapamiento(
     ):
         crear_anexo_carencia(
             contrato=contrato,
+            numero=2,
             fecha=date(2026, 10, 15),
             fecha_desde=date(2027, 1, 1),
             fecha_hasta=date(2027, 3, 31),
@@ -390,6 +388,7 @@ def test_crear_anexo_carencia_permite_periodos_separados(
 
     contrato.anexos.append(
         AnexoContrato(
+            numero=1,
             fecha=date(2026, 9, 15),
             tipo="CARENCIA",
             fecha_desde=date(2026, 11, 1),
@@ -399,6 +398,7 @@ def test_crear_anexo_carencia_permite_periodos_separados(
 
     anexo = crear_anexo_carencia(
         contrato=contrato,
+        numero=2,
         fecha=date(2027, 5, 15),
         fecha_desde=date(2027, 6, 1),
         fecha_hasta=date(2027, 7, 31),
@@ -420,6 +420,7 @@ def test_crear_anexo_carencia_rechaza_fecha_anterior_al_contrato(
     ):
         crear_anexo_carencia(
             contrato=contrato,
+            numero=1,
             fecha=date(2025, 12, 31),
             fecha_desde=date(2026, 2, 1),
             fecha_hasta=date(2026, 2, 28),
@@ -433,6 +434,7 @@ def test_carencia_vigente_detecta_todo_el_periodo(
 
     anexo = crear_anexo_carencia(
         contrato=contrato,
+        numero=1,
         fecha=date(2026, 10, 15),
         fecha_desde=date(2026, 11, 1),
         fecha_hasta=date(2027, 1, 31),

@@ -34,7 +34,7 @@ from contab.facturacion.services import (
 
 
 
-def crear_app_test():
+def _crear_app_test():
     """Crea una aplicación de facturación aislada para las pruebas."""
 
     app = create_app(
@@ -55,6 +55,23 @@ def crear_app_test():
     return app
 
 
+def _crear_inmueble_prueba(**datos) -> Inmueble:
+    """Construye un inmueble válido para las pruebas."""
+
+    propiedad = {
+        "porcentaje_titular": 10000,
+        "tipo_derecho": "PLENA_PROPIEDAD",
+        "porcentaje_derecho": 10000,
+        "fecha_adquisicion": date(2020, 1, 1),
+        "tipo_adquisicion": "ONEROSA",
+        "importe_adquisicion": 0,
+        "gastos_adquisicion": 0,
+        "fecha_transmision": None,
+    }
+
+    return Inmueble(**{**propiedad, **datos})
+
+
 def _crear_factura_emitida_para_test(
     session,
     *,
@@ -68,7 +85,7 @@ def _crear_factura_emitida_para_test(
 ) -> Factura:
     """Crea una factura persistida para probar su consulta."""
 
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia=referencia,
         tipo="L",
         codigo_facturacion=codigo_facturacion,
@@ -212,7 +229,7 @@ def _crear_revision_aplicada_para_reabrir(
 ) -> tuple[RevisionRenta, RentaContrato, RevisionRenta]:
     """Crea una revisión aplicada susceptible de ser reabierta."""
 
-    inmueble = Inmueble(
+    inmueble = _crear_inmueble_prueba(
         referencia="LOCAL-1",
         tipo="L",
         codigo_facturacion="A1",
@@ -284,14 +301,14 @@ def _crear_revision_aplicada_para_reabrir(
 def test_listar_facturacion_muestra_datos_del_periodo() -> None:
     """Muestra los ingresos preparados de un período sin modificarlos."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble_local = Inmueble(
+        inmueble_local = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -334,7 +351,7 @@ def test_listar_facturacion_muestra_datos_del_periodo() -> None:
             )
         )
 
-        inmueble_otro = Inmueble(
+        inmueble_otro = _crear_inmueble_prueba(
             referencia="PISO-1",
             tipo="P",
             codigo_facturacion="B1",
@@ -419,7 +436,7 @@ def test_listar_facturacion_inicializa_fecha_emision_desde_periodo(
 ) -> None:
     """Inicializa la fecha de emisión con el primer día del período."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     client.post(
@@ -489,7 +506,7 @@ def test_valores_iniciales_facturacion_cambian_de_anio() -> None:
 def test_listar_facturacion_rechaza_periodo_invalido() -> None:
     """Rechaza un período con formato inválido."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     client.post(
@@ -530,14 +547,14 @@ ING_ALQUILERES = INGRESO | Alquileres
         str(ruta),
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -665,14 +682,14 @@ ING_ALQUILERES = INGRESO | Alquileres
         str(ruta),
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="PISO-1",
             tipo="P",
             codigo_facturacion="B1",
@@ -790,14 +807,14 @@ ING_ALQUILERES = INGRESO | Alquileres
         str(ruta),
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -895,14 +912,14 @@ ING_ALQUILERES = INGRESO | Alquileres
         str(ruta),
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1012,14 +1029,14 @@ ING_ALQUILERES = INGRESO | Alquileres
 def test_resolver_revision_muestra_formulario() -> None:
     """Muestra el formulario para resolver una revisión pendiente."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1110,14 +1127,14 @@ def test_resolver_revision_muestra_formulario() -> None:
 def test_aplicar_revision_actualiza_renta_y_facturacion() -> None:
     """Aplica una revisión pendiente y usa la nueva renta al facturar."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1263,14 +1280,14 @@ def test_aplicar_revision_actualiza_renta_y_facturacion() -> None:
 def test_aplicar_revision_rechaza_porcentaje_invalido() -> None:
     """No modifica la revisión si el porcentaje no es válido."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1357,14 +1374,14 @@ def test_aplicar_revision_rechaza_porcentaje_invalido() -> None:
 def test_aplicar_revision_rechaza_revision_resuelta() -> None:
     """No permite aplicar otra vez una revisión ya resuelta."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1452,14 +1469,14 @@ def test_aplicar_revision_rechaza_revision_resuelta() -> None:
 def test_aplicar_revision_rechaza_metodo_fijo() -> None:
     """No interpreta una revisión FIJO como revisión porcentual."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1547,14 +1564,14 @@ def test_aplicar_revision_rechaza_metodo_fijo() -> None:
 def test_listar_facturacion_ofrece_modificar_factura() -> None:
     """Permite abrir la modificación de una factura pendiente."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1678,7 +1695,7 @@ def test_modificar_factura_muestra_propuesta_sin_persistir(
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1830,7 +1847,7 @@ def test_modificar_factura_acepta_datos_editados(
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -1946,14 +1963,14 @@ def test_modificar_factura_acepta_datos_editados(
 def test_modificar_factura_rechaza_linea_incompleta() -> None:
     """Exige concepto e importe en cada línea utilizada."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2028,14 +2045,14 @@ def test_modificar_factura_rechaza_linea_incompleta() -> None:
 def test_modificar_factura_rechaza_factura_sin_lineas() -> None:
     """Una factura debe contener al menos una línea."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2212,7 +2229,7 @@ def test_contabilizar_factura_persiste_factura_editada(
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2384,7 +2401,7 @@ def test_contabilizar_factura_persiste_atrasos_revision_aplicada(
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2594,7 +2611,7 @@ def test_contabilizar_factura_rechaza_importes_distintos(
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2752,7 +2769,7 @@ def test_previsualizar_factura_desde_lista_no_persiste(
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2858,14 +2875,14 @@ def test_previsualizar_factura_desde_lista_no_persiste(
 def test_modificar_factura_muestra_nota_aviso_revision() -> None:
     """Muestra en la factura la nota de aviso de revisión."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -2949,14 +2966,14 @@ def test_modificar_factura_muestra_nota_aviso_revision() -> None:
 def test_modificar_factura_muestra_nota_esperando_indice() -> None:
     """Muestra la nota mientras se espera el índice de revisión."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3066,7 +3083,7 @@ def test_modificar_factura_muestra_atrasos_revision_aplicada(
     )
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3179,7 +3196,7 @@ def test_modificar_factura_muestra_atrasos_revision_aplicada(
 def test_listar_facturacion_desacopla_fecha_emision_de_preparar() -> None:
     """La fecha de emisión puede cambiarse sin volver a preparar."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     client = app.test_client()
 
     client.post(
@@ -3226,14 +3243,14 @@ def test_listar_facturacion_desacopla_fecha_emision_de_preparar() -> None:
 def test_listar_facturacion_propaga_fecha_emision_a_acciones() -> None:
     """Las acciones usan la fecha de emisión editable del resumen."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3324,7 +3341,7 @@ def test_listar_facturacion_propaga_fecha_emision_a_acciones() -> None:
 def test_listar_facturas_muestra_facturas_emitidas() -> None:
     """Muestra las facturas persistidas y permite consultar su detalle."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3368,7 +3385,7 @@ def test_listar_facturas_muestra_facturas_emitidas() -> None:
 def test_ver_factura_muestra_datos_persistidos() -> None:
     """Muestra el contenido de una factura ya emitida."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3421,7 +3438,7 @@ def test_ver_factura_muestra_datos_persistidos() -> None:
 def test_ver_factura_inexistente_devuelve_404() -> None:
     """Devuelve 404 al consultar una factura inexistente."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     client = app.test_client()
 
@@ -3444,7 +3461,7 @@ def test_ver_factura_inexistente_devuelve_404() -> None:
 def test_listar_facturas_filtra_por_anio() -> None:
     """Muestra únicamente las facturas del ejercicio seleccionado."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3495,7 +3512,7 @@ def test_listar_facturas_filtra_por_anio() -> None:
 def test_listar_facturas_filtra_por_inmueble() -> None:
     """Muestra únicamente las facturas del inmueble seleccionado."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3554,7 +3571,7 @@ def test_listar_facturas_filtra_por_inmueble() -> None:
 def test_ver_factura_usa_snapshot_historico() -> None:
     """La consulta de una factura no depende del contrato actual."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3619,7 +3636,7 @@ def test_ver_factura_usa_snapshot_historico() -> None:
 def test_listar_facturas_usa_snapshot_historico() -> None:
     """El listado muestra datos históricos de la factura."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3667,7 +3684,7 @@ def test_listar_facturas_usa_snapshot_historico() -> None:
 def test_eliminar_factura_borra_factura_y_registro_contable() -> None:
     """Elimina factura, detalle, apunte y movimiento previsto."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3747,7 +3764,7 @@ def test_eliminar_factura_borra_factura_y_registro_contable() -> None:
 def test_eliminar_factura_inexistente_devuelve_404() -> None:
     """Devuelve 404 al intentar eliminar una factura inexistente."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     client = app.test_client()
 
@@ -3770,7 +3787,7 @@ def test_eliminar_factura_inexistente_devuelve_404() -> None:
 def test_eliminar_factura_conciliada_devuelve_400_y_no_borra() -> None:
     """No modifica datos cuando la factura no puede eliminarse."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3835,7 +3852,7 @@ def test_eliminar_factura_conciliada_devuelve_400_y_no_borra() -> None:
 def test_eliminar_factura_permite_reutilizar_su_numero() -> None:
     """Al eliminar la última factura, su número vuelve a quedar disponible."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -3886,14 +3903,14 @@ def test_eliminar_factura_permite_reutilizar_su_numero() -> None:
 def test_listar_revisiones_separa_locales_y_otros() -> None:
     """Muestra revisiones de contratos activos separadas por tipo."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        local = Inmueble(
+        local = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -3903,7 +3920,7 @@ def test_listar_revisiones_separa_locales_y_otros() -> None:
             provincia="Pontevedra",
         )
 
-        piso = Inmueble(
+        piso = _crear_inmueble_prueba(
             referencia="PISO-1",
             tipo="P",
             codigo_facturacion="B1",
@@ -4002,14 +4019,14 @@ def test_listar_revisiones_muestra_ultima_y_proxima_revision(
         FechaPrueba,
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -4082,14 +4099,14 @@ def test_listar_revisiones_muestra_ultima_y_proxima_revision(
 def test_listar_revisiones_no_muestra_contratos_finalizados() -> None:
     """No muestra contratos que ya han terminado."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-ANTIGUO",
             tipo="L",
             codigo_facturacion="A1",
@@ -4161,14 +4178,14 @@ def test_listar_revisiones_no_enlaza_revision_que_espera_indice(
         FechaPrueba,
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -4224,14 +4241,14 @@ def test_listar_revisiones_no_enlaza_revision_que_espera_indice(
 
 
 def test_no_aplicar_revision_desde_panel() -> None:
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -4312,14 +4329,14 @@ def test_no_aplicar_revision_desde_panel() -> None:
 def test_no_aplicar_revision_rechaza_revision_ya_resuelta() -> None:
     """No permite marcar como no aplicada una revisión ya resuelta."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -4395,7 +4412,7 @@ def test_no_aplicar_revision_rechaza_revision_ya_resuelta() -> None:
 def test_reabrir_revision_desde_panel() -> None:
     """Reabre una revisión y elimina los objetos creados al resolverla."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -4453,7 +4470,7 @@ def test_reabrir_revision_desde_panel() -> None:
 def test_reabrir_revision_inexistente() -> None:
     """Devuelve 404 si la revisión indicada no existe."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     client = app.test_client()
 
@@ -4475,7 +4492,7 @@ def test_reabrir_revision_inexistente() -> None:
 def test_reabrir_revision_rechaza_revision_no_reabrible() -> None:
     """No modifica una revisión que no puede reabrirse."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -4536,7 +4553,7 @@ def test_reabrir_revision_rechaza_revision_no_reabrible() -> None:
 def test_listar_revisiones_muestra_corregir_revision_reabrible() -> None:
     """Ofrece corregir una revisión aplicada que puede reabrirse."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -4577,7 +4594,7 @@ def test_listar_revisiones_muestra_corregir_revision_reabrible() -> None:
 def test_listar_revisiones_no_muestra_corregir_revision_no_reabrible() -> None:
     """No ofrece corregir una revisión aplicada que no puede reabrirse."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -4621,14 +4638,14 @@ def test_listar_revisiones_no_muestra_corregir_revision_no_reabrible() -> None:
 def test_listar_facturacion_muestra_local_en_carencia_sin_acciones() -> None:
     """Muestra el contrato en carencia sin permitir preparar una factura."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-CAR",
             tipo="L",
             codigo_facturacion="C1",
@@ -4701,7 +4718,7 @@ def test_listar_facturacion_muestra_local_en_carencia_sin_acciones() -> None:
 def test_listar_facturacion_ordena_locales_incluyendo_carencias() -> None:
     """Ordena por inmueble las facturas y los contratos en carencia."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -4716,7 +4733,7 @@ def test_listar_facturacion_ordena_locales_incluyendo_carencias() -> None:
             destinatario: str,
             fecha_inicio_facturacion: date,
         ) -> Contrato:
-            inmueble = Inmueble(
+            inmueble = _crear_inmueble_prueba(
                 referencia=referencia,
                 tipo="L",
                 codigo_facturacion=codigo_facturacion,
@@ -4885,14 +4902,14 @@ GAS_COMUNIDAD = GASTO | Comunidad
         lambda: plantilla,
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -5018,14 +5035,14 @@ GAS_COMUNIDAD = GASTO | Comunidad
         str(ruta),
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
 
     with session_factory() as session:
-        inmueble = Inmueble(
+        inmueble = _crear_inmueble_prueba(
             referencia="LOCAL-1",
             tipo="L",
             codigo_facturacion="A1",
@@ -5139,7 +5156,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
 def test_eliminar_factura_libera_gasto_facturable() -> None:
     """Eliminar una factura devuelve sus gastos FACTURAR a pendientes."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -5297,7 +5314,7 @@ def test_eliminar_factura_con_gasto_facturable_rechaza_cobro_conciliado(
 ) -> None:
     """Conserva las imputaciones si la factura no puede eliminarse."""
 
-    app = crear_app_test()
+    app = _crear_app_test()
     session_factory = app.extensions[
         "contab_databases"
     ]["test"]
@@ -5455,7 +5472,7 @@ LOCAL-2 | GAS_COMUNIDAD | Comunidad | 64,20
         str(ruta_config),
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -5463,7 +5480,7 @@ LOCAL-2 | GAS_COMUNIDAD | Comunidad | 64,20
 
     with session_factory() as session:
         session.add_all([
-            Inmueble(
+            _crear_inmueble_prueba(
                 referencia="LOCAL-1",
                 tipo="L",
                 codigo_facturacion="A1",
@@ -5472,7 +5489,7 @@ LOCAL-2 | GAS_COMUNIDAD | Comunidad | 64,20
                 poblacion="Pontevedra",
                 provincia="Pontevedra",
             ),
-            Inmueble(
+            _crear_inmueble_prueba(
                 referencia="LOCAL-2",
                 tipo="L",
                 codigo_facturacion="A2",
@@ -5580,7 +5597,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
         str(ruta_config),
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -5588,7 +5605,7 @@ GAS_COMUNIDAD = GASTO | Comunidad
 
     with session_factory() as session:
         session.add(
-            Inmueble(
+            _crear_inmueble_prueba(
                 referencia="LOCAL-1",
                 tipo="L",
                 codigo_facturacion="A1",
@@ -5678,7 +5695,7 @@ LOCAL-INEXISTENTE | GAS_COMUNIDAD | Comunidad | 64,20
         str(ruta_config),
     )
 
-    app = crear_app_test()
+    app = _crear_app_test()
 
     session_factory = app.extensions[
         "contab_databases"
@@ -5686,7 +5703,7 @@ LOCAL-INEXISTENTE | GAS_COMUNIDAD | Comunidad | 64,20
 
     with session_factory() as session:
         session.add(
-            Inmueble(
+            _crear_inmueble_prueba(
                 referencia="LOCAL-1",
                 tipo="L",
                 codigo_facturacion="A1",
