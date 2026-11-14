@@ -4,7 +4,7 @@
 
 {% block content %}
 	<h1>{{ titulo }}</h1>
-	
+
     <p class="required-note">
         Los campos marcados con (*) son obligatorios.
     </p>
@@ -14,40 +14,48 @@
     {% endif %}
 
     <form method="post">
-        <p class="form-field">
-            <label for="tipo">Tipo (*)</label>
-            <select id="tipo" name="tipo">
-                <option value="">Seleccione...</option>
 
-                {% for valor, etiqueta in tipos_inmueble.items() %}
-                    <option
-                        value="{{ valor }}"
-                        {% if datos.get("tipo") == valor %}
-                            selected
-                        {% endif %}
-                    >
-                        {{ etiqueta }}
-                    </option>
-                {% endfor %}
-            </select>
-        </p>
-        <p class="form-field">
-            <label for="referencia">Referencia (*)</label>
-            <input
-                id="referencia"
-                name="referencia"
-                value="{{ datos.get('referencia', '') }}"
-            >
-        </p>
+        <div class="form-fila">
+            <p class="form-field">
+                <label for="tipo">Tipo (*)</label>
+                <select id="tipo" name="tipo" class="ch25">
+                    <option value="">Seleccione...</option>
 
-        <p class="form-field">
-            <label for="codigo_facturacion">Código de facturación (*)</label>
-            <input
-                id="codigo_facturacion"
-                name="codigo_facturacion"
-                value="{{ datos.get('codigo_facturacion', '') }}"
-            >
-        </p>
+                    {% for valor, etiqueta in tipos_inmueble.items() %}
+                        <option
+                            value="{{ valor }}"
+                            {% if datos.get('tipo') == valor %}
+                                selected
+                            {% endif %}
+                        >
+                            {{ etiqueta }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </p>
+
+            <p class="form-field">
+                <label for="referencia">Referencia (*)</label>
+                <input
+                    id="referencia"
+                    name="referencia"
+                    class="campo-referencia"
+                    value="{{ datos.get('referencia', '') }}"
+                >
+            </p>
+
+            <p class="form-field">
+                <label for="codigo_facturacion">
+                    Código de facturación (*)
+                </label>
+                <input
+                    id="codigo_facturacion"
+                    name="codigo_facturacion"
+                    class="campo-codigo-facturacion"
+                    value="{{ datos.get('codigo_facturacion', '') }}"
+                >
+            </p>
+        </div>
 
         <p class="form-field">
             <label for="descripcion">Descripción (*)</label>
@@ -58,114 +66,245 @@
             >
         </p>
 
-        <p class="form-field">
-            <label for="direccion">Dirección (*)</label>
-            <input
-                id="direccion"
-                name="direccion"
-                value="{{ datos.get('direccion', '') }}"
-            >
-        </p>
+        <fieldset>
+            <legend>Dirección postal</legend>
 
-        <p class="form-field">
-            <label for="codigo_postal">Código postal</label>
-            <input
-                id="codigo_postal"
-                name="codigo_postal"
-                value="{{ datos.get('codigo_postal', '') }}"
-            >
-        </p>
+            <div class="form-fila">
+                <p class="form-field">
+                    <label for="direccion">Dirección (*)</label>
+                    <input
+                        id="direccion"
+                        name="direccion"
+                        value="{{ datos.get('direccion', '') }}"
+                    >
+                </p>
+            </div>
 
-        <p class="form-field">
-            <label for="poblacion">Población (*)</label>
-            <input
-                id="poblacion"
-                name="poblacion"
-                value="{{ datos.get('poblacion', '') }}"
-            >
-        </p>
+            <div class="form-fila">
+                <p class="form-field">
+                    <label for="codigo_postal">Código postal</label>
+                    <input
+                        id="codigo_postal"
+                        name="codigo_postal"
+                        class="campo-codigo-postal"
+                        value="{{ datos.get('codigo_postal', '') }}"
+                    >
+                </p>
 
-        <p class="form-field">
-            <label for="provincia">Provincia (*)</label>
-            <input
-                id="provincia"
-                name="provincia"
-                value="{{ datos.get('provincia', '') }}"
-            >
-        </p>
+                <p class="form-field">
+                    <label for="poblacion">Población (*)</label>
+                    <input
+                        id="poblacion"
+                        name="poblacion"
+                        value="{{ datos.get('poblacion', '') }}"
+                    >
+                </p>
 
-        <p class="form-field">
-            <label for="ref_catastral">Referencia catastral</label>
-            <input
-                id="ref_catastral"
-                name="ref_catastral"
-                value="{{ datos.get('ref_catastral', '') }}"
-            >
-        </p>
+                <p class="form-field">
+                    <label for="provincia">Provincia (*)</label>
+                    <input
+                        id="provincia"
+                        name="provincia"
+                        value="{{ datos.get('provincia', '') }}"
+                    >
+                </p>
+            </div>
+        </fieldset>
 
-        <p class="form-field">
-            <label for="seguro">Seguro</label>
-            <input
-                id="seguro"
-                name="seguro"
-                value="{{ datos.get('seguro', '') }}"
-            >
-        </p>
+        <div class="form-fila">
+            <p class="form-field">
+                <label for="participacion">
+                    Participación en gastos (%) (*)
+                </label>
+                <input
+                    id="participacion"
+                    name="participacion"
+                    class="campo-porcentaje"
+                    value="{{ datos.get('participacion', '100,00') }}"
+                >
+            </p>
 
-        <p class="form-field">
-            <label for="participacion">Participación (%) (*)</label>
-            <input
-                id="participacion"
-                name="participacion"
-                value="{{ datos.get('participacion', '100,00') }}"
-            >
-        </p>
+            <p class="form-field">
+                <label for="ref_catastral">Referencia catastral</label>
+                <input
+                    id="ref_catastral"
+                    name="ref_catastral"
+                    value="{{ datos.get('ref_catastral', '') }}"
+                >
+            </p>
+
+            <p class="form-field">
+                <label for="seguro">Seguro</label>
+                <input
+                    id="seguro"
+                    name="seguro"
+                    value="{{ datos.get('seguro', '') }}"
+                >
+            </p>
+        </div>
 
         <fieldset>
             <legend>Relación con inmueble subdividido</legend>
 
-            <p class="form-field checkbox-field">
-                <label>
-                    <input
-                        id="es_parte_inmueble"
-                        type="checkbox"
-                        name="es_parte_inmueble"
-                        {% if datos.get("es_parte_inmueble") %}
-                            checked
-                        {% endif %}
-                    >
-                    Es parte de un inmueble
-                </label>
-            </p>
-
-            <p
-                id="campo_inmueble_padre"
-                class="form-field"
-            >
-                <label for="inmueble_padre_id">
-                    Inmueble total
-                </label>
-
-                <select
-                    id="inmueble_padre_id"
-                    name="inmueble_padre_id"
-                >
-                    <option value="">
-                        Seleccione un inmueble subdividido
-                    </option>
-
-                    {% for inmueble_total in inmuebles_subdivididos %}
-                        <option
-                            value="{{ inmueble_total.id }}"
-                            {% if datos.get("inmueble_padre_id")|string == inmueble_total.id|string %}
-                                selected
+            <div class="form-fila">
+                <p class="form-field checkbox-field">
+                    <label>
+                        <input
+                            id="es_parte_inmueble"
+                            type="checkbox"
+                            name="es_parte_inmueble"
+                            {% if datos.get("es_parte_inmueble") %}
+                                checked
                             {% endif %}
                         >
-                            {{ inmueble_total.referencia }} -
-                            {{ inmueble_total.descripcion }}
+                        Es parte de un inmueble
+                    </label>
+                </p>
+
+                <p id="campo_inmueble_padre" class="form-field">
+                    <label for="inmueble_padre_id">
+                        Inmueble total
+                    </label>
+
+                    <select
+                        id="inmueble_padre_id"
+                        name="inmueble_padre_id"
+                    >
+                        <option value="">
+                            Seleccione un inmueble subdividido
                         </option>
-                    {% endfor %}
-                </select>
+
+                        {% for inmueble_total in inmuebles_subdivididos %}
+                            <option
+                                value="{{ inmueble_total.id }}"
+                                {% if datos.get("inmueble_padre_id")|string == inmueble_total.id|string %}
+                                    selected
+                                {% endif %}
+                            >
+                                {{ inmueble_total.referencia }} -
+                                {{ inmueble_total.descripcion }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </p>
+            </div>
+        </fieldset>
+
+        <fieldset id="datos_propiedad">
+            <legend>Datos de propiedad</legend>
+
+                <div class="form-fila">
+                    <p class="form-field">
+                        <label for="porcentaje_titular">
+                            Porcentaje de titularidad (%) (*)
+                        </label>
+                        <input
+                            id="porcentaje_titular"
+                            name="porcentaje_titular"
+                            class="campo-porcentaje"
+                            value="{{ datos.get('porcentaje_titular', '') }}"
+                        >
+                    </p>
+
+                    <p class="form-field">
+                        <label for="tipo_derecho">Tipo de derecho (*)</label>
+                        <select id="tipo_derecho" name="tipo_derecho" class="ch15">
+                            <option value="">Seleccione...</option>
+                            {% for valor, etiqueta in [
+                                ('PLENA_PROPIEDAD', 'Plena propiedad'),
+                                ('USUFRUCTO', 'Usufructo')
+                            ] %}
+                                <option
+                                    value="{{ valor }}"
+                                    {% if datos.get('tipo_derecho') == valor %}
+                                        selected
+                                    {% endif %}
+                                >{{ etiqueta }}</option>
+                            {% endfor %}
+                        </select>
+                    </p>
+
+                    <p class="form-field">
+                        <label for="porcentaje_derecho">
+                            Porcentaje del derecho (%) (*)
+                        </label>
+                        <input
+                            id="porcentaje_derecho"
+                            name="porcentaje_derecho"
+                            class="campo-porcentaje"
+                            value="{{ datos.get('porcentaje_derecho', '') }}"
+                        >
+                    </p>
+                </div>
+
+                <div class="form-fila">
+                    <p class="form-field">
+                        <label for="fecha_adquisicion">Fecha de adquisición (*)</label>
+                        <input
+                            id="fecha_adquisicion"
+                            name="fecha_adquisicion"
+                            class="campo-fecha"
+                            placeholder="dd/mm/aaaa"
+                            value="{{ datos.get('fecha_adquisicion', '') }}"
+                        >
+                    </p>
+
+                    <p class="form-field">
+                        <label for="tipo_adquisicion">Tipo de adquisición (*)</label>
+                        <select id="tipo_adquisicion" name="tipo_adquisicion">
+                            <option value="">Seleccione...</option>
+                            {% for valor, etiqueta in [
+                                ('ONEROSA', 'Onerosa (compra)'),
+                                ('LUCRATIVA', 'Lucrativa (herencia, donación)')
+                            ] %}
+                                <option
+                                    value="{{ valor }}"
+                                    {% if datos.get('tipo_adquisicion') == valor %}
+                                        selected
+                                    {% endif %}
+                                >{{ etiqueta }}</option>
+                            {% endfor %}
+                        </select>
+                    </p>
+                </div>
+
+                <div class="form-fila">
+                    <p class="form-field">
+                        <label for="importe_adquisicion">
+                            Importe de adquisición (€) (*)
+                        </label>
+                        <input
+                            id="importe_adquisicion"
+                            name="importe_adquisicion"
+                            class="campo-importe"
+                            value="{{ datos.get('importe_adquisicion', '') }}"
+                        >
+                    </p>
+
+                    <p class="form-field">
+                        <label for="gastos_adquisicion">
+                            Gastos de adquisición (€) (*)
+                        </label>
+                        <input
+                            id="gastos_adquisicion"
+                            name="gastos_adquisicion"
+                            class="campo-importe"
+                            value="{{ datos.get('gastos_adquisicion', '') }}"
+                        >
+                    </p>
+                </div>
+
+            <p class="form-field">
+                <label for="fecha_transmision">
+                    Fecha de transmisión
+                </label>
+                <input
+                    id="fecha_transmision"
+                    name="fecha_transmision"
+                    class="campo-fecha"
+                    placeholder="dd/mm/aaaa"
+                    value="{{ datos.get('fecha_transmision', '') }}"
+                >
             </p>
         </fieldset>
 
@@ -184,7 +323,6 @@
             </a>
         </p>
     </form>
-{% endblock %}
 
 <script>
     const esParte = document.getElementById(
@@ -196,12 +334,16 @@
     const selectorPadre = document.getElementById(
         "inmueble_padre_id"
     );
+    const datosPropiedad = document.getElementById(
+        "datos_propiedad"
+    );
 
     function actualizarInmueblePadre() {
         const visible = esParte.checked;
 
         campoPadre.hidden = !visible;
         selectorPadre.disabled = !visible;
+        datosPropiedad.hidden = visible;
 
         if (!visible) {
             selectorPadre.value = "";
@@ -215,3 +357,5 @@
 
     actualizarInmueblePadre();
 </script>
+
+{% endblock %}

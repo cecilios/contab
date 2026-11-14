@@ -657,7 +657,7 @@ def crear_anexo_carencia(
                 "La carencia se solapa con otro período de carencia."
             )
 
-        _validar_numero_anexo(contrato, numero)
+    _validar_numero_anexo(contrato, numero)
 
     return AnexoContrato(
         contrato=contrato,

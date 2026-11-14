@@ -11,6 +11,19 @@ from contab.database import Base
 from contab.models import Inmueble
 
 
+DATOS_PROPIEDAD_FORMULARIO = {
+    "porcentaje_titular": "100,00",
+    "tipo_derecho": "PLENA_PROPIEDAD",
+    "porcentaje_derecho": "100,00",
+    "fecha_adquisicion": "01/01/2020",
+    "tipo_adquisicion": "ONEROSA",
+    "importe_adquisicion": "0,00",
+    "gastos_adquisicion": "0,00",
+    "fecha_transmision": "",
+}
+
+
+
 @pytest.mark.parametrize(
     ("campo", "mensaje"),
     [
@@ -106,6 +119,27 @@ def crear_inmueble_prueba(**datos) -> Inmueble:
         }
 
     return Inmueble(**{**propiedad, **datos})
+
+
+def _datos_inmueble_con_propiedad(**cambios) -> dict:
+    """Datos completos para probar el formulario de inmuebles."""
+    datos = {
+        "referencia": "PISO-FISCAL",
+        "tipo": "P",
+        "codigo_facturacion": "PF1",
+        "descripcion": "Piso de prueba",
+        "direccion": "Dirección",
+        "codigo_postal": "36001",
+        "poblacion": "Pontevedra",
+        "provincia": "Pontevedra",
+        "ref_catastral": "",
+        "seguro": "",
+        "participacion": "100,00",
+        "notas": "",
+        **DATOS_PROPIEDAD_FORMULARIO,
+    }
+    datos.update(cambios)
+    return datos
 
 
 
@@ -212,6 +246,7 @@ def test_crear_inmueble_desde_formulario() -> None:
             "seguro": "POL-12345",
             "participacion": "100,00",
             "notas": "",
+            **DATOS_PROPIEDAD_FORMULARIO,
         },
         follow_redirects=True,
     )
@@ -277,6 +312,7 @@ def test_crear_inmueble_convierte_participacion_a_centesimas() -> None:
             "seguro": "",
             "participacion": "32,56",
             "notas": "",
+            **DATOS_PROPIEDAD_FORMULARIO,
         },
     )
 
@@ -416,6 +452,7 @@ def test_crear_inmueble_rechaza_referencia_duplicada() -> None:
         "seguro": "",
         "participacion": "100,00",
         "notas": "",
+        **DATOS_PROPIEDAD_FORMULARIO,
     }
 
     response = client.post("/inmuebles/nuevo", data=datos)
@@ -449,6 +486,7 @@ def test_crear_inmueble_rechaza_codigo_facturacion_duplicado() -> None:
         "seguro": "",
         "participacion": "100,00",
         "notas": "",
+        **DATOS_PROPIEDAD_FORMULARIO,
     }
 
     response = client.post("/inmuebles/nuevo", data=datos)
@@ -534,6 +572,7 @@ def test_editar_inmueble_guarda_cambios() -> None:
             "seguro": "POL-999",
             "participacion": "32,56",
             "notas": "Datos actualizados",
+            **DATOS_PROPIEDAD_FORMULARIO,
         },
         follow_redirects=True,
     )
@@ -1072,3 +1111,287 @@ def test_crear_local_rechaza_padre_que_no_es_total() -> None:
         )
 
         assert local is None
+
+
+def test_editar_inmueble_total_con_hijos_rechaza_cambio_tipo() -> None:
+    """No permite cambiar el tipo de un inmueble T con hijos."""
+    app = crear_app_test()
+    client = app.test_client()
+
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = crear_inmueble_prueba(
+            referencia="EDIFICIO-1",
+            tipo="T",
+            codigo_facturacion="E1",
+            descripcion="Edificio completo",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=10000,
+        )
+
+        hijo = crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local del edificio",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=5000,
+            inmueble_padre=inmueble,
+        )
+
+        session.add_all([inmueble, hijo])
+        session.commit()
+        inmueble_id = inmueble.id
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/editar",
+        data={
+            "referencia": "EDIFICIO-1",
+            "tipo": "L",
+            "codigo_facturacion": "E1",
+            "descripcion": "Edificio completo",
+            "direccion": "Dirección",
+            "codigo_postal": "",
+            "poblacion": "Pontevedra",
+            "provincia": "Pontevedra",
+            "ref_catastral": "",
+            "seguro": "",
+            "participacion": "100,00",
+            "notas": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        "No se puede cambiar el tipo de un "
+        "inmueble subdividido que tiene hijos."
+    ) in response.text
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.tipo == "T"
+        assert session.scalar(
+            select(Inmueble.id).where(
+                Inmueble.inmueble_padre_id == inmueble_id
+            )
+        ) is not None
+
+
+def test_crear_inmueble_guarda_datos_propiedad() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = _datos_inmueble_con_propiedad(
+        porcentaje_titular="75,50",
+        tipo_derecho="USUFRUCTO",
+        porcentaje_derecho="50,25",
+        fecha_adquisicion="15/06/2019",
+        tipo_adquisicion="LUCRATIVA",
+        importe_adquisicion="150000,75",
+        gastos_adquisicion="3500,50",
+        fecha_transmision="31/12/2025",
+    )
+
+    response = client.post("/inmuebles/nuevo", data=datos)
+
+    assert response.status_code == 302
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia == "PISO-FISCAL"
+            )
+        )
+
+        assert inmueble is not None
+        assert inmueble.porcentaje_titular == 7550
+        assert inmueble.tipo_derecho == "USUFRUCTO"
+        assert inmueble.porcentaje_derecho == 5025
+        assert inmueble.fecha_adquisicion == date(2019, 6, 15)
+        assert inmueble.tipo_adquisicion == "LUCRATIVA"
+        assert inmueble.importe_adquisicion == 15000075
+        assert inmueble.gastos_adquisicion == 350050
+        assert inmueble.fecha_transmision == date(2025, 12, 31)
+
+
+def test_editar_inmueble_muestra_y_guarda_datos_propiedad() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = crear_inmueble_prueba(
+            referencia="PISO-FISCAL",
+            tipo="P",
+            codigo_facturacion="PF1",
+            descripcion="Piso de prueba",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            porcentaje_titular=7550,
+            tipo_derecho="USUFRUCTO",
+            porcentaje_derecho=5025,
+            fecha_adquisicion=date(2019, 6, 15),
+            tipo_adquisicion="LUCRATIVA",
+            importe_adquisicion=15000075,
+            gastos_adquisicion=350050,
+            fecha_transmision=None,
+        )
+        session.add(inmueble)
+        session.commit()
+        inmueble_id = inmueble.id
+
+    response = client.get(
+        f"/inmuebles/{inmueble_id}/editar"
+    )
+
+    assert response.status_code == 200
+    assert 'value="75,50"' in response.text
+    assert 'value="50,25"' in response.text
+    assert 'value="15/06/2019"' in response.text
+    assert 'value="150000,75"' in response.text
+    assert 'value="3500,50"' in response.text
+
+    datos = _datos_inmueble_con_propiedad(
+        porcentaje_titular="80,00",
+        tipo_derecho="PLENA_PROPIEDAD",
+        porcentaje_derecho="100,00",
+        fecha_adquisicion="01/02/2020",
+        tipo_adquisicion="ONEROSA",
+        importe_adquisicion="200000,00",
+        gastos_adquisicion="5000,00",
+        fecha_transmision="30/09/2026",
+    )
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.porcentaje_titular == 8000
+        assert inmueble.tipo_derecho == "PLENA_PROPIEDAD"
+        assert inmueble.porcentaje_derecho == 10000
+        assert inmueble.fecha_adquisicion == date(2020, 2, 1)
+        assert inmueble.tipo_adquisicion == "ONEROSA"
+        assert inmueble.importe_adquisicion == 20000000
+        assert inmueble.gastos_adquisicion == 500000
+        assert inmueble.fecha_transmision == date(2026, 9, 30)
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("porcentaje_titular", "101,00"),
+        ("porcentaje_derecho", "-1,00"),
+        ("fecha_adquisicion", "31/02/2020"),
+        ("tipo_derecho", "OTRO"),
+        ("tipo_adquisicion", "OTRA"),
+        ("importe_adquisicion", "-100,00"),
+        ("gastos_adquisicion", "abc"),
+        ("fecha_transmision", "31/12/2019"),
+    ],
+)
+def test_crear_inmueble_rechaza_datos_propiedad_invalidos(
+    campo, valor
+) -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    datos = _datos_inmueble_con_propiedad()
+    datos[campo] = valor
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia == "PISO-FISCAL"
+            )
+        )
+
+        assert inmueble is None
+
+
+def test_crear_inmueble_hijo_no_guarda_datos_propiedad() -> None:
+    app = crear_app_test()
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        padre = crear_inmueble_prueba(
+            referencia="EDIFICIO-FISCAL",
+            tipo="T",
+            codigo_facturacion="EF1",
+            descripcion="Edificio",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+        session.add(padre)
+        session.commit()
+        padre_id = padre.id
+
+    datos = _datos_inmueble_con_propiedad(
+        referencia="LOCAL-HIJO",
+        tipo="L",
+        codigo_facturacion="LH1",
+        participacion="25,00",
+        es_parte_inmueble="on",
+        inmueble_padre_id=str(padre_id),
+    )
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        hijo = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia == "LOCAL-HIJO"
+            )
+        )
+
+        assert hijo is not None
+        assert hijo.inmueble_padre_id == padre_id
+        assert hijo.participacion == 2500
+
+        assert hijo.porcentaje_titular is None
+        assert hijo.tipo_derecho is None
+        assert hijo.porcentaje_derecho is None
+        assert hijo.fecha_adquisicion is None
+        assert hijo.tipo_adquisicion is None
+        assert hijo.importe_adquisicion is None
+        assert hijo.gastos_adquisicion is None
+        assert hijo.fecha_transmision is None
+

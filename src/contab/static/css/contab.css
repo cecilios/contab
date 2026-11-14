@@ -1160,3 +1160,87 @@ input[type="checkbox"] {
         break-inside: avoid;
     }
 }
+
+/* Campos numéricos de formularios */
+
+input.campo-porcentaje {
+    width: 7ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+input.campo-importe {
+    width: 14ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+input.campo-fecha {
+    width: 12ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+input.campo-codigo-postal {
+    width: 5ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+/* anchuras para combo-boxes (select) */
+
+select.ch15 {
+    width: 15ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+select.ch25 {
+    width: 25ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+/* Referencia y código de facturación */
+
+input.campo-referencia {
+    width: 10ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+input.campo-codigo-facturacion {
+    width: 6ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+/* Distribución horizontal de campos de formulario */
+/* Varios campos por línea, con etiquetas a la izquierda */
+
+.form-fila {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.form-fila .form-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+.form-fila .form-field label {
+    display: inline;
+    margin: 0;
+    white-space: nowrap;
+}
+
+/* Separación inferior de los grupos de campos */
+
+fieldset {
+    margin-bottom: 1rem;
+}

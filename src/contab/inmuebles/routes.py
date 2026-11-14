@@ -11,8 +11,17 @@ from sqlalchemy import select
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import date
 
+from contab.context import (
+    get_database_name,
+    get_session_factory,
+)
+from contab.formato import (
+    fecha_a_texto,
+    texto_a_fecha,
+    importe_a_texto_entrada,
+    porcentaje_a_texto_entrada,
+)
 from contab.models import Inmueble
-from contab.context import get_database_name, get_session_factory
 
 
 """Variables globales de este archivo -------------------------------------------------"""
@@ -182,6 +191,111 @@ def _datos_propiedad_iniciales(
         "importe_adquisicion": 0,
         "gastos_adquisicion": 0,
         "fecha_transmision": None,
+    }
+
+
+def _datos_propiedad_formulario(
+    datos,
+    inmueble_padre_id: int | None,
+) -> dict:
+    """Valida los campos de propiedad enviados por el formulario."""
+
+    campos = (
+        "porcentaje_titular",
+        "tipo_derecho",
+        "porcentaje_derecho",
+        "fecha_adquisicion",
+        "tipo_adquisicion",
+        "importe_adquisicion",
+        "gastos_adquisicion",
+        "fecha_transmision",
+    )
+
+    if inmueble_padre_id is not None:
+        return dict.fromkeys(campos)
+
+    def porcentaje(campo):
+        texto = datos.get(campo, "").strip().replace(",", ".")
+        try:
+            valor = Decimal(texto) * 100
+        except InvalidOperation as exc:
+            raise ValueError(
+                f"El campo {campo} debe ser un porcentaje válido."
+            ) from exc
+
+        if (
+            not valor.is_finite()
+            or valor != valor.to_integral_value()
+            or not 0 <= valor <= 10000
+        ):
+            raise ValueError(
+                f"El campo {campo} debe estar entre 0 y 100 "
+                "con un máximo de dos decimales."
+            )
+
+        return int(valor)
+
+    def importe(campo):
+        texto = datos.get(campo, "").strip().replace(",", ".")
+        try:
+            valor = Decimal(texto) * 100
+        except InvalidOperation as exc:
+            raise ValueError(
+                f"El campo {campo} debe ser un importe válido."
+            ) from exc
+
+        if (
+            not valor.is_finite()
+            or valor < 0
+            or valor != valor.to_integral_value()
+        ):
+            raise ValueError(
+                f"El campo {campo} debe ser un importe "
+                "no negativo con un máximo de dos decimales."
+            )
+
+        return int(valor)
+
+    tipo_derecho = datos.get("tipo_derecho", "").strip()
+    if tipo_derecho not in ("PLENA_PROPIEDAD", "USUFRUCTO"):
+        raise ValueError("El tipo de derecho no es válido.")
+
+    tipo_adquisicion = datos.get("tipo_adquisicion", "").strip()
+    if tipo_adquisicion not in ("ONEROSA", "LUCRATIVA"):
+        raise ValueError("El tipo de adquisición no es válido.")
+
+    fecha_adquisicion = texto_a_fecha(
+        datos.get("fecha_adquisicion", "")
+    )
+
+    texto_transmision = datos.get(
+        "fecha_transmision", ""
+    ).strip()
+
+    fecha_transmision = (
+        texto_a_fecha(texto_transmision)
+        if texto_transmision
+        else None
+    )
+
+    if (
+        fecha_transmision is not None
+        and fecha_transmision < fecha_adquisicion
+    ):
+        raise ValueError(
+            "La fecha de transmisión no puede ser anterior "
+            "a la fecha de adquisición."
+        )
+
+    return {
+        "porcentaje_titular": porcentaje("porcentaje_titular"),
+        "tipo_derecho": tipo_derecho,
+        "porcentaje_derecho": porcentaje("porcentaje_derecho"),
+        "fecha_adquisicion": fecha_adquisicion,
+        "tipo_adquisicion": tipo_adquisicion,
+        "importe_adquisicion": importe("importe_adquisicion"),
+        "gastos_adquisicion": importe("gastos_adquisicion"),
+        "fecha_transmision": fecha_transmision,
     }
 
 
@@ -427,11 +541,23 @@ def nuevo_inmueble():
                     400,
                 )
 
-            valores.update(
-                _datos_propiedad_iniciales(
-                    valores["inmueble_padre_id"]
+            try:
+                valores.update(
+                    _datos_propiedad_formulario(
+                        request.form,
+                        valores["inmueble_padre_id"],
+                    )
                 )
-            )
+            except ValueError as exc:
+                return (
+                    _render_formulario_inmueble(
+                        session,
+                        datos=request.form,
+                        titulo="Nuevo inmueble",
+                        error=str(exc),
+                    ),
+                    400,
+                )
 
             inmueble = Inmueble(**valores)
             session.add(inmueble)
@@ -468,6 +594,33 @@ def editar_inmueble(inmueble_id: int):
                     f"{inmueble.participacion / 100:.2f}"
                     .replace(".", ",")
                 ),
+                "porcentaje_titular": (
+                    porcentaje_a_texto_entrada(inmueble.porcentaje_titular)
+                    if inmueble.porcentaje_titular is not None else ""
+                ),
+                "tipo_derecho": inmueble.tipo_derecho or "",
+                "porcentaje_derecho": (
+                    porcentaje_a_texto_entrada(inmueble.porcentaje_derecho)
+                    if inmueble.porcentaje_derecho is not None else ""
+                ),
+                "fecha_adquisicion": (
+                    fecha_a_texto(inmueble.fecha_adquisicion)
+                    if inmueble.fecha_adquisicion else ""
+                ),
+                "tipo_adquisicion": inmueble.tipo_adquisicion or "",
+                "importe_adquisicion": (
+                    importe_a_texto_entrada(inmueble.importe_adquisicion)
+                    if inmueble.importe_adquisicion is not None else ""
+                ),
+                "gastos_adquisicion": (
+                    importe_a_texto_entrada(inmueble.gastos_adquisicion)
+                    if inmueble.gastos_adquisicion is not None else ""
+                ),
+                "fecha_transmision": (
+                    fecha_a_texto(inmueble.fecha_transmision)
+                    if inmueble.fecha_transmision else ""
+                ),
+
                 "notas": inmueble.notas or "",
                 "es_parte_inmueble": (
                     inmueble.inmueble_padre_id is not None
@@ -561,6 +714,46 @@ def editar_inmueble(inmueble_id: int):
                             "a una propiedad subdividida."
                         ),
                         titulo="Editar inmueble",
+                    ),
+                    400,
+                )
+
+            # impedir cambios de tipo en inmuebles subdivididos con hijos
+            if inmueble.tipo == "T" and valores["tipo"] != "T":
+                tiene_hijos = session.scalar(
+                    select(Inmueble.id)
+                    .where(Inmueble.inmueble_padre_id == inmueble.id)
+                    .limit(1)
+                ) is not None
+
+                if tiene_hijos:
+                    return (
+                        _render_formulario_inmueble(
+                            session,
+                            datos=request.form,
+                            error=(
+                                "No se puede cambiar el tipo de un "
+                                "inmueble subdividido que tiene hijos."
+                            ),
+                            titulo="Editar inmueble",
+                        ),
+                        400,
+                    )
+
+            try:
+                valores.update(
+                    _datos_propiedad_formulario(
+                        request.form,
+                        valores["inmueble_padre_id"],
+                    )
+                )
+            except ValueError as exc:
+                return (
+                    _render_formulario_inmueble(
+                        session,
+                        datos=request.form,
+                        titulo="Editar inmueble",
+                        error=str(exc),
                     ),
                     400,
                 )
