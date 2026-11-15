@@ -1215,6 +1215,15 @@ input.campo-codigo-facturacion {
     box-sizing: content-box;
 }
 
+/* Ejercicio fiscal: cuatro cifras */
+
+input.campo-ejercicio {
+    width: 5ch;
+    min-width: 0;
+    box-sizing: content-box;
+}
+
+
 /* Distribución horizontal de campos de formulario */
 /* Varios campos por línea, con etiquetas a la izquierda */
 

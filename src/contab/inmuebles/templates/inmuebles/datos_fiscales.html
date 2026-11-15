@@ -1,0 +1,173 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+    Datos fiscales - {{ inmueble.referencia }} - Contab
+{% endblock %}
+
+{% macro fila_editable(valores, nuevo) %}
+    <tr>
+        <td>
+            {% if nuevo %}
+                <input
+                    form="form-datos-fiscales"
+                    name="ejercicio"
+                    class="campo-ejercicio"
+                    value="{{ valores.get('ejercicio', '') }}"
+                    aria-label="Ejercicio"
+                >
+            {% else %}
+                {{ valores['ejercicio'] }}
+            {% endif %}
+        </td>
+
+        {% for campo, etiqueta in [
+            ('valor_catastral', 'Valor catastral'),
+            ('valor_suelo', 'Valor del suelo'),
+            ('valor_construccion', 'Valor construcción'),
+            ('amortizacion_aplicada', 'Amortización aplicada')
+        ] %}
+            <td>
+                <input
+                    form="form-datos-fiscales"
+                    name="{{ campo }}"
+                    class="campo-importe"
+                    aria-label="{{ etiqueta }}"
+                    value="{{ valores.get(campo, '') }}"
+                >
+            </td>
+        {% endfor %}
+
+        <td>
+            <form id="form-datos-fiscales" method="post">
+                <input
+                    type="hidden"
+                    name="accion"
+                    value="{{ 'nuevo' if nuevo else 'editar' }}"
+                >
+
+                {% if not nuevo %}
+                    <input
+                        type="hidden"
+                        name="ejercicio"
+                        value="{{ valores['ejercicio'] }}"
+                    >
+                {% endif %}
+
+                <button type="submit">Guardar</button>
+            </form>
+
+            <a href="{{ url_for(
+                'inmuebles.listar_datos_fiscales',
+                inmueble_id=inmueble.id
+            ) }}">
+                Cancelar
+            </a>
+        </td>
+    </tr>
+{% endmacro %}
+
+{% block content %}
+    <h1>Datos fiscales del inmueble</h1>
+
+    <p>
+        <strong>{{ inmueble.referencia }}</strong>
+        - {{ inmueble.descripcion }}
+    </p>
+
+    {% if inmueble.ref_catastral %}
+        <p>
+            Referencia catastral:
+            {{ inmueble.ref_catastral }}
+        </p>
+    {% endif %}
+
+    {% if fila_edicion is none %}
+        <p>
+            <a href="{{ url_for(
+                'inmuebles.listar_datos_fiscales',
+                inmueble_id=inmueble.id,
+                nuevo=1
+            ) }}">
+                Nuevo ejercicio
+            </a>
+        </p>
+    {% endif %}
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if datos_fiscales or fila_edicion == 'nuevo' %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Ejercicio</th>
+                    <th>Valor catastral</th>
+                    <th>Valor suelo</th>
+                    <th>Valor construcción</th>
+                    <th>Amortización</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% if fila_edicion == 'nuevo' %}
+                    {{ fila_editable(formulario, true) }}
+                {% endif %}
+
+                {% for datos in datos_fiscales %}
+                    {% if fila_edicion == datos.ejercicio %}
+                        {{ fila_editable(formulario, false) }}
+                    {% else %}
+                        <tr>
+                            <td>{{ datos.ejercicio }}</td>
+                            <td>
+                                {{ formato_importe(
+                                    datos.valor_catastral
+                                ) }}
+                            </td>
+                            <td>
+                                {{ formato_importe(
+                                    datos.valor_suelo
+                                ) }}
+                            </td>
+                            <td>
+                                {{ formato_importe(
+                                    datos.valor_construccion
+                                ) }}
+                            </td>
+                            <td>
+                                {{ formato_importe(
+                                    datos.amortizacion_aplicada
+                                ) }}
+                            </td>
+                            <td>
+                                {% if fila_edicion is none %}
+                                    <a href="{{ url_for(
+                                        'inmuebles.listar_datos_fiscales',
+                                        inmueble_id=inmueble.id,
+                                        editar=datos.ejercicio
+                                    ) }}">
+                                        Editar
+                                    </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>
+            No hay datos fiscales registrados
+            para este inmueble.
+        </p>
+    {% endif %}
+
+    <p>
+        <a href="{{ url_for('inmuebles.listar_inmuebles') }}">
+            Volver a inmuebles
+        </a>
+    </p>
+{% endblock %}

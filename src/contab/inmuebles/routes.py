@@ -1,7 +1,10 @@
 """Define las rutas web para consultar y mantener inmuebles."""
 
+import re
+
 from flask import (
     Blueprint,
+    abort,
     redirect,
     render_template,
     request,
@@ -17,11 +20,14 @@ from contab.context import (
 )
 from contab.formato import (
     fecha_a_texto,
-    texto_a_fecha,
     importe_a_texto_entrada,
     porcentaje_a_texto_entrada,
+    texto_a_fecha,
 )
-from contab.models import Inmueble
+from contab.models import (
+    DatosFiscalesInmueble,
+    Inmueble,
+)
 
 
 """Variables globales de este archivo -------------------------------------------------"""
@@ -407,6 +413,72 @@ def _render_formulario_inmueble(
         titulo=titulo,
         database_name=get_database_name(),
     )
+
+
+def _datos_fiscales_formulario(datos) -> dict:
+    """Valida los importes y el ejercicio del formulario."""
+
+    ejercicio_texto = datos.get("ejercicio", "").strip()
+
+    if (
+        not ejercicio_texto.isdecimal()
+        or not 1 <= int(ejercicio_texto) <= 9999
+    ):
+        raise ValueError("El ejercicio no es válido.")
+
+    valores = {"ejercicio": int(ejercicio_texto)}
+
+    campos = {
+        "valor_catastral": "valor catastral",
+        "valor_suelo": "valor del suelo",
+        "valor_construccion": "valor de la construcción",
+        "amortizacion_aplicada": "amortización aplicada",
+    }
+
+    for campo, etiqueta in campos.items():
+        texto = datos.get(campo, "").strip()
+
+        if not re.fullmatch(r"\d+(?:[,.]\d{1,2})?", texto):
+            raise ValueError(
+                f"El campo {etiqueta} debe ser un importe "
+                "no negativo con un máximo de dos decimales."
+            )
+
+        valor = Decimal(texto.replace(",", ".")) * 100
+        valores[campo] = int(valor)
+
+    if (
+        valores["valor_suelo"]
+        + valores["valor_construccion"]
+        != valores["valor_catastral"]
+    ):
+        raise ValueError(
+            "El valor del suelo más el valor de la "
+            "construcción debe ser igual al valor catastral."
+        )
+
+    return valores
+
+
+def _datos_fiscales_a_formulario(datos) -> dict:
+    """Prepara los valores de un ejercicio para su edición."""
+
+    campos = (
+        "valor_catastral",
+        "valor_suelo",
+        "valor_construccion",
+        "amortizacion_aplicada",
+    )
+
+    return {
+        "ejercicio": str(datos.ejercicio),
+        **{
+            campo: importe_a_texto_entrada(
+                getattr(datos, campo)
+            )
+            for campo in campos
+        },
+    }
 
 
 
@@ -797,4 +869,188 @@ def cambiar_estado_inmueble(inmueble_id: int):
             inmueble.activo = not inmueble.activo
 
     return redirect(url_for("inmuebles.listar_inmuebles"))
+
+
+@bp.route(
+    "/<int:inmueble_id>/datos-fiscales",
+    methods=["GET", "POST"],
+)
+def listar_datos_fiscales(inmueble_id: int):
+    """Lista, crea y modifica los datos fiscales anuales."""
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        if (
+            inmueble is None
+            or inmueble.inmueble_padre_id is not None
+        ):
+            abort(404)
+
+        registros = session.scalars(
+            select(DatosFiscalesInmueble)
+            .where(
+                DatosFiscalesInmueble.inmueble_id
+                == inmueble_id
+            )
+            .order_by(
+                DatosFiscalesInmueble.ejercicio.desc()
+            )
+        ).all()
+
+        fila_edicion = None
+        formulario = {}
+        error = None
+        estado = 200
+
+        if request.method == "POST":
+            accion = request.form.get("accion", "")
+            ejercicio_texto = request.form.get(
+                "ejercicio", ""
+            ).strip()
+
+            if accion not in ("nuevo", "editar"):
+                abort(400)
+
+            if accion == "editar":
+                if not ejercicio_texto.isdecimal():
+                    abort(400)
+
+                ejercicio = int(ejercicio_texto)
+                registro = next(
+                    (
+                        item for item in registros
+                        if item.ejercicio == ejercicio
+                    ),
+                    None,
+                )
+
+                if registro is None:
+                    abort(404)
+
+                fila_edicion = ejercicio
+            else:
+                registro = None
+                fila_edicion = "nuevo"
+
+            formulario = {
+                campo: request.form.get(campo, "")
+                for campo in (
+                    "ejercicio",
+                    "valor_catastral",
+                    "valor_suelo",
+                    "valor_construccion",
+                    "amortizacion_aplicada",
+                )
+            }
+
+            try:
+                valores = _datos_fiscales_formulario(
+                    request.form
+                )
+
+                if accion == "nuevo":
+                    if any(
+                        item.ejercicio == valores["ejercicio"]
+                        for item in registros
+                    ):
+                        raise ValueError(
+                            "Ya existen datos fiscales "
+                            "para ese ejercicio."
+                        )
+
+                    session.add(
+                        DatosFiscalesInmueble(
+                            inmueble_id=inmueble_id,
+                            **valores,
+                        )
+                    )
+                else:
+                    # El ejercicio identifica al registro;
+                    # no se permite modificarlo.
+                    for campo in (
+                        "valor_catastral",
+                        "valor_suelo",
+                        "valor_construccion",
+                        "amortizacion_aplicada",
+                    ):
+                        setattr(
+                            registro,
+                            campo,
+                            valores[campo],
+                        )
+
+                session.commit()
+
+                return redirect(
+                    url_for(
+                        "inmuebles.listar_datos_fiscales",
+                        inmueble_id=inmueble_id,
+                    )
+                )
+
+            except ValueError as exc:
+                error = str(exc)
+                estado = 400
+
+        elif request.args.get("nuevo") == "1":
+            fila_edicion = "nuevo"
+
+            if registros:
+                formulario = _datos_fiscales_a_formulario(
+                    registros[0]
+                )
+                formulario["ejercicio"] = str(
+                    registros[0].ejercicio + 1
+                )
+            else:
+                formulario = {
+                    "ejercicio": str(date.today().year),
+                    "valor_catastral": "0,00",
+                    "valor_suelo": "0,00",
+                    "valor_construccion": "0,00",
+                    "amortizacion_aplicada": "0,00",
+                }
+
+            formulario["amortizacion_aplicada"] = "0,00"
+
+        elif "editar" in request.args:
+            ejercicio_texto = request.args["editar"]
+
+            if not ejercicio_texto.isdecimal():
+                abort(404)
+
+            ejercicio = int(ejercicio_texto)
+
+            registro = next(
+                (
+                    item for item in registros
+                    if item.ejercicio == ejercicio
+                ),
+                None,
+            )
+
+            if registro is None:
+                abort(404)
+
+            fila_edicion = ejercicio
+            formulario = _datos_fiscales_a_formulario(
+                registro
+            )
+
+        return (
+            render_template(
+                "inmuebles/datos_fiscales.html",
+                inmueble=inmueble,
+                datos_fiscales=registros,
+                fila_edicion=fila_edicion,
+                formulario=formulario,
+                error=error,
+                formato_importe=importe_a_texto_entrada,
+                database_name=get_database_name(),
+            ),
+            estado,
+        )
 

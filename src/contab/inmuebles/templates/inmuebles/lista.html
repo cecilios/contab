@@ -24,6 +24,16 @@
         Editar
     </a>
 
+    {% if inmueble.inmueble_padre_id is none %}
+        -
+        <a href="{{ url_for(
+            'inmuebles.listar_datos_fiscales',
+            inmueble_id=inmueble.id
+        ) }}">
+            Datos fiscales
+        </a>
+    {% endif %}
+
     -
     <a href="{{ url_for(
         'inmuebles.cambiar_estado_inmueble',
