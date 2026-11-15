@@ -95,22 +95,14 @@ Un inmueble inactivo se conserva para mantener la coherencia de contratos y apun
 
 Los informes de un ejercicio pueden incluir inmuebles inactivos cuando tengan apuntes contabilizables durante ese año.
 
-## Datos catastrales y documentales
+## Datos catastrales y fiscales
 -----------------------------------
 
-Los datos catastrales pertenecen al inmueble y pueden ser necesarios para futuros informes fiscales:
+Desde el enlace Datos fiscales del listado de inmuebles se pueden consultar y mantener los valores fiscales de cada ejercicio.
 
-- referencia catastral;
-- valor catastral;
-- valor del suelo;
-- valor de la construcción;
-- año de revisión catastral.
+La pantalla permite crear y editar los datos directamente en una tabla, indicando los valores catastrales del suelo y de la construcción, así como la amortización aplicada.
 
-No son obligatorios para empezar a utilizar Contab. El usuario los rellenará cuando los conozca y los revisará al preparar las declaraciones correspondientes.
-
-La ruta de documentos también pertenece al inmueble. En el futuro permitirá generar y archivar facturas y otros documentos dentro de la organización de carpetas que ya utiliza el cliente.
-
-Contab no pretende sustituir el sistema de archivos como archivo documental.
+Esta información se mantiene para inmuebles independientes y para inmuebles subdivididos completos, no para sus locales hijos.
 
 ## Inquilinos
 -------------

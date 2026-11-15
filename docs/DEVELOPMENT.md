@@ -363,6 +363,38 @@ Implemented:
 * rent changes;
 * contractual grace periods.
 
+
+### Property ownership and annual fiscal data
+
+Ownership data is maintained in the shared property creation/editing
+form.
+
+Rules:
+- Independent properties and type-T parents require ownership data.
+- Child properties must have all ownership fields NULL.
+- Ownership percentage is independent from the participation used
+  to distribute common expenses.
+
+`DatosFiscalesInmueble` stores one record per property and fiscal year.
+
+Annual fiscal data is available only for properties without a parent,
+including type-T properties. Enforce this in the routes, not only in
+the interface.
+
+The fiscal data screen uses a single table with inline row editing,
+implemented with Flask/Jinja and no JavaScript. Only one row is edited
+at a time.
+
+New years initially copy cadastral values from the most recent
+registered year; applied depreciation starts at zero. The year is
+editable on creation but not during editing.
+
+Validation requires:
+
+    valor_suelo + valor_construccion == valor_catastral
+
+All amounts are non-negative and stored in integer cents.
+
 ### Contract annexes
 
 `AnexoContrato` represents a formal contractual modification.
