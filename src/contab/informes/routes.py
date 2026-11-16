@@ -4,7 +4,6 @@ from datetime import date
 from io import BytesIO
 from flask import (
     Blueprint,
-    Response,
     render_template,
     request,
     send_file,
@@ -28,8 +27,6 @@ from contab.context import (
     get_session_factory,
 )
 from contab.informes.services import (
-    generar_csv_iva,
-    generar_zip_iva,
     preparar_ingresos_gastos_anuales,
     preparar_resumen_anual_iva,
 )
@@ -67,22 +64,6 @@ def _porcentaje_a_entero(valor: str) -> int:
     )
 
 
-def _render_formulario_iva(
-    *,
-    inmuebles,
-    anio,
-    error: str | None,
-):
-    """Muestra el formulario de exportación anual por inmueble."""
-    return render_template(
-        "informes/iva.html",
-        inmuebles=inmuebles,
-        anio=anio,
-        error=error,
-        database_name=get_database_name(),
-    )
-
-
 
 @bp.get("/")
 def indice():
@@ -91,148 +72,6 @@ def indice():
         "informes/indice.html",
         database_name=get_database_name(),
     )
-
-
-@bp.route("/iva", methods=["GET", "POST"])
-def exportar_iva():
-    """Prepara y descarga la exportación anual para IVA."""
-    session_factory = get_session_factory()
-
-    with session_factory() as session:
-        inmuebles = session.scalars(
-            select(Inmueble).order_by(
-                Inmueble.referencia
-            )
-        ).all()
-
-        if request.method == "GET":
-            return _render_formulario_iva(
-                inmuebles=inmuebles,
-                anio=date.today().year,
-                error=None,
-            )
-
-        try:
-            seleccion = request.form[
-                "inmueble_id"
-            ]
-            anio = int(request.form["anio"])
-
-            if not 1 <= anio <= 9999:
-                raise ValueError
-
-            inmueble_id = (
-                None
-                if seleccion == "todos"
-                else int(seleccion)
-            )
-
-        except (KeyError, ValueError):
-            return (
-                _render_formulario_iva(
-                    inmuebles=inmuebles,
-                    anio=request.form.get("anio", date.today().year),
-                    error=(
-                        "Debe seleccionar un inmueble "
-                        "e indicar un año válido."
-                    ),
-                ),
-                400,
-            )
-
-        inmueble = None
-
-        if inmueble_id is not None:
-            inmueble = session.get(
-                Inmueble,
-                inmueble_id,
-            )
-
-            if inmueble is None:
-                return (
-                    _render_formulario_iva(
-                        inmuebles=inmuebles,
-                        anio=anio,
-                        error=(
-                            "El inmueble seleccionado "
-                            "no existe."
-                        ),
-                    ),
-                    400,
-                )
-
-        consulta = (
-            select(ApunteContable)
-            .where(
-                ApunteContable.fecha
-                >= date(anio, 1, 1),
-                ApunteContable.fecha
-                <= date(anio, 12, 31),
-            )
-            .order_by(
-                ApunteContable.fecha,
-                ApunteContable.id,
-            )
-        )
-
-        if inmueble_id is not None:
-            consulta = consulta.where(
-                ApunteContable.inmueble_id
-                == inmueble_id
-            )
-
-        apuntes = session.scalars(
-            consulta
-        ).all()
-
-        if inmueble_id is None:
-            contenido = generar_zip_iva(
-                inmuebles=inmuebles,
-                apuntes=apuntes,
-                anio=anio,
-            )
-
-            response = Response(
-                contenido,
-                content_type="application/zip",
-            )
-            response.headers[
-                "Content-Disposition"
-            ] = (
-                f'attachment; filename="'
-                f'iva-{anio}.zip"'
-            )
-
-            return response
-
-        contenido = generar_csv_iva(
-            inmueble=inmueble,
-            apuntes=apuntes,
-            anio=anio,
-        )
-
-        referencia = (
-            secure_filename(inmueble.referencia)
-            or f"inmueble-{inmueble.id}"
-        )
-        nombre_archivo = (
-            f"iva-{referencia}-{anio}.csv"
-        )
-
-        response = Response(
-            contenido,
-            content_type=(
-                "text/csv; charset=utf-8"
-            ),
-        )
-        response.headers[
-            "Content-Disposition"
-        ] = (
-            f'attachment; filename="'
-            f'{nombre_archivo}"'
-        )
-
-        return response
 
 
 @bp.get("/iva-resumen-anual")

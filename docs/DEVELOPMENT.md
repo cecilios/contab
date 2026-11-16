@@ -463,8 +463,8 @@ Implemented:
 * type-`T` spatial distribution;
 * contract temporal attribution;
 * reimbursement workflow for `REPERCUTIR`;
-* accounting CSV reports;
-* annual VAT summary;
+* annual income/expense report (HTML, printing and XLSX);
+* annual VAT summary (HTML, printing and XLSX);
 * report integration of persistent distributions and imputations.
 
 Important treatments:
@@ -976,107 +976,119 @@ Do not add a generic independent editor for reimbursement lines or imputations.
 
 The current lifecycle deliberately keeps those records tied to the reimbursement operation that created them.
 
+
 ## Accounting reports
 
-Current implemented reports include:
+Implemented reports:
 
-```text
-annual CSV per property
-ZIP containing one CSV per applicable property
-IVA annual summary
-```
-The intended design for new reports is:
+- `Ingresos y gastos del año`: annual income and expense
+  details for a selected property, with quarterly totals.
+- `IVA. Resumen anual`: quarterly and annual VAT-oriented
+  summary across applicable properties.
 
-    HTML screen + browser printing + XLSX export
+Both support HTML display, browser printing and XLSX export.
 
-Reports must remain simple and report-specific. Do not
-introduce a generic reporting framework.
-Reports consider:
+The income/expense report also supports exporting all properties
+to one workbook, with one worksheet per property.
 
-```text
-CONTABILIZAR
-FACTURAR
-REPERCUTIR
-```
+Report preparation is separate from presentation. HTML and XLSX
+reuse the same prepared accounting data; business calculations
+must not be duplicated in templates or Excel generators.
 
-Accounting semantics:
+Monetary values remain integer cents until presentation.
+XLSX detail amounts are numeric euro values. Excel formulas
+may sum cells but must not reproduce accounting allocation
+or attribution logic.
 
-```text
-CONTABILIZAR
-    → full owner's amount
+Do not introduce a generic reporting framework.
 
-FACTURAR
-    → full original expense remains owner's expense
+### Accounting treatments
 
-REPERCUTIR
-    → owner amount = source base - persisted contract-attributed base
-```
-
-For type-`T` entries:
-
-```text
-ApunteContable
-    ↓
-DistribucionApunte for requested child property
-    ↓
-optional ImputacionContrato residual calculation
-```
-
-Reports do not show the type-`T` container as separate accounting.
-
-They show the child properties.
-
-When `REPERCUTIR` is only partially attributed to contracts, the residual remains expense of the owner.
-
-When fully attributed, owner expense may be zero.
-
-Reports use persisted:
-
-```text
-DistribucionApunte
-ImputacionContrato
-```
-
-rather than recomputing historical allocation from current configuration.
-
-The IVA-oriented CSV continues to show:
-
-```text
-income base
-expense base
-IVA on income
-retention on income
-```
-
-It deliberately does not move supported expense IVA into the existing control sheet because the report reproduces the user's established workflow.
-
-## Selecting properties for reports
-
-Applicable properties for annual export are selected using the following rules:
-
-```text
-active non-T property
-    → included
-
-inactive non-T property with applicable entries in year
-    → included
-
-type-T property
-    → never included as its own accounting output
-
-type-T entry
-    → child properties from its persisted DistribucionApunte records are applicable
-```
-
-Applicable treatments are:
+The common accounting semantics are:
 
 ```text
 CONTABILIZAR
+    → full recorded owner amount
+
 FACTURAR
+    → full original expense remains an owner expense
+    → the later invoice generates a separate income entry
+
 REPERCUTIR
+    → owner expense base = source base
+      - persisted contract-attributed bases
 ```
 
-This also ensures that historical activity from an inactive child property can still appear for the relevant year.
+For a distributed entry, the source base is the persisted
+`DistribucionApunte.base`, not the parent's full base.
+
+For `REPERCUTIR`, only the residual owner expense is
+fiscally computable. The income/expense detail report omits
+entries whose residual owner base is zero.
+
+Negative accounting entries retain their nature and category,
+and their signed amounts reduce the corresponding totals.
+
+The reports reuse persisted `DistribucionApunte` and
+`ImputacionContrato` records. They do not recalculate historical
+distributions from current ownership shares or contracts.
+
+### Annual income and expense report
+
+The preparation function is
+`preparar_ingresos_gastos_anuales()`.
+
+It returns four quarterly groups, their detail entries and totals,
+annual totals, and expense categories obtained dynamically
+from `contab.ini`, preserving category order and names.
+
+Expense subcategories contribute to their parent category.
+Inactive categories remain available for historical entries.
+
+The detailed columns are:
+
+```text
+Date | Concept | Income | Expense categories... | IVA | Retention
+```
+
+Amounts are accounting bases. IVA and retention refer to income
+entries and are shown separately. Expense IVA is not shown.
+
+The total expense amount is retained in the prepared data but
+appears only in the quarterly and annual summary rows,
+not as a detail column.
+
+For a selected property:
+
+- its own entries are shown;
+- a type-T property's own entries use their complete amounts;
+- a child property also includes the persisted parts distributed
+  from its type-T parent, for both income and expense entries.
+
+### Property selection
+
+The income/expense report accepts any selected property,
+including inactive properties and type-T parents.
+
+Selecting `todos` does not render a consolidated HTML report.
+It exports an XLSX workbook containing an independent worksheet
+for every property, including type-T parents and their children.
+
+Worksheets are not added together: a parent's full entry and
+the corresponding child distributions represent different views
+of the same accounting event.
+
+The `IVA. Resumen anual` report retains its own selection rules,
+implemented in `seleccionar_inmuebles_exportacion_iva()`:
+
+- active non-T properties are included;
+- inactive non-T properties are included when they have
+  applicable entries during the selected year;
+- type-T properties are excluded as independent summary rows;
+- child properties can be included through persisted distributions.
+
+This selection function remains in use despite its historical name.
+It must not be removed with the obsolete CSV/ZIP export code.
 
 
 ## Bank import and reconciliation

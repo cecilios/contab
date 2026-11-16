@@ -4,63 +4,20 @@
 ## Finalidad
 ------------
 
-Los informes contables son uno de los dos objetivos principales de Contab, junto con la conciliación bancaria.
+Los informes de Contab permiten revisar los ingresos y gastos de los inmuebles y preparar las declaraciones fiscales sin reconstruir manualmente la contabilidad del ejercicio.
 
-Su finalidad es evitar que el usuario tenga que reconstruir y reclasificar manualmente la contabilidad cada vez que Hacienda modifica el nivel de detalle o la forma de declarar los ingresos y gastos de los inmuebles.
-
-Contab debe conservar los apuntes con suficiente detalle y permitir obtener distintas agrupaciones sin obligar al usuario a cambiar durante el año su forma cotidiana de trabajar.
-
-## Situación anterior a Contab
-------------------------------
-
-El usuario anotaba los movimientos de cada inmueble en papel y, trimestralmente, los trasladaba a una hoja de cálculo para preparar la declaración del IVA.
-
-Al finalizar el ejercicio utilizaba esas hojas para preparar la declaración del IRPF. Cuando Hacienda cambiaba el formulario o exigía un desglose diferente, debía revisar y reorganizar manualmente toda la contabilidad del año anterior.
-
-Este trabajo podía ocupar más de un día y hacía inútil parte del esfuerzo de clasificación realizado durante el año.
-
-## Operativa prevista con Contab
---------------------------------
-
-Los apuntes se registran una sola vez, con una clasificación estable y suficientemente detallada.
-
-Cuando el usuario necesita preparar una declaración o revisar la contabilidad:
+Los apuntes se registran una sola vez, con su clasificación contable. Los informes utilizan esos datos y las distribuciones e imputaciones ya guardadas.
 
 
-1. Accede al apartado **Informes**.
-2. Elige el informe que necesita.
-3. Indica el ejercicio y las opciones correspondientes.
-4. Consulta los resultados en pantalla.
-5. Si lo desea, imprime el informe o lo exporta a Excel
-   para trabajar con los datos en una hoja de cálculo.
+## Funcionamiento general
 
-Los informes deben ser sencillos de revisar y suficientemente flexibles para que una
-hoja de cálculo permita resolver necesidades nuevas mientras se decide si merece la
-pena incorporarlas a Contab.
+Desde Informes se elige el informe, el ejercicio y las opciones correspondientes.
 
-## Organización de los informes
---------------------------------
+Los informes pueden consultarse en pantalla, imprimirse y exportarse a Excel (XLSX). La
+pantalla y el Excel utilizan los mismos datos y criterios contables.
 
-Contab dispone de un apartado independiente de **Informes**, con una pantalla índice.
-
-Cada opción se presenta mediante:
-
-- un enlace con el nombre del informe;
-- una descripción breve de su finalidad.
-
-No se crearán submenús de informes en Inmuebles, Inquilinos o Contratos. Son conjuntos pequeños y sus listados en pantalla, junto con la impresión del navegador, resultan suficientes.
-
-## Formato de exportación
--------------------------
-
-Los nuevos informes se consultan en pantalla y pueden
-imprimirse o exportarse a Excel (XLSX).
-
-La exportación conserva los importes como valores numéricos
-y puede incluir fórmulas sencillas para totales y sumas.
-
-Las exportaciones CSV anteriores permanecen disponibles
-temporalmente.
+Los importes calculados por Contab se exportan como números. Excel puede utilizar fórmulas
+para los totales, pero no se exportan las fórmulas que reproducen repartos o criterios contables.
 
 
 ## Apuntes incluidos
@@ -71,7 +28,9 @@ El tratamiento del apunte determina qué parte constituye realmente ingreso o ga
 El criterio funcional es:
 
 - **CONTABILIZAR:** el ingreso o gasto forma parte de la contabilidad del propietario.
-- **REPERCUTIR:** la parte atribuida a un inquilino y posteriormente reembolsada no constituye gasto del propietario. La parte que no pueda atribuirse a ningún contrato permanece como gasto del propietario.
+- **REPERCUTIR:** la parte atribuida a un inquilino y posteriormente reembolsada no
+  constituye gasto del propietario. La parte que no pueda atribuirse a ningún contrato
+  permanece como gasto del propietario.
 - **FACTURAR:** el gasto forma parte íntegramente de la contabilidad del propietario. Cuando posteriormente se facture al inquilino, la factura producirá además su correspondiente ingreso contable.
 
 Por tanto, `FACTURAR` no elimina ni aplaza contablemente el gasto original.
@@ -104,71 +63,62 @@ En los apuntes `REPERCUTIR`, el signo también se tiene en cuenta al
 determinar qué parte corresponde al propietario, utilizando las
 imputaciones a contratos que estén persistidas.
 
-## Clasificación contable
--------------------------
 
-Los apuntes se clasifican mediante categorías y, cuando sea necesario, subcategorías.
 
-La clasificación debe permitir:
+## Informe: Ingresos y gastos del año
 
-- obtener los grupos exigidos actualmente por Hacienda;
-- conservar detalles útiles, como distinguir IBI, residuos urbanos, agua, electricidad, gas o reparaciones;
-- reagrupar los mismos apuntes con criterios distintos en informes futuros.
+El informe **Ingresos y gastos del año** muestra los apuntes fiscalmente computables de un inmueble durante el ejercicio seleccionado.
 
-Las categorías utilizadas históricamente no deben desaparecer aunque dejen de ofrecerse para apuntes nuevos. Si Hacienda cambia sus criterios durante un ejercicio, los apuntes podrán reclasificarse de forma controlada sin desarrollar pantallas específicas para un caso excepcional.
+Los movimientos aparecen ordenados por fecha y agrupados en cuatro trimestres.
 
-## Exportación para la declaración del IVA
--------------------------------------------
+Las columnas son:
 
-El primer informe implementado es **Exportar apuntes para declaración de IVA**.
+- Fecha y concepto.
+- Ingresos.
+- Una columna por cada categoría de gastos definida en `contab.ini`.
+- IVA y retención de los ingresos.
 
-Genera un CSV anual para un inmueble con cuatro bloques, uno por trimestre. Cada bloque contiene:
+Las columnas de gastos se generan según el orden y la denominación de las categorías contables, incluidas las inactivas que puedan tener apuntes históricos. Las subcategorías se agrupan en su categoría principal.
 
-- los apuntes ordenados por fecha;
-- ingresos;
-- gastos;
-- IVA de los ingresos;
-- retenciones de los ingresos;
-- totales trimestrales;
-- una estimación del ingreso neto.
+Los importes corresponden a las bases contables. El IVA y las retenciones de los ingresos se muestran por separado.
 
-También incluye los totales del ejercicio.
+Cada trimestre termina con los totales por categoría y un resumen de **Ingresos, Gastos, IVA y Retención**. Al final del informe aparecen los mismos totales para el conjunto del año.
 
-El IVA soportado de los gastos no se traslada a esta hoja porque así trabaja actualmente el usuario y el informe está orientado a reproducir su control habitual.
+No se muestra una columna de total de gastos en cada apunte; ese importe aparece únicamente en los resúmenes.
 
-Los cuatro trimestres aparecen siempre. Cuando uno está vacío se mantiene un espacio antes de sus totales para que el bloque resulte claramente reconocible. Cuando contiene apuntes, la línea de totales sigue inmediatamente al último movimiento.
+### Selección de inmuebles
 
-## Selección individual y exportación conjunta
------------------------------------------------
+Si se selecciona un inmueble concreto, Contab muestra su informe y permite imprimirlo o exportarlo a Excel.
 
-El formulario permite elegir:
+Si se selecciona **Todos los inmuebles**, no se presenta un informe conjunto en pantalla. La opción **Exportar Excel** genera un único libro con una hoja independiente por inmueble.
 
-- un inmueble concreto;
-- todos los inmuebles;
-- el año del informe.
+Se incluyen todos los inmuebles, tanto activos como inactivos, incluidos los de tipo `T` y sus locales hijos. Los resultados de las hojas no se suman entre sí.
 
-Si se selecciona un inmueble, se descarga su CSV.
+### Tratamiento de los apuntes
 
-Si se seleccionan todos, Contab genera un archivo ZIP con un CSV independiente para cada inmueble que deba incluirse. Esto permite obtener toda la contabilidad anual en una sola acción y conservar archivos separados, fáciles de importar como hojas distintas en LibreOffice.
+- **CONTABILIZAR:** se incluye el ingreso o gasto registrado.
+- **FACTURAR:** se incluye el gasto original. La factura posterior, cuando genera su correspondiente apunte de ingreso, se refleja por separado.
+- **REPERCUTIR:** solo se incluye la parte del gasto que corresponde al propietario y que no está atribuida a contratos. Si todo el gasto corresponde a los inquilinos, el apunte no aparece en el informe.
 
-Se incluyen:
+Los importes negativos se muestran con signo negativo y se restan de la categoría correspondiente.
 
-- los inmuebles activos que no sean contenedores de tipo `T`;
-- los inmuebles inactivos que tengan apuntes aplicables durante el año solicitado;
-- los locales de inmuebles `T` que tengan distribuciones persistidas correspondientes a apuntes aplicables.
+### Inmuebles subdivididos
 
-Se consideran aplicables los tratamientos `CONTABILIZAR`, `FACTURAR` y `REPERCUTIR`.
+En el informe de un inmueble `T` aparecen completos sus apuntes propios, tanto ingresos como gastos.
 
-Los inmuebles de tipo `T` no aparecen como contabilidad propia. Sus gastos se muestran en los locales hijo según las `DistribucionApunte` persistidas.
+En el informe de cada local hijo aparecen sus apuntes propios y las partes de los ingresos y gastos del inmueble `T` que tenga asignadas mediante distribuciones persistidas.
 
-## IVA. Resumen anual
----------------------
+Para los gastos repercutibles también se consideran las imputaciones guardadas a los contratos, de modo que únicamente aparezca la parte correspondiente al propietario.
+
+El informe no vuelve a calcular repartos espaciales ni temporales.
+
+
+
+## Informe: IVA. Resumen anual
+------------------------------
 
 El informe **IVA. Resumen anual** reúne en una única hoja los totales trimestrales de
 todos los inmuebles incluidos en el ejercicio.
-
-El informe se consulta desde **Informes → IVA. Resumen anual**,
-con opciones para imprimirlo y exportarlo a Excel.
 
 Dentro de cada trimestre separa:
 
@@ -181,7 +131,7 @@ Para cada inmueble se muestran los totales necesarios para revisar ingresos, gas
 
 El resumen incluye también los totales generales del trimestre y del año.
 
-## Estimación del rendimiento neto
+### Estimación del rendimiento neto
 ----------------------------------
 
 La estimación pretende aproximar el importe que conserva el propietario después
@@ -205,67 +155,3 @@ fiscal definitivo.
 
 El neto se calcula restando a los ingresos brutos los gastos y la retención real
 o Hacienda estimada. El IVA se muestra por separado y no se descuenta del neto.
-
-
-## Inmuebles subdivididos
--------------------------
-
-Un inmueble de tipo `T` representa la propiedad común de varios locales alquilables. Algunos gastos, como el IBI, el seguro o la comunidad, pertenecen al conjunto de la propiedad.
-
-Los apuntes registrados en un inmueble `T` no constituyen contabilidad propia del contenedor. Al crearse se distribuyen entre sus locales hijo según la participación configurada.
-
-La distribución se conserva persistentemente en `DistribucionApunte`, incluyendo la participación utilizada y los importes resultantes. De esta forma, un cambio posterior de participaciones no altera el reparto histórico.
-
-A partir de cada distribución se aplica el tratamiento del apunte:
-
-- **CONTABILIZAR:** toda la parte distribuida corresponde al propietario y debe aparecer en la contabilidad del local.
-- **REPERCUTIR:** la parte atribuida temporalmente a contratos se excluye como gasto del propietario; los períodos sin contrato permanecen como gasto del propietario.
-- **FACTURAR:** toda la parte distribuida continúa siendo gasto del propietario. La parte atribuida a contratos podrá incorporarse posteriormente a factura.
-
-La distribución espacial y la atribución temporal son operaciones distintas:
-
-- `DistribucionApunte` determina a qué local corresponde el gasto;
-- `ImputacionContrato` determina qué parte de ese gasto corresponde a cada contrato.
-
-## Datos catastrales
---------------------
-
-Los futuros informes para el IRPF podrán necesitar:
-
-- referencia catastral;
-- valor catastral;
-- valor del suelo;
-- valor de la construcción;
-- año de revisión catastral.
-
-Estos datos pertenecen al inmueble. El usuario los rellenará cuando los conozca y deberá revisarlos cuando prepare la declaración correspondiente.
-
-Que un valor no esté informado no debe impedir registrar la actividad ordinaria del inmueble.
-
-## Controles y revisión
------------------------
-
-Los informes deben ayudar al usuario a detectar:
-
-- trimestres sin los ingresos o gastos esperados;
-- importes o clasificaciones anómalos;
-- apuntes asignados al inmueble equivocado;
-- diferencias entre los totales contables y fiscales;
-- información necesaria que todavía no se haya registrado.
-
-La revisión en hoja de cálculo sigue siendo útil como control visual y como solución rápida ante una exigencia fiscal nueva.
-
-## Alcance actual
------------------
-
-Actualmente están disponibles:
-
-- la pantalla índice de informes;
-- el CSV anual de apuntes para un inmueble;
-- la generación conjunta de los CSV de todos los inmuebles en un ZIP;
-- la consulta, impresión y exportación a Excel del informe
-  **IVA. Resumen anual**;
-
-Los informes utilizan las distribuciones e imputaciones persistidas y no reconstruyen
-históricamente los repartos a partir de los contratos o participaciones actuales.
-
