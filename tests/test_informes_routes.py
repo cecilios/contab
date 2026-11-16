@@ -5,6 +5,7 @@ from io import BytesIO
 from zipfile import ZipFile
 
 from contab.app import create_app
+from contab.config import CategoriaContable
 from contab.database import Base
 from contab.models import (
     ApunteContable,
@@ -596,5 +597,170 @@ def test_exportar_resumen_anual_iva_xlsx():
     assert any(
         hoja.cell(fila, 1).value == "Totales del año 2026"
         for fila in range(1, hoja.max_row + 1)
+    )
+
+
+
+def test_pantalla_ingresos_gastos_anuales(
+    monkeypatch,
+) -> None:
+    """Muestra apuntes y totales de un inmueble."""
+
+    app = _crear_app_test()
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="De comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    monkeypatch.setattr(
+        "contab.informes.routes.cargar_categorias_contables",
+        lambda: categorias,
+    )
+
+    with session_factory() as session:
+        inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local comercial",
+            direccion="Calle Mayor",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        gasto = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 4, 10),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Comunidad abril",
+            base=4350,
+            iva_importe=0,
+            retencion_importe=0,
+            total=4350,
+            tratamiento="CONTABILIZAR",
+            nombre_documento="Comunidad.pdf",
+        )
+
+        session.add_all([inmueble, gasto])
+        session.commit()
+        inmueble_id = inmueble.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/informes/ingresos-gastos-anuales",
+        query_string={
+            "inmueble_id": inmueble_id,
+            "anio": 2026,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Ingresos y gastos del año" in response.text
+    assert "Comunidad abril" in response.text
+    assert "De comunidad" in response.text
+    assert "43,50" in response.text
+    assert "Totales 2T" in response.text
+    assert "Totales del año" in response.text
+    assert "Imprimir" in response.text
+
+
+def test_ingresos_gastos_todos_sin_pantalla() -> None:
+    """La opción Todos no construye el informe conjunto."""
+
+    app = _crear_app_test()
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/informes/ingresos-gastos-anuales",
+        query_string={
+            "inmueble_id": "todos",
+            "anio": 2026,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "no se muestra en pantalla" in response.text
+    assert "una hoja por cada inmueble" in response.text
+    assert "Totales del año" not in response.text
+
+
+def test_exportar_ingresos_gastos_todos_incluye_inmuebles_t(
+    monkeypatch,
+) -> None:
+    """Exporta todos los inmuebles en hojas independientes."""
+
+    from openpyxl import load_workbook
+
+    app = _crear_app_test()
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    monkeypatch.setattr(
+        "contab.informes.routes.cargar_categorias_contables",
+        lambda: {},
+    )
+
+    with session_factory() as session:
+        edificio = _crear_inmueble_prueba(
+            referencia="EDIFICIO",
+            tipo="T",
+            codigo_facturacion="ED",
+            descripcion="Edificio",
+            direccion="Dirección edificio",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        local = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local",
+            direccion="Dirección local",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            activo=False,
+        )
+
+        session.add_all([edificio, local])
+        session.commit()
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/informes/ingresos-gastos-anuales",
+        query_string={
+            "inmueble_id": "todos",
+            "anio": 2026,
+            "exportar": "xlsx",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "spreadsheetml.sheet" in response.content_type
+
+    libro = load_workbook(BytesIO(response.data))
+
+    assert libro.sheetnames == [
+        "EDIFICIO",
+        "LOCAL-1",
+    ]
+
+    assert "Ingresos y gastos del año" in (
+        libro["EDIFICIO"]["A1"].value
+    )
+    assert "Ingresos y gastos del año" in (
+        libro["LOCAL-1"]["A1"].value
     )
 

@@ -1215,10 +1215,10 @@ input.campo-codigo-facturacion {
     box-sizing: content-box;
 }
 
-/* Ejercicio fiscal: cuatro cifras */
+/* Ejercicio fiscal: cuatro cifras del año más espacio para los selectores */
 
 input.campo-ejercicio {
-    width: 5ch;
+    width: 8ch;
     min-width: 0;
     box-sizing: content-box;
 }
@@ -1252,4 +1252,230 @@ input.campo-ejercicio {
 
 fieldset {
     margin-bottom: 1rem;
+}
+
+
+/* ==========================================================
+   Informe: Ingresos y gastos del año
+   ========================================================== */
+
+.ingresos-gastos__filtros {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.ingresos-gastos__cabecera {
+    margin-bottom: 1.5rem;
+}
+
+.ingresos-gastos__cabecera h2 {
+    margin-bottom: 0.3rem;
+}
+
+.ingresos-gastos__trimestre {
+    margin-bottom: 2.5rem;
+}
+
+.ingresos-gastos__desplazamiento {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* ----------------------------------------------------------
+   Tablas
+   ---------------------------------------------------------- */
+
+.ingresos-gastos__tabla,
+.ingresos-gastos__resumen {
+    border-collapse: collapse;
+}
+
+.ingresos-gastos__tabla {
+    width: auto;
+    min-width: 0;
+    table-layout: fixed;
+    font-size: 0.9rem;
+}
+
+.ingresos-gastos__tabla th,
+.ingresos-gastos__tabla td,
+.ingresos-gastos__resumen th,
+.ingresos-gastos__resumen td {
+    border: 1px solid #999;
+    padding: 0.3rem 0.5rem;
+    box-sizing: border-box;
+    vertical-align: top;
+}
+
+/* ----------------------------------------------------------
+   Anchuras de columnas
+
+   Estas son las medidas que puedes modificar libremente.
+   Los valores deben coincidir con el cálculo del ancho total
+   de la tabla indicado en la plantilla HTML.
+   ---------------------------------------------------------- */
+
+.ingresos-gastos__col_1 {
+    width: 11ch;      /* Fecha */
+}
+
+.ingresos-gastos__col_2 {
+    width: 35ch;      /* Concepto */
+}
+
+.ingresos-gastos__col_3 {
+    width: 12ch;      /* Ingresos */
+}
+
+/* Anchuras para columnas de gastos */
+
+.ingresos-gastos__col_4 { width: 13ch; }    /* Comunidad */
+.ingresos-gastos__col_5 { width: 10ch; }    /* Formalización de contratos  */
+.ingresos-gastos__col_6 { width: 10ch; }    /* */
+.ingresos-gastos__col_7 { width: 10ch; }    /* */
+.ingresos-gastos__col_8 { width: 10ch; }    /* */
+.ingresos-gastos__col_9 { width: 10ch; }    /* */
+.ingresos-gastos__col_10 { width: 10ch; }    /* */
+.ingresos-gastos__col_11 { width: 10ch; }    /* */
+.ingresos-gastos__col_12 { width: 10ch; }    /* */
+.ingresos-gastos__col_13 { width: 10ch; }    /* */
+.ingresos-gastos__col_14 { width: 10ch; }    /* */
+
+/*
+ * Anchuras de IVA y Retención.
+ * Se identifican mediante clases específicas porque
+ * su posición cambia con el número de categorías.
+ */
+
+.ingresos-gastos__col-iva,
+.ingresos-gastos__col-retencion {
+    width: 12ch;
+}
+
+/* ----------------------------------------------------------
+   Cabeceras
+   ---------------------------------------------------------- */
+
+.ingresos-gastos__tabla thead th {
+    height: 4.5rem;
+    background-color: #ddd;
+
+    vertical-align: bottom;
+    text-align: center;
+
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    hyphens: auto;
+
+    line-height: 1.2;
+}
+
+.ingresos-gastos__tabla thead th:nth-child(2) {
+    text-align: left;
+}
+
+/* ----------------------------------------------------------
+   Filas de apuntes
+   ---------------------------------------------------------- */
+
+.ingresos-gastos__fecha {
+    white-space: nowrap;
+}
+
+.ingresos-gastos__tabla td:nth-child(2) {
+    overflow-wrap: anywhere;
+}
+
+.ingresos-gastos__tabla .ingresos-gastos__importe {
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* ----------------------------------------------------------
+   Filas de totales
+   ---------------------------------------------------------- */
+
+.ingresos-gastos__fila-total {
+    background-color: #eee;
+    font-weight: bold;
+}
+
+/* ----------------------------------------------------------
+   Resumen de cada trimestre y del año
+   ---------------------------------------------------------- */
+
+.ingresos-gastos__resumen {
+    margin-top: 0.75rem;
+    width: auto;
+}
+
+.ingresos-gastos__resumen thead th {
+    background-color: #ddd;
+    vertical-align: bottom;
+}
+
+.ingresos-gastos__resumen th,
+.ingresos-gastos__resumen td {
+    padding: 0.3rem 0.6rem;
+}
+
+.ingresos-gastos__resumen td {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ingresos-gastos__anual {
+    border-top: 2px solid #777;
+    padding-top: 1rem;
+}
+
+.ingresos-gastos__navegacion {
+    margin-top: 2rem;
+}
+
+/* ----------------------------------------------------------
+   Impresión
+   ---------------------------------------------------------- */
+
+@media print {
+    @page {
+        size: A3 landscape;
+        margin: 10mm;
+    }
+
+    .ingresos-gastos__desplazamiento {
+        overflow: visible;
+    }
+
+    .ingresos-gastos__tabla {
+        /*
+         * Respetamos las proporciones de las columnas,
+         * pero ajustamos la tabla al papel.
+         */
+        width: 100%;
+        min-width: 0;
+        font-size: 7pt;
+    }
+
+    .ingresos-gastos__tabla th,
+    .ingresos-gastos__tabla td {
+        padding: 0.15rem 0.25rem;
+    }
+
+    .ingresos-gastos__trimestre {
+        break-before: page;
+    }
+
+    .ingresos-gastos__trimestre:first-of-type {
+        break-before: auto;
+    }
+
+    .ingresos-gastos__fila-total,
+    .ingresos-gastos__resumen {
+        break-inside: avoid;
+    }
 }

@@ -2,10 +2,14 @@
 """Pruebas de exportación XLSX de informes."""
 
 from io import BytesIO
-
+from datetime import date
+from types import SimpleNamespace
 from openpyxl import load_workbook
 
-from contab.informes.xlsx import generar_xlsx_resumen_iva
+from contab.informes.xlsx import (
+    generar_xlsx_ingresos_gastos,
+    generar_xlsx_resumen_iva,
+)
 
 
 def test_xlsx_resumen_iva_valores_y_formulas():
@@ -67,3 +71,145 @@ def test_xlsx_resumen_iva_valores_y_formulas():
 
     assert hoja["B6"].number_format != "General"
     assert hoja.column_dimensions["A"].width == 30
+
+
+def test_xlsx_ingresos_gastos_hojas_importes_y_totales():
+    """Exporta datos contables sin reproducir sus cálculos."""
+
+    categorias = (
+        ("GAS_COMUNIDAD", "De comunidad"),
+        ("GAS_SEGUROS", "Primas de seguros"),
+    )
+
+    def importes(ingresos=0, comunidad=0, seguros=0,
+                 iva=0, retencion=0):
+        return {
+            "ingresos": ingresos,
+            "gastos": {
+                "GAS_COMUNIDAD": comunidad,
+                "GAS_SEGUROS": seguros,
+            },
+            "total_gastos": comunidad + seguros,
+            "iva": iva,
+            "retencion": retencion,
+        }
+
+    trimestres = [
+        {
+            "numero": 1,
+            "filas": [
+                {
+                    "fecha": date(2026, 1, 5),
+                    "concepto": "Alquiler enero",
+                    **importes(
+                        ingresos=100000,
+                        iva=21000,
+                        retencion=19000,
+                    ),
+                },
+                {
+                    "fecha": date(2026, 2, 10),
+                    "concepto": "Comunidad febrero",
+                    **importes(comunidad=4350),
+                },
+            ],
+            "totales": importes(
+                ingresos=100000,
+                comunidad=4350,
+                iva=21000,
+                retencion=19000,
+            ),
+        },
+        *[
+            {
+                "numero": numero,
+                "filas": [],
+                "totales": importes(),
+            }
+            for numero in (2, 3, 4)
+        ],
+    ]
+
+    informe = {
+        "inmueble": SimpleNamespace(
+            referencia="LOCAL-1",
+            descripcion="Local comercial",
+        ),
+        "anio": 2026,
+        "categorias_gasto": categorias,
+        "trimestres": trimestres,
+        "totales_anuales": importes(
+            ingresos=100000,
+            comunidad=4350,
+            iva=21000,
+            retencion=19000,
+        ),
+    }
+
+    # Dos referencias iguales deben producir hojas distintas.
+    contenido = generar_xlsx_ingresos_gastos(
+        [informe, informe]
+    )
+
+    libro = load_workbook(BytesIO(contenido))
+
+    assert libro.sheetnames == [
+        "LOCAL-1",
+        "LOCAL-1 (2)",
+    ]
+
+    hoja = libro["LOCAL-1"]
+
+    # Cabecera dinámica: A fecha, B concepto, C ingreso,
+    # D y E categorías, F IVA, G retención.
+    assert hoja["D3"].value == "De comunidad"
+    assert hoja["E3"].value == "Primas de seguros"
+    assert hoja["F3"].value == "IVA"
+    assert hoja["G3"].value == "Retención"
+
+    # Los importes de detalle son números en euros.
+    assert hoja["C4"].value == 1000
+    assert hoja["F4"].value == 210
+    assert hoja["G4"].value == 190
+    assert hoja["D5"].value == 43.50
+
+    # No hay columna de total de gastos en el detalle.
+    assert hoja["H3"].value is None
+
+    # Totales trimestrales mediante fórmulas Excel.
+    assert hoja["C6"].value == "=SUM(C4:C5)"
+    assert hoja["D6"].value == "=SUM(D4:D5)"
+
+    # Resumen: ingresos en C y gastos en D.
+    # La fila de resumen sigue a una fila en blanco.
+    assert hoja["C9"].value == "=C6"
+    assert hoja["D9"].value == "=SUM(D6,E6)"
+
+    # Comprobamos los totales anuales
+    totales_anuales = [
+        fila
+        for fila in hoja.iter_rows()
+        if fila[1].value == "Totales del año"
+        and fila[2].data_type == "f"
+    ]
+
+    # Una fila corresponde al desglose por categorías;
+    # la otra, al resumen anual.
+    assert len(totales_anuales) == 2
+
+    fila_desglose, fila_resumen = totales_anuales
+
+    # El desglose suma los cuatro trimestres.
+    assert fila_desglose[2].value.startswith("=SUM(")
+
+    # El resumen toma los ingresos del desglose anual.
+    assert fila_resumen[2].value == (
+        f"=C{fila_desglose[2].row}"
+    )
+
+    # Los gastos del resumen suman las categorías anuales.
+    assert fila_resumen[3].value == (
+        f"=SUM(D{fila_desglose[2].row},"
+        f"E{fila_desglose[2].row})"
+    )
+

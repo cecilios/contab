@@ -1,0 +1,307 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+    Ingresos y gastos del año - Contab
+{% endblock %}
+
+{% block content %}
+
+<section class="ingresos-gastos">
+
+    <h1 class="no-imprimir">
+        Ingresos y gastos del año
+    </h1>
+
+    <form method="get" class="ingresos-gastos__filtros no-imprimir">
+        <label for="anio">Ejercicio:</label>
+        <input
+            type="number"
+            id="anio"
+            name="anio"
+            min="1"
+            max="9999"
+            value="{{ anio }}"
+            required
+            class="campo-ejercicio"
+        >
+
+        <label for="inmueble_id">Inmueble:</label>
+        <select id="inmueble_id" name="inmueble_id" required>
+            <option value="">Seleccione...</option>
+            <option
+                value="todos"
+                {% if seleccion == "todos" %}selected{% endif %}
+            >
+                Todos los inmuebles
+            </option>
+
+            {% for inmueble in inmuebles %}
+                <option
+                    value="{{ inmueble.id }}"
+                    {% if seleccion == inmueble.id|string %}
+                        selected
+                    {% endif %}
+                >
+                    {{ inmueble.referencia }}
+                    - {{ inmueble.descripcion }}
+                    {% if not inmueble.activo %}
+                        (inactivo)
+                    {% endif %}
+                </option>
+            {% endfor %}
+        </select>
+
+        <button type="submit">Consultar</button>
+
+        {% if informe %}
+            <button type="button" onclick="window.print()">
+                Imprimir
+            </button>
+        {% endif %}
+
+        {% if seleccion %}
+            <button
+                type="submit"
+                name="exportar"
+                value="xlsx"
+            >
+                Exportar Excel
+            </button>
+        {% endif %}
+    </form>
+
+    {% if seleccion == "todos" %}
+        <p>
+            El informe conjunto no se muestra en pantalla.
+            Para obtenerlo, utilice Exportar Excel:
+            se generará una hoja por cada inmueble.
+        </p>
+
+    {% elif informe %}
+
+        <header class="ingresos-gastos__cabecera">
+            <h2>
+                {{ informe.inmueble.referencia }}
+                - {{ informe.inmueble.descripcion }}
+            </h2>
+        </header>
+
+        {% for trimestre in informe.trimestres %}
+
+            <section class="ingresos-gastos__trimestre">
+                <h3>{{ trimestre.numero }}T</h3>
+
+                <div class="ingresos-gastos__desplazamiento">
+                    <table class="ingresos-gastos__tabla">
+                        <colgroup>
+                            <col class="ingresos-gastos__col_1">
+                            <col class="ingresos-gastos__col_2">
+                            <col class="ingresos-gastos__col_3">
+
+                            {% for codigo, nombre in informe.categorias_gasto %}
+                                <col class="ingresos-gastos__col_{{ loop.index + 3 }}">
+                            {% endfor %}
+
+                            <col class="ingresos-gastos__col-iva">
+                            <col class="ingresos-gastos__col-retencion">
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th class="ingresos-gastos__col_1">Fecha</th>
+                                <th class="ingresos-gastos__col_2">Concepto</th>
+                                <th class="ingresos-gastos__col_3">Ingresos</th>
+
+                                {% for codigo, nombre in informe.categorias_gasto %}
+                                    <th class="ingresos-gastos__col_{{ loop.index + 3 }}">
+                                        {{ nombre }}
+                                    </th>
+                                {% endfor %}
+
+                                <th class="ingresos-gastos__col_{{ informe.categorias_gasto|length + 4 }}">
+                                    IVA
+                                </th>
+                                <th class="ingresos-gastos__col_{{ informe.categorias_gasto|length + 5 }}">
+                                    Retención
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for fila in trimestre.filas %}
+                                <tr>
+                                    <td class="ingresos-gastos__fecha">
+                                        {{ fila.fecha.strftime('%d/%m/%Y') }}
+                                    </td>
+                                    <td>{{ fila.concepto }}</td>
+
+                                    <td class="ingresos-gastos__importe">
+                                        {% if fila.ingresos != 0 %}
+                                            {{ importe_a_texto(fila.ingresos) }}
+                                        {% endif %}
+                                    </td>
+
+                                    {% for codigo, nombre in informe.categorias_gasto %}
+                                        <td class="ingresos-gastos__importe">
+                                            {% if fila.gastos[codigo] != 0 %}
+                                                {{ importe_a_texto(fila.gastos[codigo]) }}
+                                            {% endif %}
+                                        </td>
+                                    {% endfor %}
+
+                                    <td class="ingresos-gastos__importe">
+                                        {% if fila.iva != 0 %}
+                                            {{ importe_a_texto(fila.iva) }}
+                                        {% endif %}
+                                    </td>
+                                    <td class="ingresos-gastos__importe">
+                                        {% if fila.retencion != 0 %}
+                                            {{ importe_a_texto(fila.retencion) }}
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td
+                                        colspan="{{ 5 + informe.categorias_gasto|length }}"
+                                    >
+                                        Sin apuntes en este trimestre.
+                                    </td>
+                                </tr>
+                            {% endfor %}
+
+                            {% set totales = trimestre.totales %}
+                            <tr class="ingresos-gastos__fila-total">
+                                <th colspan="2">
+                                    Totales {{ trimestre.numero }}T
+                                </th>
+                                <td class="ingresos-gastos__importe">
+                                    {{ importe_a_texto(totales.ingresos) }}
+                                </td>
+
+                                {% for codigo, nombre in informe.categorias_gasto %}
+                                    <td class="ingresos-gastos__importe">
+                                        {{ importe_a_texto(totales.gastos[codigo]) }}
+                                    </td>
+                                {% endfor %}
+
+                                <td class="ingresos-gastos__importe">
+                                    {{ importe_a_texto(totales.iva) }}
+                                </td>
+                                <td class="ingresos-gastos__importe">
+                                    {{ importe_a_texto(totales.retencion) }}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <table class="ingresos-gastos__resumen">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Ingresos</th>
+                            <th>Gastos</th>
+                            <th>IVA</th>
+                            <th>Retención</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <th>Totales {{ trimestre.numero }}T</th>
+                            <td>{{ importe_a_texto(totales.ingresos) }}</td>
+                            <td>{{ importe_a_texto(totales.total_gastos) }}</td>
+                            <td>{{ importe_a_texto(totales.iva) }}</td>
+                            <td>{{ importe_a_texto(totales.retencion) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+        {% endfor %}
+
+        {% set totales = informe.totales_anuales %}
+
+        <section class="ingresos-gastos__anual">
+            <h3>Totales del año {{ informe.anio }}</h3>
+
+            <div class="ingresos-gastos__desplazamiento">
+                <table class="ingresos-gastos__tabla">
+                    <colgroup>
+                        <col class="ingresos-gastos__col_1">
+                        <col class="ingresos-gastos__col_2">
+                        <col class="ingresos-gastos__col_3">
+
+                        {% for codigo, nombre in informe.categorias_gasto %}
+                            <col class="ingresos-gastos__col_{{ loop.index + 3 }}">
+                        {% endfor %}
+
+                        <col class="ingresos-gastos__col-iva">
+                        <col class="ingresos-gastos__col-retencion">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th colspan="2">Concepto</th>
+                            <th>Ingresos</th>
+                            {% for codigo, nombre in informe.categorias_gasto %}
+                                <th>{{ nombre }}</th>
+                            {% endfor %}
+                            <th>IVA</th>
+                            <th>Retención</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="ingresos-gastos__fila-total">
+                            <th colspan="2">Totales del año</th>
+                            <td class="ingresos-gastos__importe">
+                                {{ importe_a_texto(totales.ingresos) }}
+                            </td>
+                            {% for codigo, nombre in informe.categorias_gasto %}
+                                <td class="ingresos-gastos__importe">
+                                    {{ importe_a_texto(totales.gastos[codigo]) }}
+                                </td>
+                            {% endfor %}
+                            <td class="ingresos-gastos__importe">
+                                {{ importe_a_texto(totales.iva) }}
+                            </td>
+                            <td class="ingresos-gastos__importe">
+                                {{ importe_a_texto(totales.retencion) }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <table class="ingresos-gastos__resumen">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>Ingresos</th>
+                        <th>Gastos</th>
+                        <th>IVA</th>
+                        <th>Retención</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th>Totales del año</th>
+                        <td>{{ importe_a_texto(totales.ingresos) }}</td>
+                        <td>{{ importe_a_texto(totales.total_gastos) }}</td>
+                        <td>{{ importe_a_texto(totales.iva) }}</td>
+                        <td>{{ importe_a_texto(totales.retencion) }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+    {% endif %}
+
+    <nav class="no-imprimir ingresos-gastos__navegacion">
+        <a href="{{ url_for('informes.indice') }}">
+            Volver a informes
+        </a>
+    </nav>
+
+</section>
+
+{% endblock %}

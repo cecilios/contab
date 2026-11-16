@@ -17,8 +17,12 @@ from decimal import (
     ROUND_HALF_UP,
 )
 
+from contab.config import cargar_categorias_contables
 from contab.formato import importe_a_texto
-from contab.informes.xlsx import generar_xlsx_resumen_iva
+from contab.informes.xlsx import (
+    generar_xlsx_ingresos_gastos,
+    generar_xlsx_resumen_iva,
+)
 from contab.context import (
     get_database_name,
     get_session_factory,
@@ -26,6 +30,7 @@ from contab.context import (
 from contab.informes.services import (
     generar_csv_iva,
     generar_zip_iva,
+    preparar_ingresos_gastos_anuales,
     preparar_resumen_anual_iva,
 )
 from contab.models import (
@@ -329,5 +334,127 @@ def resumen_anual_iva():
             importe_a_texto=importe_a_texto,
             database_name=get_database_name(),
             descontar_gastos=descontar_gastos,
+        )
+
+
+@bp.get("/ingresos-gastos-anuales")
+def ingresos_gastos_anuales():
+    """Consulta o exporta ingresos y gastos anuales."""
+
+    anio_texto = request.args.get(
+        "anio",
+        str(date.today().year),
+    ).strip()
+
+    seleccion = request.args.get(
+        "inmueble_id",
+        "",
+    ).strip()
+
+    exportar = request.args.get("exportar") == "xlsx"
+
+    try:
+        anio = int(anio_texto)
+
+        if not 1 <= anio <= 9999:
+            raise ValueError
+
+    except ValueError:
+        return "Debe indicar un ejercicio válido.", 400
+
+    if seleccion not in {"", "todos"}:
+        try:
+            inmueble_id = int(seleccion)
+        except ValueError:
+            return "Debe seleccionar un inmueble válido.", 400
+    else:
+        inmueble_id = None
+
+    if exportar and not seleccion:
+        return "Debe seleccionar un inmueble.", 400
+
+    session_factory = get_session_factory()
+
+    with session_factory() as session:
+        inmuebles = session.scalars(
+            select(Inmueble).order_by(Inmueble.referencia)
+        ).all()
+
+        informes = []
+
+        if seleccion:
+            if seleccion == "todos":
+                seleccionados = inmuebles
+            else:
+                inmueble = session.get(Inmueble, inmueble_id)
+
+                if inmueble is None:
+                    return (
+                        "El inmueble seleccionado no existe.",
+                        404,
+                    )
+
+                seleccionados = [inmueble]
+
+            if exportar or seleccion != "todos":
+                categorias = cargar_categorias_contables()
+
+                # Incluye apuntes propios y los que tengan
+                # distribuciones persistidas a los hijos.
+                apuntes = session.scalars(
+                    select(ApunteContable)
+                    .where(
+                        ApunteContable.fecha >= date(anio, 1, 1),
+                        ApunteContable.fecha <= date(anio, 12, 31),
+                    )
+                    .order_by(
+                        ApunteContable.fecha,
+                        ApunteContable.id,
+                    )
+                ).all()
+
+                informes = [
+                    preparar_ingresos_gastos_anuales(
+                        inmueble=inmueble,
+                        apuntes=apuntes,
+                        categorias=categorias,
+                        anio=anio,
+                    )
+                    for inmueble in seleccionados
+                ]
+
+        if exportar:
+            contenido = generar_xlsx_ingresos_gastos(informes)
+
+            nombre = (
+                f"ingresos-gastos-{anio}.xlsx"
+                if seleccion == "todos"
+                else (
+                    "ingresos-gastos-"
+                    f"{secure_filename(informes[0]['inmueble'].referencia)}"
+                    f"-{anio}.xlsx"
+                )
+            )
+
+            return send_file(
+                BytesIO(contenido),
+                as_attachment=True,
+                download_name=nombre,
+                mimetype=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+            )
+
+        informe = informes[0] if informes else None
+
+        return render_template(
+            "informes/ingresos_gastos_anuales.html",
+            inmuebles=inmuebles,
+            seleccion=seleccion,
+            anio=anio,
+            informe=informe,
+            importe_a_texto=importe_a_texto,
+            database_name=get_database_name(),
         )
 

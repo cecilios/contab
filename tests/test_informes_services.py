@@ -5,10 +5,12 @@ from datetime import date
 from io import BytesIO, StringIO
 from zipfile import ZipFile
 
+from contab.config import CategoriaContable
 from contab.informes.services import (
-    _importe_irpf_estimado,
     generar_csv_iva,
     generar_zip_iva,
+    importe_irpf_estimado,
+    preparar_ingresos_gastos_anuales,
     preparar_resumen_anual_iva,
     seleccionar_inmuebles_exportacion_iva,
 )
@@ -1776,7 +1778,7 @@ def test_preparar_resumen_anual_iva_sin_apuntes():
 def test_hacienda_estimada_descontando_gastos():
     """Calcula Hacienda sobre ingresos menos gastos."""
 
-    impuesto = _importe_irpf_estimado(
+    impuesto = importe_irpf_estimado(
         ingresos=595000,
         gastos=315011,
         retencion=0,
@@ -1791,7 +1793,7 @@ def test_hacienda_estimada_descontando_gastos():
 def test_hacienda_estimada_sobre_bruto():
     """Permite calcular Hacienda sin descontar gastos."""
 
-    impuesto = _importe_irpf_estimado(
+    impuesto = importe_irpf_estimado(
         ingresos=595000,
         gastos=315011,
         retencion=0,
@@ -1806,7 +1808,7 @@ def test_hacienda_estimada_sobre_bruto():
 def test_hacienda_estimada_no_puede_ser_negativa():
     """Los gastos superiores a los ingresos dan base cero."""
 
-    impuesto = _importe_irpf_estimado(
+    impuesto = importe_irpf_estimado(
         ingresos=10000,
         gastos=20000,
         retencion=0,
@@ -1822,7 +1824,7 @@ def test_local_conserva_retencion_real():
     """La retención del local no depende de la estimación."""
 
     for descontar_gastos in (True, False):
-        impuesto = _importe_irpf_estimado(
+        impuesto = importe_irpf_estimado(
             ingresos=100000,
             gastos=20000,
             retencion=19000,
@@ -1838,7 +1840,7 @@ def test_local_sin_retencion_no_recibe_estimacion():
     """Un local con retención cero mantiene ese importe."""
 
     for descontar_gastos in (True, False):
-        impuesto = _importe_irpf_estimado(
+        impuesto = importe_irpf_estimado(
             ingresos=100000,
             gastos=20000,
             retencion=0,
@@ -1849,4 +1851,511 @@ def test_local_sin_retencion_no_recibe_estimacion():
 
         assert impuesto == 0
 
+
+def test_ingresos_gastos_anuales_categorias_y_totales(
+    session,
+    inmueble,
+) -> None:
+    categorias = {
+        codigo: CategoriaContable(
+            codigo=codigo,
+            naturaleza=naturaleza,
+            nombre=nombre,
+            activa=True,
+            subcategorias=(),
+        )
+        for codigo, naturaleza, nombre in (
+            ("ING_ALQUILERES", "INGRESO", "Alquileres"),
+            ("GAS_SEGUROS", "GASTO", "Seguros"),
+            ("GAS_COMUNIDAD", "GASTO", "Comunidad"),
+        )
+    }
+
+    ingreso = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 1, 5),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler enero",
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=19000,
+        total=102000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Factura.pdf",
+    )
+
+    gasto = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 4, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad abril",
+        base=20000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=20000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Comunidad.pdf",
+    )
+
+    session.add_all([ingreso, gasto])
+    session.commit()
+
+    informe = preparar_ingresos_gastos_anuales(
+        inmueble=inmueble,
+        apuntes=[gasto, ingreso],
+        categorias=categorias,
+        anio=2026,
+    )
+
+    assert informe["categorias_gasto"] == (
+        ("GAS_SEGUROS", "Seguros"),
+        ("GAS_COMUNIDAD", "Comunidad"),
+    )
+
+    primer_trimestre = informe["trimestres"][0]
+    segundo_trimestre = informe["trimestres"][1]
+
+    assert primer_trimestre["filas"][0]["concepto"] == "Alquiler enero"
+    assert primer_trimestre["totales"]["ingresos"] == 100000
+    assert primer_trimestre["totales"]["iva"] == 21000
+    assert primer_trimestre["totales"]["retencion"] == 19000
+
+    assert segundo_trimestre["filas"][0]["concepto"] == "Comunidad abril"
+    assert segundo_trimestre["totales"]["gastos"]["GAS_COMUNIDAD"] == 20000
+    assert segundo_trimestre["totales"]["gastos"]["GAS_SEGUROS"] == 0
+
+    assert informe["totales_anuales"]["ingresos"] == 100000
+    assert informe["totales_anuales"]["total_gastos"] == 20000
+    assert len(informe["trimestres"]) == 4
+
+
+def test_ingresos_gastos_anuales_usa_distribucion_ingreso(
+    session,
+) -> None:
+    padre = _crear_inmueble_prueba(
+        referencia="EDIFICIO",
+        tipo="T",
+        codigo_facturacion="ED",
+        descripcion="Edificio",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    hijo = _crear_inmueble_prueba(
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        inmueble_padre=padre,
+        participacion=4000,
+    )
+
+    ingreso = ApunteContable(
+        inmueble=padre,
+        fecha=date(2026, 2, 15),
+        naturaleza="INGRESO",
+        categoria="ING_OTRAS_RENTAS",
+        concepto="Antena de telefonía",
+        base=100000,
+        iva_importe=21000,
+        retencion_importe=0,
+        total=121000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Antena.pdf",
+    )
+
+    distribucion = DistribucionApunte(
+        apunte=ingreso,
+        inmueble=hijo,
+        participacion=4000,
+        base=40000,
+        iva_importe=8400,
+        retencion_importe=0,
+        total=48400,
+    )
+
+    session.add_all([padre, hijo, ingreso, distribucion])
+    session.commit()
+
+    categorias = {
+        "ING_OTRAS_RENTAS": CategoriaContable(
+            codigo="ING_OTRAS_RENTAS",
+            naturaleza="INGRESO",
+            nombre="Otras rentas",
+            activa=True,
+            subcategorias=(),
+        )
+    }
+
+    informe_padre = preparar_ingresos_gastos_anuales(
+        inmueble=padre,
+        apuntes=[ingreso],
+        categorias=categorias,
+        anio=2026,
+    )
+
+    informe_hijo = preparar_ingresos_gastos_anuales(
+        inmueble=hijo,
+        apuntes=[ingreso],
+        categorias=categorias,
+        anio=2026,
+    )
+
+    assert informe_padre["totales_anuales"]["ingresos"] == 100000
+    assert informe_padre["totales_anuales"]["iva"] == 21000
+
+    assert informe_hijo["totales_anuales"]["ingresos"] == 40000
+    assert informe_hijo["totales_anuales"]["iva"] == 8400
+
+    assert len(informe_hijo["trimestres"][0]["filas"]) == 1
+
+
+def test_ingresos_gastos_anuales_tratamientos_y_negativos(
+    session,
+    inmueble,
+) -> None:
+    categorias = {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="De comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2026, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="",
+        poblacion_facturacion="",
+        provincia_facturacion="",
+        concepto_factura="",
+    )
+
+    repercutido = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 1, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad repercutida",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tratamiento="REPERCUTIR",
+        nombre_documento="Comunidad.pdf",
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=repercutido,
+        contrato=contrato,
+        base=6000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=6000,
+    )
+
+    facturable = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 2, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Gasto facturable",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tratamiento="FACTURAR",
+        nombre_documento="Facturable.pdf",
+    )
+
+    negativo = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 3, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Abono comunidad",
+        base=2000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=2000,
+        tratamiento="CONTABILIZAR",
+        importe_negativo=True,
+        nombre_documento="Abono.pdf",
+    )
+
+    session.add_all([
+        contrato,
+        repercutido,
+        imputacion,
+        facturable,
+        negativo,
+    ])
+    session.commit()
+
+    informe = preparar_ingresos_gastos_anuales(
+        inmueble=inmueble,
+        apuntes=[negativo, facturable, repercutido],
+        categorias=categorias,
+        anio=2026,
+    )
+
+    filas = informe["trimestres"][0]["filas"]
+
+    assert [fila["concepto"] for fila in filas] == [
+        "Comunidad repercutida",
+        "Gasto facturable",
+        "Abono comunidad",
+    ]
+
+    assert [
+        fila["gastos"]["GAS_COMUNIDAD"]
+        for fila in filas
+    ] == [
+        4000,    # 100,00 - 60,00 del inquilino
+        10000,   # Gasto facturable completo
+        -2000,   # Abono que reduce el gasto
+    ]
+
+    assert informe["trimestres"][0]["totales"]["total_gastos"] == 12000
+    assert informe["totales_anuales"]["total_gastos"] == 12000
+
+
+def test_ingresos_gastos_anuales_gastos_distribuidos(
+    session,
+) -> None:
+    padre = _crear_inmueble_prueba(
+        referencia="EDIFICIO",
+        tipo="T",
+        codigo_facturacion="ED",
+        descripcion="Edificio",
+        direccion="Dirección edificio",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    hijo = _crear_inmueble_prueba(
+        referencia="LOCAL-A",
+        tipo="L",
+        codigo_facturacion="LA",
+        descripcion="Local A",
+        direccion="Dirección local",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+        inmueble_padre=padre,
+        participacion=4000,
+    )
+
+    contrato = Contrato(
+        inmueble=hijo,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2026, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="",
+        poblacion_facturacion="",
+        provincia_facturacion="",
+        concepto_factura="",
+    )
+
+    gasto_comun = ApunteContable(
+        inmueble=padre,
+        fecha=date(2026, 4, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad edificio",
+        base=30000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=30000,
+        tratamiento="CONTABILIZAR",
+        nombre_documento="Comunidad.pdf",
+    )
+
+    distribucion_comun = DistribucionApunte(
+        apunte=gasto_comun,
+        inmueble=hijo,
+        participacion=4000,
+        base=12000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=12000,
+    )
+
+    gasto_repercutido = ApunteContable(
+        inmueble=padre,
+        fecha=date(2026, 5, 10),
+        naturaleza="GASTO",
+        categoria="GAS_TRIBUTOS",
+        concepto="Tributo edificio",
+        base=20000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=20000,
+        tratamiento="REPERCUTIR",
+        nombre_documento="Tributo.pdf",
+    )
+
+    distribucion_repercutida = DistribucionApunte(
+        apunte=gasto_repercutido,
+        inmueble=hijo,
+        participacion=4000,
+        base=8000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=8000,
+    )
+
+    imputacion = ImputacionContrato(
+        distribucion_apunte=distribucion_repercutida,
+        contrato=contrato,
+        base=5000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=5000,
+    )
+
+    session.add_all([
+        padre,
+        hijo,
+        contrato,
+        gasto_comun,
+        distribucion_comun,
+        gasto_repercutido,
+        distribucion_repercutida,
+        imputacion,
+    ])
+    session.commit()
+
+    categorias = {
+        codigo: CategoriaContable(
+            codigo=codigo,
+            naturaleza="GASTO",
+            nombre=nombre,
+            activa=True,
+            subcategorias=(),
+        )
+        for codigo, nombre in (
+            ("GAS_COMUNIDAD", "De comunidad"),
+            ("GAS_TRIBUTOS", "Tributos"),
+        )
+    }
+
+    apuntes = [gasto_repercutido, gasto_comun]
+
+    informe_padre = preparar_ingresos_gastos_anuales(
+        inmueble=padre,
+        apuntes=apuntes,
+        categorias=categorias,
+        anio=2026,
+    )
+
+    informe_hijo = preparar_ingresos_gastos_anuales(
+        inmueble=hijo,
+        apuntes=apuntes,
+        categorias=categorias,
+        anio=2026,
+    )
+
+    # El edificio muestra sus gastos propios completos.
+    gastos_padre = informe_padre["trimestres"][1]["totales"]["gastos"]
+
+    assert gastos_padre["GAS_COMUNIDAD"] == 30000
+    assert gastos_padre["GAS_TRIBUTOS"] == 20000
+
+    # El local usa las distribuciones persistidas.
+    gastos_hijo = informe_hijo["trimestres"][1]["totales"]["gastos"]
+
+    assert gastos_hijo["GAS_COMUNIDAD"] == 12000
+
+    # De los 80 € distribuidos, 50 € corresponden
+    # al inquilino. El propietario soporta 30 €.
+    assert gastos_hijo["GAS_TRIBUTOS"] == 3000
+
+    assert informe_hijo["trimestres"][1]["totales"]["total_gastos"] == 15000
+
+    assert [
+        fila["concepto"]
+        for fila in informe_hijo["trimestres"][1]["filas"]
+    ] == [
+        "Comunidad edificio",
+        "Tributo edificio",
+    ]
+
+
+def test_ingresos_gastos_anuales_omite_repercutidos_sin_parte_propietario(
+    session,
+    inmueble,
+) -> None:
+    categorias = {
+        "GAS_SERVICIOS_SUMINISTROS": CategoriaContable(
+            codigo="GAS_SERVICIOS_SUMINISTROS",
+            naturaleza="GASTO",
+            nombre="Por servicios y suministros",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    contrato = Contrato(
+        inmueble=inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2026, 12, 31),
+        genera_factura=False,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="",
+        poblacion_facturacion="",
+        provincia_facturacion="",
+        concepto_factura="",
+    )
+
+    gasto = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 3, 10),
+        naturaleza="GASTO",
+        categoria="GAS_SERVICIOS_SUMINISTROS",
+        concepto="Agua totalmente repercutida",
+        base=9000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=9000,
+        tratamiento="REPERCUTIR",
+        nombre_documento="Agua.pdf",
+    )
+
+    imputacion = ImputacionContrato(
+        apunte=gasto,
+        contrato=contrato,
+        base=9000,
+        iva_importe=0,
+        retencion_importe=0,
+        importe=9000,
+    )
+
+    session.add_all([contrato, gasto, imputacion])
+    session.commit()
+
+    informe = preparar_ingresos_gastos_anuales(
+        inmueble=inmueble,
+        apuntes=[gasto],
+        categorias=categorias,
+        anio=2026,
+    )
+
+    assert informe["trimestres"][0]["filas"] == []
+    assert informe["trimestres"][0]["totales"]["total_gastos"] == 0
+    assert informe["totales_anuales"]["total_gastos"] == 0
 

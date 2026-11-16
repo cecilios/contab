@@ -103,7 +103,167 @@ def _base_propietario_inmueble(
     return _base_propietario(apunte)
 
 
-def _importe_irpf_estimado(
+def preparar_ingresos_gastos_anuales(
+    *,
+    inmueble: Inmueble,
+    apuntes: Sequence[ApunteContable],
+    categorias: dict,
+    anio: int,
+) -> dict:
+    """Prepara el detalle y los totales de un inmueble por trimestres.
+
+    Los importes se expresan en céntimos.
+    """
+
+    categorias_gasto = tuple(
+        (categoria.codigo, categoria.nombre)
+        for categoria in categorias.values()
+        if categoria.naturaleza == "GASTO"
+    )
+    claves_gasto = tuple(
+        codigo for codigo, _ in categorias_gasto
+    )
+
+    def importes_vacios() -> dict:
+        return {
+            "ingresos": 0,
+            "gastos": dict.fromkeys(claves_gasto, 0),
+            "total_gastos": 0,
+            "iva": 0,
+            "retencion": 0,
+        }
+
+    def acumular(destino: dict, origen: dict) -> None:
+        destino["ingresos"] += origen["ingresos"]
+        destino["total_gastos"] += origen["total_gastos"]
+        destino["iva"] += origen["iva"]
+        destino["retencion"] += origen["retencion"]
+
+        for codigo in claves_gasto:
+            destino["gastos"][codigo] += origen["gastos"][codigo]
+
+    trimestres = [
+        {
+            "numero": numero,
+            "filas": [],
+            "totales": importes_vacios(),
+        }
+        for numero in range(1, 5)
+    ]
+
+    totales_anuales = importes_vacios()
+
+    seleccionados = sorted(
+        (
+            apunte
+            for apunte in apuntes
+            if apunte.fecha.year == anio
+            and apunte.tratamiento in {
+                "CONTABILIZAR",
+                "FACTURAR",
+                "REPERCUTIR",
+            }
+            and (
+                apunte.inmueble_id == inmueble.id
+                or _distribucion_inmueble(
+                    apunte=apunte,
+                    inmueble=inmueble,
+                ) is not None
+            )
+        ),
+        key=lambda apunte: (
+            apunte.fecha,
+            apunte.id or 0,
+        ),
+    )
+
+    for apunte in seleccionados:
+        distribucion = _distribucion_inmueble(
+            apunte=apunte,
+            inmueble=inmueble,
+        )
+
+        importe_base = (
+            distribucion.base
+            if distribucion is not None
+            else apunte.base
+        )
+
+        importe_iva = (
+            distribucion.iva_importe
+            if distribucion is not None
+            else apunte.iva_importe
+        )
+
+        importe_retencion = (
+            distribucion.retencion_importe
+            if distribucion is not None
+            else apunte.retencion_importe
+        )
+
+        importes = importes_vacios()
+
+        if apunte.naturaleza == "INGRESO":
+            importes["ingresos"] = _importe_firmado(
+                apunte, importe_base
+            )
+            importes["iva"] = _importe_firmado(
+                apunte, importe_iva
+            )
+            importes["retencion"] = _importe_firmado(
+                apunte, importe_retencion
+            )
+
+        else:
+            if apunte.categoria not in importes["gastos"]:
+                raise ValueError(
+                    "Categoría de gastos no configurada: "
+                    f"{apunte.categoria}"
+                )
+
+            # Reutiliza las imputaciones ya persistidas.
+            base_propietario = (
+                _base_propietario_distribucion(distribucion)
+                if distribucion is not None
+                else _base_propietario(apunte)
+            )
+
+            importe_gasto = _importe_firmado(
+                apunte, base_propietario
+            )
+
+            # Los gastos totalmente repercutidos al inquilino
+            # no forman parte de los gastos del propietario.
+            if apunte.tratamiento == "REPERCUTIR" and base_propietario == 0:
+                continue
+
+            importes["gastos"][apunte.categoria] = importe_gasto
+            importes["total_gastos"] = importe_gasto
+
+        fila = {
+            "fecha": apunte.fecha,
+            "concepto": apunte.concepto,
+            **importes,
+        }
+
+        trimestre = trimestres[
+            (apunte.fecha.month - 1) // 3
+        ]
+
+        trimestre["filas"].append(fila)
+        acumular(trimestre["totales"], importes)
+        acumular(totales_anuales, importes)
+
+    return {
+        "inmueble": inmueble,
+        "anio": anio,
+        "categorias_gasto": categorias_gasto,
+        "trimestres": trimestres,
+        "totales_anuales": totales_anuales,
+    }
+
+
+def importe_irpf_estimado(
     *,
     ingresos: int,
     gastos: int,
@@ -211,7 +371,7 @@ def _totales_inmueble_trimestre(
         if apunte.naturaleza == "INGRESO"
     )
 
-    impuesto = _importe_irpf_estimado(
+    impuesto = importe_irpf_estimado(
         ingresos=ingresos,
         gastos=gastos,
         retencion=retencion,
