@@ -1,0 +1,5 @@
+# Inmueble ; Fecha ; Clasificación ; Concepto ; Base ; IVA ; Retención
+LOCAL-1 ; 2026-01-15 ; COMUNIDAD ; Comunidad enero ; 125,50
+LOCAL-1 ; 2026-02-15 ; COMUNIDAD ; Comunidad febrero ; 125,50
+LOCAL-2 ; 2026-03-10 ; SUMINISTROS.AGUA ; Agua marzo ; 45,25 ; 4,53
+EDIFICIO-T ; 2026-04-05 ; COMUNIDAD ; Gasto común ; 780,25
