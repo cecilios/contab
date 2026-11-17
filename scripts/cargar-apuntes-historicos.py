@@ -33,19 +33,20 @@ NOTA_CONCILIACION = (
 INICIO = date(2026, 1, 1)
 FIN = date(2026, 9, 30)
 
-ARCHIVO_DATOS = (
-    Path(__file__).resolve().parent
-    / "apuntes-historicos-2026.txt"
-)
 
 
 def importe_en_centimos(texto):
-    """Convierte euros con coma decimal en céntimos."""
-    if not re.fullmatch(r"-?\d+(?:,\d{1,2})?", texto):
+    """Convierte euros con coma decimal y miles opcionales en céntimos."""
+    if not re.fullmatch(
+        r"-?(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d{1,2})?",
+        texto,
+    ):
         raise ValueError(f"Importe no válido: {texto!r}")
 
     negativo = texto.startswith("-")
-    partes = texto.lstrip("-").split(",")
+
+    # Eliminar el signo y los separadores de miles.
+    partes = texto.lstrip("-").replace(".", "").split(",")
 
     euros = int(partes[0])
     centimos = (
@@ -245,6 +246,11 @@ def main():
         "database",
         help="Nombre de la base definida en contab.ini",
     )
+    parser.add_argument(
+        "archivo",
+        type=Path,
+        help="Archivo de texto con los apuntes a importar",
+    )
     args = parser.parse_args()
 
     bases = cargar_bases_datos()
@@ -255,7 +261,7 @@ def main():
         )
 
     try:
-        filas = leer_apuntes(ARCHIVO_DATOS)
+        filas = leer_apuntes(args.archivo)
         categorias = cargar_categorias_contables()
 
         engine = create_sqlite_engine(

@@ -423,11 +423,6 @@ def test_cancelar_importacion_no_modifica_base(
 
     monkeypatch.setitem(
         entorno,
-        "ARCHIVO_DATOS",
-        archivo,
-    )
-    monkeypatch.setitem(
-        entorno,
         "cargar_bases_datos",
         lambda: {"pruebas": url_base},
     )
@@ -438,7 +433,11 @@ def test_cancelar_importacion_no_modifica_base(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["cargar-apuntes-historicos.py", "pruebas"],
+        [
+            "cargar-apuntes-historicos.py",
+            "pruebas",
+            str(archivo),
+        ],
     )
 
     # El usuario rechaza expresamente la importación.
@@ -476,4 +475,48 @@ def test_cancelar_importacion_no_modifica_base(
 
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("1234,56", 123456),
+        ("1.234,56", 123456),
+        ("12.345", 1234500),
+        ("1.234.567,89", 123456789),
+        ("1.234.567,8", 123456780),
+        ("-1.234,50", -123450),
+        ("0", 0),
+        ("0,00", 0),
+    ],
+)
+def test_importe_admite_separador_de_miles(
+    texto, esperado,
+):
+    """Acepta puntos de miles opcionales y coma decimal."""
+    funciones = runpy.run_path(str(SCRIPT))
+    convertir = funciones["importe_en_centimos"]
+
+    assert convertir(texto) == esperado
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "1.23,45",
+        "12.34,56",
+        "1.2345,67",
+        "1.23.456,78",
+        "1,234",
+        "1.234,567",
+        "1,234.56",
+    ],
+)
+def test_importe_rechaza_separadores_incorrectos(texto):
+    """Rechaza agrupaciones de miles y decimales incorrectas."""
+    funciones = runpy.run_path(str(SCRIPT))
+    convertir = funciones["importe_en_centimos"]
+
+    with pytest.raises(ValueError):
+        convertir(texto)
 
