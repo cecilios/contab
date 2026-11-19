@@ -92,10 +92,6 @@
                         Saldo pendiente
                     </th>
 
-                    <th class="resumen-contratos__columna-importe">
-                        Pendiente de conciliar
-                    </th>
-
                     <th class="resumen-contratos__columna-detalle no-imprimir">
                         Detalle
                     </th>
@@ -151,12 +147,6 @@
                             ) }} €
                         </td>
 
-                        <td class="resumen-contratos__importe">
-                            {{ importe_a_texto(
-                                fila.pendiente_conciliar
-                            ) }} €
-                        </td>
-
                         <td class="resumen-contratos__detalle no-imprimir">
                             <a
                                 href="{{ url_for(
@@ -174,7 +164,7 @@
                 {% else %}
 
                     <tr class="resumen-contratos__fila-vacia">
-                        <td colspan="6">
+                        <td colspan="5">
                             No hay contratos para el ejercicio
                             seleccionado.
                         </td>
@@ -206,12 +196,6 @@
                             ) }} €
                         </th>
 
-                        <th class="resumen-contratos__importe">
-                            {{ importe_a_texto(
-                                total_pendiente_conciliar
-                            ) }} €
-                        </th>
-
                         <th class="no-imprimir"></th>
                     </tr>
                 </tfoot>
@@ -221,8 +205,8 @@
     </section>
 
     <nav class="resumen-contratos__navegacion no-imprimir">
-        <a href="{{ url_for('contratos.listar_contratos') }}">
-            Volver a contratos
+        <a href="{{ url_for('informes.indice') }}">
+            Volver a informes
         </a>
     </nav>
 

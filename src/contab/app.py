@@ -100,7 +100,7 @@ def create_app(
 
             session["database"] = nombre
 
-            return redirect(url_for("inmuebles.listar_inmuebles"))
+            return redirect(url_for("contratos.resumen_contratos"))
 
         return render_template(
             "index.html",

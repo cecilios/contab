@@ -475,3 +475,20 @@ def test_exportar_ingresos_gastos_todos_incluye_inmuebles_t(
         libro["LOCAL-1"]["A1"].value
     )
 
+
+def test_indice_informes_enlaza_resumen_contratos():
+    """El resumen económico está disponible en Informes."""
+
+    app = _crear_app_test()
+    client = app.test_client()
+
+    # El usuario selecciona la base de datos.
+    client.post("/", data={"database": "test"})
+
+    # Abre el índice de informes.
+    response = client.get("/informes/")
+
+    assert response.status_code == 200
+    assert "Resumen económico de contratos" in response.text
+    assert 'href="/contratos/resumen"' in response.text
+

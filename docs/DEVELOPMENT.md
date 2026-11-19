@@ -1427,9 +1427,11 @@ They cover initial access, empty statements, contract selection,
 period-based filtering and the report structure.
 
 
+
 ### Contract economic summary screen
 
-The annual economic summary of all contracts is implemented.
+The contract economic summary is the landing page after
+selecting the working database.
 
 Route:
 
@@ -1443,73 +1445,46 @@ Template:
 
 `src/contab/contratos/templates/contratos/resumen.html`
 
-Styles:
-
-`src/contab/static/css/contab.css`
-
 Tests:
 
 `tests/test_resumen_contratos_routes.py`
 
-The screen is accessible from the contracts listing.
-
-It shows one row per contract, including contracts that
-ended during the selected year and older contracts with
-outstanding economic balances or reconciliation work.
+The screen is also accessible from the Reports index.
 
 The selected year defaults to the current year.
 For previous years, the reporting period ends on December 31;
 for the current year, it ends today.
 
-The summary reuses `calcular_situacion_contrato()` for
-each contract. It displays:
+The report includes:
+
+- Contracts active on the report reference date,
+  regardless of their economic balance.
+- Contracts terminated during the selected year,
+  only when their accumulated balance is nonzero.
+
+Contracts terminated before the selected year and contracts
+starting after the reference date are excluded.
+
+The summary reuses `calcular_situacion_contrato()`
+for each included contract.
+
+It displays:
 
 - Total a ingresar: obligations in the selected year.
 - Total ingresado: net receipts in the selected year.
-- Saldo pendiente: accumulated economic balance, including
-  previous years.
-- Pendiente de conciliar: current reconciliation work remaining.
+- Saldo pendiente: accumulated economic balance,
+  including previous years.
 
-The last column is deliberately independent of the
-selected accounting year.
+Positive balances indicate debt owed by the tenant.
+Negative balances indicate credit in the tenant's favour.
 
-Pending reconciliation is calculated using
-`saldo_movimiento_previsto()` from
-`contab.conciliacion.services`.
+Reconciliation status is not displayed in this report.
+It remains available in the reconciliation module.
 
-Only expected movements in states `PENDIENTE` and `PARCIAL`
-contribute to this amount. Their unassociated balances
-are summed by contract.
+The screen includes general totals, links to the individual
+contract statements and browser printing.
 
-Movements closed with an accepted difference do not
-contribute to pending reconciliation, although their
-economic differences may remain in the contract balance.
-
-The screen includes general totals and links to:
-
-- the individual contract statement, preserving the
-  selected year's starting date;
-- the existing `conciliacion.revisar_conciliacion` route.
-
-The summary supports browser printing.
-Form controls, navigation and detail links are excluded
-from the printed report.
-
-Amounts and reconciliation work are never transferred
-between successive contracts of the same property.
-
-No database changes or migrations were necessary.
-
-Focused integration tests cover:
-
-- an empty summary;
-- independent balances for successive contracts;
-- partial reconciliation balances;
-- differences accepted on closed reconciliations;
-- older contracts with pending reconciliation;
-- access to the reconciliation review screen.
-
-The summary screen was visually reviewed with real data.
+No database changes or migrations are required.
 
 
 ### Remaining work

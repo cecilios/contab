@@ -167,3 +167,39 @@ def test_muestra_version_instalada_en_cabecera() -> None:
     )
 
 
+def test_entrar_abre_resumen_economico() -> None:
+    """Al seleccionar una base se abre el resumen económico."""
+
+    app = create_app(
+        databases={"test": "sqlite:///:memory:"},
+        secret_key="test-secret-key",
+    )
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    Base.metadata.create_all(
+        session_factory.kw["bind"]
+    )
+
+    client = app.test_client()
+
+    # El usuario abre Contab y selecciona su base de datos.
+    response = client.post(
+        "/",
+        data={"database": "test"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(
+        "/contratos/resumen"
+    )
+
+    # Comprueba que el destino muestra el informe.
+    response = client.get("/contratos/resumen")
+
+    assert response.status_code == 200
+    assert "Resumen económico de contratos" in response.text
+

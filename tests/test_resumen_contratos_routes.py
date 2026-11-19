@@ -317,8 +317,229 @@ def test_resumen_separa_contratos_y_acumula_saldos():
     assert "400,00" in html
 
 
-def test_resumen_calcula_pendiente_de_conciliar():
-    """Suma saldos pendientes y excluye diferencias aceptadas."""
+def test_resumen_filtra_contratos_por_vigencia_y_saldo():
+    """Solo muestra vigentes y finalizados del año con saldo."""
+
+    app = _crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    hoy = date.today()
+    ejercicio = hoy.year
+
+    with session_factory() as session:
+        def crear_contrato(referencia, inicio, fin=None):
+            inmueble = Inmueble(
+                referencia=referencia,
+                tipo="L",
+                codigo_facturacion=referencia,
+                descripcion=referencia,
+                direccion="Dirección",
+                poblacion="Pontevedra",
+                provincia="Pontevedra",
+                **DATOS_PROPIEDAD,
+            )
+            session.add(inmueble)
+            return _crear_contrato_prueba(
+                session,
+                inmueble,
+                inicio=inicio,
+                fin=fin,
+            )
+
+        # El propietario tiene un contrato vigente
+        # sin deuda, que debe seguir apareciendo.
+        vigente = crear_contrato(
+            "VIGENTE",
+            date(ejercicio - 1, 1, 1),
+        )
+
+        # El propietario tiene un contrato finalizado
+        # este año con 200 euros pendientes de cobro.
+        finalizado_deudor = crear_contrato(
+            "FINAL-DEUDOR",
+            date(ejercicio - 1, 1, 1),
+            date(ejercicio, 1, 1),
+        )
+        _registrar_alquiler_prueba(
+            session,
+            finalizado_deudor,
+            fecha=date(ejercicio, 1, 1),
+            importe=20000,
+            cobrado=False,
+            referencia="DEUDA",
+        )
+
+        # Otro contrato terminó este año sin deuda.
+        finalizado_saldado = crear_contrato(
+            "FINAL-SALDADO",
+            date(ejercicio - 1, 1, 1),
+            date(ejercicio, 1, 1),
+        )
+
+        # Un contrato terminó el año anterior,
+        # pero conserva una deuda de 300 euros.
+        antiguo = crear_contrato(
+            "ANTIGUO",
+            date(ejercicio - 2, 1, 1),
+            date(ejercicio - 1, 12, 31),
+        )
+        _registrar_alquiler_prueba(
+            session,
+            antiguo,
+            fecha=date(ejercicio - 1, 12, 1),
+            importe=30000,
+            cobrado=False,
+            referencia="ANTIGUA",
+        )
+
+        # Hay un contrato que empezará el año próximo.
+        futuro = crear_contrato(
+            "FUTURO",
+            date(ejercicio + 1, 1, 1),
+        )
+
+        session.commit()
+
+        ids = {
+            "vigente": vigente.id,
+            "deudor": finalizado_deudor.id,
+            "saldado": finalizado_saldado.id,
+            "antiguo": antiguo.id,
+            "futuro": futuro.id,
+        }
+
+    client = app.test_client()
+
+    # El usuario selecciona la base de datos.
+    client.post("/", data={"database": "test"})
+
+    # Consulta el resumen del ejercicio actual.
+    response = client.get("/contratos/resumen")
+
+    assert response.status_code == 200
+    html = response.text
+
+    assert f'data-contrato-id="{ids["vigente"]}"' in html
+    assert f'data-contrato-id="{ids["deudor"]}"' in html
+
+    assert f'data-contrato-id="{ids["saldado"]}"' not in html
+    assert f'data-contrato-id="{ids["antiguo"]}"' not in html
+    assert f'data-contrato-id="{ids["futuro"]}"' not in html
+
+    # Los totales solo incluyen los contratos visibles.
+    assert "200,00 €" in html
+    assert "300,00 €" not in html
+
+
+def test_resumen_filtra_contratos_en_ejercicio_anterior():
+    """Aplica las reglas respecto al ejercicio seleccionado."""
+
+    app = _crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    ejercicio = date.today().year - 1
+
+    with session_factory() as session:
+        def crear_contrato(referencia, inicio, fin=None):
+            inmueble = Inmueble(
+                referencia=referencia,
+                tipo="L",
+                codigo_facturacion=referencia,
+                descripcion=referencia,
+                direccion="Dirección",
+                poblacion="Pontevedra",
+                provincia="Pontevedra",
+                **DATOS_PROPIEDAD,
+            )
+            session.add(inmueble)
+            return _crear_contrato_prueba(
+                session,
+                inmueble,
+                inicio=inicio,
+                fin=fin,
+            )
+
+        # Vigente al cierre del ejercicio seleccionado.
+        vigente = crear_contrato(
+            "HIST-VIGENTE",
+            date(ejercicio, 1, 1),
+        )
+
+        # Finalizado durante ese ejercicio con deuda.
+        finalizado = crear_contrato(
+            "HIST-FINAL",
+            date(ejercicio - 1, 1, 1),
+            date(ejercicio, 6, 30),
+        )
+        _registrar_alquiler_prueba(
+            session,
+            finalizado,
+            fecha=date(ejercicio, 6, 1),
+            importe=15000,
+            cobrado=False,
+            referencia="HISTORICA",
+        )
+
+        # Finalizado antes del ejercicio consultado.
+        antiguo = crear_contrato(
+            "HIST-ANTIGUO",
+            date(ejercicio - 2, 1, 1),
+            date(ejercicio - 1, 12, 31),
+        )
+        _registrar_alquiler_prueba(
+            session,
+            antiguo,
+            fecha=date(ejercicio - 1, 12, 1),
+            importe=25000,
+            cobrado=False,
+            referencia="ANTERIOR",
+        )
+
+        # Contrato iniciado después del ejercicio.
+        posterior = crear_contrato(
+            "HIST-POSTERIOR",
+            date(ejercicio + 1, 1, 1),
+        )
+
+        session.commit()
+
+        ids = {
+            "vigente": vigente.id,
+            "finalizado": finalizado.id,
+            "antiguo": antiguo.id,
+            "posterior": posterior.id,
+        }
+
+    client = app.test_client()
+
+    # El usuario selecciona la base de datos.
+    client.post("/", data={"database": "test"})
+
+    # Consulta un ejercicio anterior.
+    response = client.get(
+        "/contratos/resumen",
+        query_string={"ejercicio": ejercicio},
+    )
+
+    assert response.status_code == 200
+    html = response.text
+
+    assert f'data-contrato-id="{ids["vigente"]}"' in html
+    assert f'data-contrato-id="{ids["finalizado"]}"' in html
+
+    assert f'data-contrato-id="{ids["antiguo"]}"' not in html
+    assert f'data-contrato-id="{ids["posterior"]}"' not in html
+
+    assert "150,00 €" in html
+    assert "250,00 €" not in html
+
+
+def test_resumen_muestra_saldo_negativo_sin_columna_conciliacion():
+    """El crédito del inquilino conserva su signo."""
 
     app = _crear_app_test()
     session_factory = app.extensions[
@@ -329,207 +550,81 @@ def test_resumen_calcula_pendiente_de_conciliar():
 
     with session_factory() as session:
         inmueble = Inmueble(
-            referencia="LOCAL-CONCILIACION",
+            referencia="LOCAL-CREDITO",
             tipo="L",
-            codigo_facturacion="C1",
-            descripcion="Local de prueba",
+            codigo_facturacion="CR",
+            descripcion="Local con saldo a favor",
             direccion="Dirección",
             poblacion="Pontevedra",
             provincia="Pontevedra",
             **DATOS_PROPIEDAD,
         )
 
+        # El contrato está vigente.
         contrato = _crear_contrato_prueba(
             session,
             inmueble,
             inicio=date(hoy.year - 1, 1, 1),
         )
 
-        # Primer movimiento: 1.000 euros previstos,
-        # 600 conciliados y 400 todavía pendientes.
-        parcial = MovimientoPrevisto(
+        # El usuario registra un alquiler de 1.000 euros.
+        _registrar_alquiler_prueba(
+            session,
+            contrato,
+            fecha=date(hoy.year, 1, 1),
+            importe=100000,
+            cobrado=False,
+            referencia="ENERO",
+        )
+
+        # El usuario confirma un cobro de 1.050 euros.
+        # El contrato queda con 50 euros a favor del inquilino.
+        cobro = MovimientoPrevisto(
             inmueble=inmueble,
             contrato=contrato,
             naturaleza="INGRESO",
-            concepto="Alquiler parcialmente cobrado",
-            importe_esperado=100000,
-            fecha_prevista_desde=date(hoy.year, 1, 10),
-            estado="PARCIAL",
-        )
-
-        bancario_parcial = MovimientoBancario(
-            fecha=date(hoy.year, 1, 12),
-            naturaleza="INGRESO",
-            importe=60000,
-            tipo_original="TRANSFERENCIA",
-            descripcion_original="Cobro parcial",
-            huella_importacion="RESUMEN-PARCIAL",
+            concepto="Cobro adicional",
+            importe_esperado=105000,
+            fecha_prevista_desde=date(hoy.year, 1, 2),
             estado="CONCILIADO",
+            metodo_conciliacion="MANUAL",
+            notas="Cobro confirmado fuera de la cuenta importada",
         )
 
-        conciliacion_parcial = Conciliacion(
-            movimiento_previsto=parcial,
-            movimiento_bancario=bancario_parcial,
-            importe_asociado=60000,
-        )
-
-        # Segundo movimiento: 500 euros previstos,
-        # 450 cobrados y diferencia aceptada.
-        # No debe aportar 50 euros pendientes de conciliar.
-        cerrado = MovimientoPrevisto(
-            inmueble=inmueble,
-            contrato=contrato,
-            naturaleza="INGRESO",
-            concepto="Alquiler cerrado con diferencia",
-            importe_esperado=50000,
-            fecha_prevista_desde=date(hoy.year, 2, 10),
-            estado="CONCILIADO",
-            metodo_conciliacion="INDIVIDUAL",
-        )
-
-        bancario_cerrado = MovimientoBancario(
-            fecha=date(hoy.year, 2, 12),
-            naturaleza="INGRESO",
-            importe=45000,
-            tipo_original="TRANSFERENCIA",
-            descripcion_original="Cobro con diferencia aceptada",
-            huella_importacion="RESUMEN-CERRADO",
-            estado="CONCILIADO",
-        )
-
-        conciliacion_cerrada = Conciliacion(
-            movimiento_previsto=cerrado,
-            movimiento_bancario=bancario_cerrado,
-            importe_asociado=45000,
-            cierra_previsto=True,
-        )
-
-        session.add_all([
-            parcial,
-            bancario_parcial,
-            conciliacion_parcial,
-            cerrado,
-            bancario_cerrado,
-            conciliacion_cerrada,
-        ])
-
+        session.add(cobro)
         session.commit()
         contrato_id = contrato.id
 
     client = app.test_client()
+
+    # El usuario selecciona la base de datos.
     client.post("/", data={"database": "test"})
 
+    # Consulta el resumen económico.
     response = client.get("/contratos/resumen")
 
     assert response.status_code == 200
 
-    # El importe pendiente es 1.000 - 600 = 400 euros.
-    # No incluye los 50 euros de diferencia aceptada.
-    patron = (
-        rf'<tr[^>]*data-contrato-id="{contrato_id}"'
-        rf'[^>]*>(.*?)</tr>'
-    )
-
-    coincidencia = re.search(
-        patron,
-        response.text,
-        re.DOTALL,
-    )
-
-    assert coincidencia is not None
-    fila = coincidencia.group(1)
-
-    assert "400,00 €" in fila
-
-    # El total general contiene el mismo importe.
-    assert (
-        "total_pendiente_conciliar"
-        not in response.text
-    )
-    assert response.text.count("400,00 €") >= 2
-
-    # El acceso a conciliación apunta a la ruta existente.
-    assert "/conciliacion/revisar" in response.text
-    assert "Revisar conciliación" in response.text
-
-
-def test_resumen_incluye_contrato_antiguo_con_conciliacion_pendiente():
-    """Un contrato antiguo aparece si aún necesita conciliación."""
-
-    app = _crear_app_test()
-    session_factory = app.extensions[
-        "contab_databases"
-    ]["test"]
-
-    ejercicio = date.today().year
-
-    with session_factory() as session:
-        inmueble = Inmueble(
-            referencia="LOCAL-ANTIGUO",
-            tipo="L",
-            codigo_facturacion="A1",
-            descripcion="Local antiguo",
-            direccion="Dirección",
-            poblacion="Pontevedra",
-            provincia="Pontevedra",
-            **DATOS_PROPIEDAD,
-        )
-
-        # Finalizó antes del ejercicio actual.
-        contrato = _crear_contrato_prueba(
-            session,
-            inmueble,
-            inicio=date(ejercicio - 3, 1, 1),
-            fin=date(ejercicio - 2, 12, 31),
-        )
-
-        # No hay facturas ni apuntes exigibles.
-        # Solo queda este movimiento pendiente.
-        previsto = MovimientoPrevisto(
-            inmueble=inmueble,
-            contrato=contrato,
-            naturaleza="INGRESO",
-            concepto="Cobro antiguo pendiente de conciliar",
-            importe_esperado=25000,
-            fecha_prevista_desde=date(ejercicio - 2, 12, 10),
-            estado="PENDIENTE",
-        )
-
-        session.add(previsto)
-        session.commit()
-
-        contrato_id = contrato.id
-
-    client = app.test_client()
-    client.post("/", data={"database": "test"})
-
-    response = client.get(
-        "/contratos/resumen",
-        query_string={"ejercicio": ejercicio},
-    )
-
-    assert response.status_code == 200
+    html = response.text
 
     patron = (
         rf'<tr[^>]*data-contrato-id="{contrato_id}"'
         rf'[^>]*>(.*?)</tr>'
     )
-
-    coincidencia = re.search(
-        patron,
-        response.text,
-        re.DOTALL,
-    )
+    coincidencia = re.search(patron, html, re.DOTALL)
 
     assert coincidencia is not None
     fila = coincidencia.group(1)
 
-    # El contrato aparece exclusivamente porque
-    # conserva 250 euros pendientes de conciliar.
-    assert "LOCAL-ANTIGUO" in fila
-    assert "250,00 €" in fila
+    assert "1.000,00 €" in fila
+    assert "1.050,00 €" in fila
+    assert "-50,00 €" in fila
 
-    # No existen exigibles ni cobros económicos
-    # atribuidos a ese contrato.
-    assert fila.count("0,00 €") >= 3
+    # El informe ya no presenta datos de conciliación.
+    assert "Pendiente de conciliar" not in html
+
+    # Quedan tres columnas económicas y la de detalle.
+    assert html.count(
+        'class="resumen-contratos__columna-importe"'
+    ) == 3
 
