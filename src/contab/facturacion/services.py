@@ -133,7 +133,7 @@ class EliminacionFactura:
 
     factura: Factura
     apunte: ApunteContable
-    movimiento: MovimientoPrevisto | None
+    movimiento: MovimientoPrevisto
 
 @dataclass(frozen=True)
 class IngresoPreparado:
@@ -1396,22 +1396,19 @@ def preparar_eliminacion_factura(
         apunte.movimientos_previstos
     )
 
+    if not movimientos:
+        raise FacturacionError(
+            "La factura no tiene movimiento previsto asociado."
+        )
+
     if len(movimientos) > 1:
         raise FacturacionError(
             "La factura tiene más de un movimiento previsto asociado."
         )
 
-    movimiento = (
-        movimientos[0]
-        if movimientos
-        else None
-    )
+    movimiento = movimientos[0]
 
-    if (
-        movimiento is not None
-        and movimiento.estado
-        not in {"PENDIENTE", "CANCELADO"}
-    ):
+    if movimiento.estado not in {"PENDIENTE", "CANCELADO"}:
         if movimiento.estado == "PARCIAL":
             raise FacturacionError(
                 "No puede eliminarse una factura con un "

@@ -319,20 +319,21 @@ Una factura sólo puede eliminarse cuando:
 
 - está en estado `EMITIDA`;
 - es la última factura numerada de ese inmueble y ejercicio;
-- dispone del apunte contable asociado, salvo las facturas históricas cargadas como antecedente;
-- tiene como máximo un movimiento previsto asociado;
-- el movimiento, si existe, está todavía en estado `PENDIENTE` o `CANCELADO`.
+- tiene un apunte contable asociado;
+- tiene exactamente un movimiento previsto asociado a ese apunte;
+- el movimiento previsto está en estado `PENDIENTE` o `CANCELADO`.
 
-No se permite eliminar una factura cuyo cobro esté parcial o totalmente conciliado.
+No se permite eliminar una factura sin movimiento previsto, con varios
+movimientos previstos o cuyo cobro esté parcial o totalmente conciliado.
 
-La eliminación borra conjuntamente, cuando existen:
+La eliminación borra conjuntamente:
 
-- movimiento previsto;
-- líneas de factura;
-- imputaciones `FACTURAR` asociadas a las líneas de factura;
-- destinatarios históricos;
-- factura;
-- apunte contable.
+- el movimiento previsto;
+- las líneas de factura;
+- las imputaciones `FACTURAR` asociadas a las líneas de factura, si existen;
+- los destinatarios históricos;
+- la factura;
+- el apunte contable.
 
 La operación es atómica.
 

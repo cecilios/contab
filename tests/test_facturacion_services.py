@@ -3041,7 +3041,7 @@ def test_preparar_eliminacion_factura_devuelve_elementos_a_eliminar(
     assert eliminacion.movimiento is movimiento
 
 
-def test_preparar_eliminacion_factura_sin_movimiento_previsto_es_valida(
+def test_preparar_eliminacion_factura_rechaza_sin_movimiento_previsto(
     session,
     contrato,
 ) -> None:
@@ -3072,13 +3072,11 @@ def test_preparar_eliminacion_factura_sin_movimiento_previsto_es_valida(
     session.add(factura)
     session.commit()
 
-    eliminacion = preparar_eliminacion_factura(
-        factura
-    )
-
-    assert eliminacion.factura is factura
-    assert eliminacion.apunte is apunte
-    assert eliminacion.movimiento is None
+    with pytest.raises(
+        FacturacionError,
+        match="no tiene movimiento previsto asociado",
+    ):
+        preparar_eliminacion_factura(factura)
 
 
 def test_preparar_eliminacion_factura_rechaza_movimiento_parcial(
