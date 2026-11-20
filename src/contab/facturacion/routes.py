@@ -94,6 +94,7 @@ def _render_lista(
     periodo_texto: str,
     fecha_emision_texto: str,
     error: str | None = None,
+    error_apuntes_automaticos: str | None = None,
 ):
     """Muestra la preparación mensual de facturación."""
 
@@ -107,6 +108,7 @@ def _render_lista(
         importe_a_texto=importe_a_texto,
         importe_a_texto_entrada=importe_a_texto_entrada,
         porcentaje_a_texto_entrada=porcentaje_a_texto_entrada,
+        error_apuntes_automaticos=error_apuntes_automaticos,
     )
 
 
@@ -356,10 +358,43 @@ def listar():
                 fecha_emision=fecha_emision,
             )
 
+            # Comprobar si pueden crearse los apuntes automáticos,
+            # sin persistir los objetos preparados.
+            error_apuntes_automaticos = None
+
+            try:
+                nombre_base = get_database_name()
+
+                if nombre_base is None:
+                    raise ValueError(
+                        "No se ha seleccionado ninguna base de datos."
+                    )
+
+                configurados = cargar_apuntes_automaticos(
+                    nombre_base
+                )
+                categorias = cargar_categorias_contables()
+
+                preparar_apuntes_automaticos(
+                    session,
+                    configurados=configurados,
+                    categorias=categorias,
+                    periodo=periodo,
+                )
+
+            except (
+                ValueError,
+                ConfigError,
+                ContabilidadError,
+                ConciliacionError,
+            ) as exc:
+                error_apuntes_automaticos = str(exc)
+
             return _render_lista(
                 preparacion=preparacion,
                 periodo_texto=periodo_texto,
                 fecha_emision_texto=fecha_emision_texto,
+                error_apuntes_automaticos=error_apuntes_automaticos,
             )
 
     except FacturacionError as exc:

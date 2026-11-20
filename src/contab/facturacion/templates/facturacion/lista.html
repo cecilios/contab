@@ -61,7 +61,11 @@
                     value="{{ periodo_texto }}"
                 >
 
-                <button type="submit">
+                <button
+                    id="crear-apuntes-automaticos"
+                    type="submit"
+                    {% if error_apuntes_automaticos %}disabled{% endif %}
+                >
                     Crear apuntes automáticos
                 </button>
             </form>

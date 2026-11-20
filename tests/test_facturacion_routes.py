@@ -5509,6 +5509,27 @@ LOCAL-2 | GAS_COMUNIDAD | Comunidad | 64,20
         data={"database": "test"},
     )
 
+    # Preparar noviembre: todavía pueden crearse los apuntes automáticos.
+    preparacion = client.get(
+        "/facturacion/",
+        query_string={"periodo": "11/2026"},
+    )
+
+    assert preparacion.status_code == 200
+
+    html = preparacion.get_data(as_text=True)
+    boton = html.split(
+        'id="crear-apuntes-automaticos"', 1
+    )[1].split(">", 1)[0]
+
+    assert "disabled" not in boton
+
+    # La preparación no guarda apuntes.
+    with session_factory() as session:
+        assert session.scalars(
+            select(ApunteContable)
+        ).all() == []
+
     # El usuario genera los apuntes de noviembre.
     response = client.post(
         "/facturacion/apuntes-automaticos",
@@ -5633,6 +5654,22 @@ GAS_COMUNIDAD = GASTO | Comunidad
 
     assert primera.status_code == 302
 
+    # Al preparar nuevamente el mismo período,
+    # el botón debe aparecer deshabilitado.
+    preparacion = client.get(
+        "/facturacion/",
+        query_string={"periodo": "11/2026"},
+    )
+
+    assert preparacion.status_code == 200
+
+    html = preparacion.get_data(as_text=True)
+    boton = html.split(
+        'id="crear-apuntes-automaticos"', 1
+    )[1].split(">", 1)[0]
+
+    assert "disabled" in boton
+
     # El usuario pulsa de nuevo Crear apuntes automáticos.
     segunda = client.post(
         "/facturacion/apuntes-automaticos",
@@ -5722,6 +5759,30 @@ LOCAL-INEXISTENTE | GAS_COMUNIDAD | Comunidad | 64,20
         "/",
         data={"database": "test"},
     )
+
+    # La configuración contiene un inmueble inexistente.
+    # Preparar debe detectar el error sin crear registros.
+    preparacion = client.get(
+        "/facturacion/",
+        query_string={"periodo": "11/2026"},
+    )
+
+    assert preparacion.status_code == 200
+
+    html = preparacion.get_data(as_text=True)
+    boton = html.split(
+        'id="crear-apuntes-automaticos"', 1
+    )[1].split(">", 1)[0]
+
+    assert "disabled" in boton
+
+    with session_factory() as session:
+        assert session.scalars(
+            select(ApunteContable)
+        ).all() == []
+        assert session.scalars(
+            select(MovimientoPrevisto)
+        ).all() == []
 
     # El usuario intenta generar dos apuntes de noviembre.
     # El primero es válido, pero el segundo tiene

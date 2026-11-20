@@ -291,6 +291,12 @@ tbody tr:has(
     cursor: pointer;
 }
 
+.facturacion-acciones button:disabled {
+    color: #888888;
+    text-decoration: none;
+    cursor: not-allowed;
+}
+
 .facturacion-preparacion {
     display: flex;
     align-items: baseline;
