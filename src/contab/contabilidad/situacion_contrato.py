@@ -35,6 +35,7 @@ class SituacionContrato:
     saldo_anterior: int
     total_exigible: int
     total_cobrado: int
+    total_ingresado_real: int
     saldo: int
 
 
@@ -60,10 +61,14 @@ def calcular_situacion_contrato(
         )
 
     obligaciones: list[MovimientoEconomico] = []
+
+    # Importes atribuidos al contrato para calcular su saldo.
     pagos: list[MovimientoEconomico] = []
 
-    # 1. Facturas emitidas hasta la fecha de consulta.
+    # Movimientos reales que se muestran en el informe.
+    cobros_reales: list[MovimientoEconomico] = []
 
+    # 1. Facturas emitidas hasta la fecha de consulta.
     facturas = session.scalars(
         select(Factura)
         .where(
@@ -239,6 +244,9 @@ def calcular_situacion_contrato(
         )
     ).all()
 
+
+    bancarios_mostrados = set()
+
     for conciliacion, bancario in conciliaciones:
         signo = (
             1
@@ -246,6 +254,8 @@ def calcular_situacion_contrato(
             else -1
         )
 
+        # Cada conciliación aporta únicamente su importe
+        # asociado al contrato.
         pagos.append(
             MovimientoEconomico(
                 fecha=bancario.fecha,
@@ -256,6 +266,17 @@ def calcular_situacion_contrato(
             )
         )
 
+        # El movimiento bancario completo se muestra
+        # una sola vez, aunque tenga varias conciliaciones.
+        if bancario.id not in bancarios_mostrados:
+            cobros_reales.append(
+                MovimientoEconomico(
+                    fecha=bancario.fecha,
+                    concepto=bancario.descripcion_original,
+                    importe=signo * bancario.importe,
+                )
+            )
+            bancarios_mostrados.add(bancario.id)
 
     # 3. Cobros y devoluciones conciliados manualmente.
     #
@@ -313,15 +334,14 @@ def calcular_situacion_contrato(
             else -1
         )
 
-        pagos.append(
-            MovimientoEconomico(
-                fecha=fecha,
-                concepto=movimiento.concepto,
-                importe=(
-                    signo * movimiento.importe_esperado
-                ),
-            )
+        cobro_manual = MovimientoEconomico(
+            fecha=fecha,
+            concepto=movimiento.concepto,
+            importe=signo * movimiento.importe_esperado,
         )
+
+        pagos.append(cobro_manual)
+        cobros_reales.append(cobro_manual)
 
 
     # 4. Separar el saldo anterior del período consultado.
@@ -354,6 +374,15 @@ def calcular_situacion_contrato(
 
     cobros = [
         movimiento
+        for movimiento in cobros_reales
+        if (
+            movimiento.fecha is None
+            or movimiento.fecha >= fecha_desde
+        )
+    ]
+
+    cobros_atribuidos = [
+        movimiento
         for movimiento in pagos
         if (
             movimiento.fecha is None
@@ -379,7 +408,14 @@ def calcular_situacion_contrato(
         for movimiento in exigibles
     )
 
+    # Importe económico atribuido a este contrato.
     total_cobrado = sum(
+        movimiento.importe
+        for movimiento in cobros_atribuidos
+    )
+
+    # Importe original de los movimientos mostrados.
+    total_ingresado_real = sum(
         movimiento.importe
         for movimiento in cobros
     )
@@ -396,6 +432,7 @@ def calcular_situacion_contrato(
         saldo_anterior=saldo_anterior,
         total_exigible=total_exigible,
         total_cobrado=total_cobrado,
+        total_ingresado_real=total_ingresado_real,
         saldo=saldo,
     )
 

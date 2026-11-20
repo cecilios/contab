@@ -309,6 +309,19 @@ def test_situacion_tiene_tablas_y_totales_fuera_de_ellas():
     assert "No hay exigibles en el período." in response.text
     assert "No hay cobros ni devoluciones" in response.text
 
+    # El informe diferencia los pagos recibidos
+    # de los importes atribuidos al contrato.
+    assert "Total ingresado:" in response.text
+    assert "Total atribuido a este contrato:" in response.text
+    assert "Saldo pendiente:" in response.text
+
+    # Los totales aparecen en ese orden.
+    assert (
+        response.text.index("Total ingresado:")
+        < response.text.index("Total atribuido a este contrato:")
+        < response.text.index("Saldo pendiente:")
+    )
+
     # El encabezado del contrato se conserva en el informe imprimible.
     assert '<h2 class="situacion-contrato__contrato">' in response.text
 

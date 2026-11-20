@@ -194,7 +194,7 @@
 
                 <section class="situacion-contrato__grupo-cobros">
                     <h3 class="situacion-contrato__subtitulo">
-                        Cobros y devoluciones
+                        Ingresos efectuados
                     </h3>
 
                     <table class="situacion-contrato__tabla
@@ -265,6 +265,16 @@
                 <div class="situacion-contrato__total
                             situacion-contrato__total-cobrado">
                     <strong>Total ingresado:</strong>
+                    <span>
+                        {{ importe_a_texto(
+                            situacion.total_ingresado_real
+                        ) }} €
+                    </span>
+                </div>
+
+                <div class="situacion-contrato__total
+                            situacion-contrato__total-atribuido">
+                    <strong>Total atribuido a este contrato:</strong>
                     <span>
                         {{ importe_a_texto(
                             situacion.total_cobrado

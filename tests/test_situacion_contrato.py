@@ -288,6 +288,18 @@ def test_saldo_anterior_y_fecha_de_corte(
     assert len(situacion.cobros) == 1
     assert situacion.cobros[0].fecha == date(2026, 1, 5)
 
+    # El importe bancario real también es de 900 euros.
+    assert situacion.total_ingresado_real == 90000
+
+    # Se mantiene el saldo anterior:
+    # 200 + 1.000 - 900 = 300 euros.
+    assert situacion.saldo_anterior == 20000
+    assert situacion.saldo == (
+        situacion.saldo_anterior
+        + situacion.total_exigible
+        - situacion.total_cobrado
+    )
+
 
 def test_no_se_cuentan_cobros_sin_atribuir(
     session,
@@ -1457,4 +1469,207 @@ def test_cobro_manual_sin_ninguna_fecha(
     assert len(situacion.cobros) == 1
     assert situacion.cobros[0].fecha is None
     assert situacion.cobros[0].importe == 13000
+
+
+def test_cobros_muestran_bancarios_completos_sin_duplicarlos(
+    session,
+    contrato,
+):
+    """Muestra transferencias reales y conserva importes atribuidos."""
+
+    # Hay tres facturas del contrato: 700, 300 y 100 euros.
+    previstos = []
+
+    for numero, importe in (
+        (61, 70000),
+        (62, 30000),
+        (63, 10000),
+    ):
+        _, previsto = crear_factura_prueba(
+            session,
+            contrato,
+            numero=numero,
+            fecha=date(2026, 10, 1),
+            importe=importe,
+        )
+        previstos.append(previsto)
+
+    # El inquilino ingresa 1.200 euros.
+    # Se atribuyen 700 y 300 a dos facturas.
+    bancario_1 = MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=120000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Ingreso bancario 1200",
+        huella_importacion="TEST-BANCARIO-1200",
+        estado="PARCIAL",
+    )
+
+    conciliacion_1 = Conciliacion(
+        movimiento_bancario=bancario_1,
+        movimiento_previsto=previstos[0],
+        importe_asociado=70000,
+    )
+
+    conciliacion_2 = Conciliacion(
+        movimiento_bancario=bancario_1,
+        movimiento_previsto=previstos[1],
+        importe_asociado=30000,
+    )
+
+    # El mismo día realiza otra transferencia de 150 euros.
+    # Solo 100 euros se atribuyen a la tercera factura.
+    bancario_2 = MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=15000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Ingreso bancario 150",
+        huella_importacion="TEST-BANCARIO-150",
+        estado="PARCIAL",
+    )
+
+    conciliacion_3 = Conciliacion(
+        movimiento_bancario=bancario_2,
+        movimiento_previsto=previstos[2],
+        importe_asociado=10000,
+    )
+
+    session.add_all([
+        bancario_1,
+        bancario_2,
+        conciliacion_1,
+        conciliacion_2,
+        conciliacion_3,
+    ])
+    session.commit()
+
+    situacion = calcular_situacion_contrato(
+        session,
+        contrato.id,
+        fecha_desde=date(2026, 1, 1),
+        fecha_hasta=date(2026, 10, 6),
+    )
+
+    # Solo aparecen los dos movimientos bancarios reales.
+    assert len(situacion.cobros) == 2
+
+    assert situacion.cobros[0].fecha == date(2026, 10, 5)
+    assert situacion.cobros[0].concepto == "Ingreso bancario 1200"
+    assert situacion.cobros[0].importe == 120000
+
+    assert situacion.cobros[1].fecha == date(2026, 10, 5)
+    assert situacion.cobros[1].concepto == "Ingreso bancario 150"
+    assert situacion.cobros[1].importe == 15000
+
+    # Las transferencias suman 1.350 euros.
+    assert situacion.total_ingresado_real == 135000
+
+    # Solo 1.100 euros están atribuidos al contrato.
+    assert situacion.total_cobrado == 110000
+
+    # El saldo se calcula con el importe atribuido,
+    # no con el importe bancario completo.
+    assert situacion.total_exigible == 110000
+    assert situacion.saldo == 0
+
+
+def test_bancario_compartido_no_duplica_saldo_entre_contratos(
+    session,
+    contrato,
+):
+    """Una transferencia compartida no duplica ingresos atribuidos."""
+
+    # El primer contrato tiene una factura de 1.000 euros.
+    _, previsto_1 = crear_factura_prueba(
+        session,
+        contrato,
+        numero=64,
+        fecha=date(2026, 10, 1),
+        importe=100000,
+    )
+
+    # El mismo inmueble tiene otro contrato.
+    otro_contrato = Contrato(
+        inmueble=contrato.inmueble,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_vencimiento=date(2030, 12, 31),
+        genera_factura=True,
+        fecha_inicio_facturacion=date(2026, 1, 1),
+        fianza=0,
+        direccion_facturacion="Dirección",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+    )
+
+    session.add(otro_contrato)
+    session.flush()
+
+    # El segundo contrato tiene una factura de 200 euros.
+    _, previsto_2 = crear_factura_prueba(
+        session,
+        otro_contrato,
+        numero=65,
+        fecha=date(2026, 10, 1),
+        importe=20000,
+    )
+
+    # Una sola transferencia paga ambas facturas.
+    bancario = MovimientoBancario(
+        fecha=date(2026, 10, 5),
+        naturaleza="INGRESO",
+        importe=120000,
+        tipo_original="TRANSFERENCIA",
+        descripcion_original="Transferencia compartida",
+        huella_importacion="TEST-BANCARIO-COMPARTIDO",
+        estado="CONCILIADO",
+    )
+
+    session.add_all([
+        bancario,
+        Conciliacion(
+            movimiento_bancario=bancario,
+            movimiento_previsto=previsto_1,
+            importe_asociado=100000,
+        ),
+        Conciliacion(
+            movimiento_bancario=bancario,
+            movimiento_previsto=previsto_2,
+            importe_asociado=20000,
+        ),
+    ])
+    session.commit()
+
+    primera = calcular_situacion_contrato(
+        session,
+        contrato.id,
+        fecha_desde=date(2026, 1, 1),
+        fecha_hasta=date(2026, 10, 6),
+    )
+
+    segunda = calcular_situacion_contrato(
+        session,
+        otro_contrato.id,
+        fecha_desde=date(2026, 1, 1),
+        fecha_hasta=date(2026, 10, 6),
+    )
+
+    # Ambos informes identifican la transferencia completa.
+    assert len(primera.cobros) == 1
+    assert len(segunda.cobros) == 1
+
+    assert primera.cobros[0].importe == 120000
+    assert segunda.cobros[0].importe == 120000
+
+    assert primera.total_ingresado_real == 120000
+    assert segunda.total_ingresado_real == 120000
+
+    # Cada contrato recibe únicamente su parte atribuida.
+    assert primera.total_cobrado == 100000
+    assert segunda.total_cobrado == 20000
+
+    assert primera.saldo == 0
+    assert segunda.saldo == 0
 
