@@ -32,6 +32,26 @@
     {% endif %}
 
     <form method="post">
+
+        {% if desde_listado %}
+            <input type="hidden" name="origen" value="listado">
+            <input
+                type="hidden"
+                name="estado"
+                value="{{ filtros_retorno.estado }}"
+            >
+            <input
+                type="hidden"
+                name="inmueble_id"
+                value="{{ filtros_retorno.inmueble_id }}"
+            >
+            <input
+                type="hidden"
+                name="pagina"
+                value="{{ filtros_retorno.pagina }}"
+            >
+        {% endif %}
+
         <p>
             <label for="notas">
                 Explicación de la conciliación:
@@ -53,10 +73,13 @@
                 Confirmar conciliación manual
             </button>
 
-            <a href="{{ url_for(
-                'conciliacion.listar_movimientos_previstos',
-                estado='PENDIENTE'
-            ) }}">
+            <a href="{% if desde_listado %}{{ url_for(
+                    'conciliacion.listar_movimientos_previstos',
+                    **filtros_retorno
+               ) }}{% else %}{{ url_for(
+                    'conciliacion.listar_movimientos_previstos',
+                    estado='PENDIENTE'
+               ) }}{% endif %}">
                 Volver
             </a>
         </p>

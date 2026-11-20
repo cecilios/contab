@@ -181,6 +181,48 @@ def _estado_previsto_retorno() -> str:
     return estado
 
 
+def _filtros_previstos_retorno() -> dict:
+    """Recupera los filtros del listado de movimientos previstos."""
+
+    estado = request.values.get(
+        "estado",
+        "PENDIENTE",
+    ).strip().upper()
+
+    if estado not in {
+        "TODOS",
+        *ESTADOS_MOVIMIENTO_PREVISTO,
+    }:
+        estado = "PENDIENTE"
+
+    inmueble_id = request.values.get(
+        "inmueble_id",
+        default=0,
+        type=int,
+    )
+
+    pagina = request.values.get(
+        "pagina",
+        default=1,
+        type=int,
+    )
+
+    return {
+        "estado": estado,
+        "inmueble_id": max(inmueble_id or 0, 0),
+        "pagina": max(pagina or 1, 1),
+    }
+
+
+def _url_listado_previstos() -> str:
+    """Construye la URL del listado conservando sus filtros."""
+
+    return url_for(
+        "conciliacion.listar_movimientos_previstos",
+        **_filtros_previstos_retorno(),
+    )
+
+
 def _render_formulario_importacion(
     *,
     error: str | None = None,
@@ -705,12 +747,7 @@ def cancelar_movimiento_previsto_desde_interfaz(
     except ConciliacionError as exc:
         return str(exc), 400
 
-    return redirect(
-        url_for(
-            "conciliacion.listar_movimientos_previstos",
-            estado=_estado_previsto_retorno(),
-        )
-    )
+    return redirect(_url_listado_previstos())
 
 
 @bp.post("/previstos/<int:movimiento_id>/restaurar")
@@ -742,12 +779,7 @@ def restaurar_movimiento_previsto_desde_interfaz(
     except ConciliacionError as exc:
         return str(exc), 400
 
-    return redirect(
-        url_for(
-            "conciliacion.listar_movimientos_previstos",
-            estado=_estado_previsto_retorno(),
-        )
-    )
+    return redirect(_url_listado_previstos())
 
 
 @bp.route(
@@ -780,6 +812,10 @@ def conciliar_movimiento_previsto_manualmente_desde_interfaz(
                 importe_a_texto=importe_a_texto,
                 intervalo_a_texto=_intervalo_a_texto,
                 database_name=get_database_name(),
+                filtros_retorno=_filtros_previstos_retorno(),
+                desde_listado=(
+                    request.args.get("origen") == "listado"
+                ),
             )
 
         try:
@@ -799,10 +835,18 @@ def conciliar_movimiento_previsto_manualmente_desde_interfaz(
                     importe_a_texto=importe_a_texto,
                     intervalo_a_texto=_intervalo_a_texto,
                     database_name=get_database_name(),
+                    filtros_retorno=_filtros_previstos_retorno(),
+                    desde_listado=(
+                        request.form.get("origen") == "listado"
+                    ),
                     error=str(exc),
                 ),
                 400,
             )
+
+
+    if request.form.get("origen") == "listado":
+        return redirect(_url_listado_previstos())
 
     return redirect(
         url_for("conciliacion.revisar_conciliacion")
@@ -841,12 +885,7 @@ def deshacer_conciliacion_manual_desde_interfaz(
             session.rollback()
             return str(exc), 400
 
-    return redirect(
-        url_for(
-            "conciliacion.listar_movimientos_previstos",
-            estado="CONCILIADO",
-        )
-    )
+    return redirect(_url_listado_previstos())
 
 
 
@@ -984,12 +1023,7 @@ def deshacer_asociacion_bancaria_desde_interfaz(
             db_session.rollback()
             return str(exc), 400
 
-    return redirect(
-        url_for(
-            "conciliacion.listar_movimientos_previstos",
-            estado="CONCILIADO",
-        )
-    )
+    return redirect(_url_listado_previstos())
 
 
 @bp.post("/revisar/propuestas/aceptar")

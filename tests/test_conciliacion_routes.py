@@ -1137,10 +1137,17 @@ def test_cancelar_movimiento_previsto_desde_interfaz() -> None:
             f"/conciliacion/previstos/"
             f"{movimiento_id}/cancelar"
         ),
-        data={"estado": "PENDIENTE"},
+        data={
+            "estado": "PENDIENTE",
+            "inmueble_id": 7,
+            "pagina": 3,
+        },
     )
 
     assert response.status_code == 302
+    assert "estado=PENDIENTE" in response.location
+    assert "inmueble_id=7" in response.location
+    assert "pagina=3" in response.location
 
     with session_factory() as session:
         movimiento = session.get(
@@ -1199,10 +1206,17 @@ def test_restaurar_movimiento_previsto_desde_interfaz() -> None:
             f"/conciliacion/previstos/"
             f"{movimiento_id}/restaurar"
         ),
-        data={"estado": "CANCELADO"},
+        data={
+            "estado": "CANCELADO",
+            "inmueble_id": 7,
+            "pagina": 3,
+        },
     )
 
     assert response.status_code == 302
+    assert "estado=CANCELADO" in response.location
+    assert "inmueble_id=7" in response.location
+    assert "pagina=3" in response.location
 
     with session_factory() as session:
         movimiento = session.get(
@@ -1281,8 +1295,8 @@ def test_acciones_movimientos_previstos_segun_estado() -> None:
 
     assert response.status_code == 200
 
-    assert response.text.count("Cancelar") == 1
-    assert response.text.count("Restaurar") == 1
+    assert response.text.count("Anular previsto") == 1
+    assert response.text.count("Restaurar previsto") == 1
 
 
 def test_revisar_conciliacion_clasifica_movimientos() -> None:
@@ -2163,7 +2177,12 @@ def test_deshacer_conciliacion_manual_desde_interfaz() -> None:
 
     client.post(
         "/",
-        data={"database": "test"},
+        data={
+            "database": "test",
+            "estado": "CONCILIADO",
+            "inmueble_id": 7,
+            "pagina": 3,
+        },
     )
 
     # El usuario deshace desde el listado la conciliación manual.
@@ -2171,11 +2190,17 @@ def test_deshacer_conciliacion_manual_desde_interfaz() -> None:
         (
             f"/conciliacion/previstos/{movimiento_id}"
             "/deshacer-conciliacion-manual"
-        )
+        ),
+        data={
+            "estado": "CONCILIADO",
+            "inmueble_id": 7,
+            "pagina": 3,
+        },
     )
 
     assert response.status_code == 302
-
+    assert "inmueble_id=7" in response.location
+    assert "pagina=3" in response.location
     assert "estado=CONCILIADO" in response.location
 
     # El movimiento vuelve a quedar disponible para conciliar.
@@ -2456,9 +2481,19 @@ def test_deshacer_asociacion_bancaria_desde_interfaz() -> None:
     assert f'action="{url}"' in listado.text
 
     # El usuario deshace la asociación bancaria.
-    response = client.post(url)
+    response = client.post(
+        url,
+        data={
+            "estado": "CONCILIADO",
+            "inmueble_id": 7,
+            "pagina": 3,
+        },
+    )
 
     assert response.status_code == 302
+    assert "estado=CONCILIADO" in response.location
+    assert "inmueble_id=7" in response.location
+    assert "pagina=3" in response.location
 
     with session_factory() as session:
         assert session.get(Conciliacion, conciliacion_id) is None
@@ -5684,4 +5719,86 @@ def test_manual_acepta_diferencia_gastos_sin_contrato_mismo_inmueble():
             ).estado == "CONCILIADO"
             for identificador in previstos
         )
+
+
+def test_acciones_previstos_conservan_contexto_del_listado():
+    """Los formularios mantienen estado, inmueble y página."""
+
+    app = crear_app_test()
+    session_factory = app.extensions["contab_databases"]["test"]
+
+    with session_factory() as session:
+        inmueble = crear_inmueble_prueba(
+            referencia="LOCAL-FILTROS",
+            tipo="L",
+            codigo_facturacion="LF",
+            descripcion="Local de prueba",
+            direccion="Dirección",
+            poblacion="Madrid",
+            provincia="Madrid",
+        )
+
+        pendiente = MovimientoPrevisto(
+            inmueble=inmueble,
+            naturaleza="INGRESO",
+            concepto="Cobro pendiente",
+            importe_esperado=10000,
+            estado="PENDIENTE",
+        )
+
+        conciliado = MovimientoPrevisto(
+            inmueble=inmueble,
+            naturaleza="INGRESO",
+            concepto="Cobro manual",
+            importe_esperado=20000,
+            estado="CONCILIADO",
+            metodo_conciliacion="MANUAL",
+            notas="Cobrado fuera del banco",
+        )
+
+        session.add_all([pendiente, conciliado])
+        session.commit()
+        inmueble_id = inmueble.id
+        pendiente_id = pendiente.id
+        conciliado_id = conciliado.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    for estado, movimiento_id, accion in (
+        ("PENDIENTE", pendiente_id, "cancelar"),
+        (
+            "CONCILIADO",
+            conciliado_id,
+            "deshacer-conciliacion-manual",
+        ),
+    ):
+        response = client.get(
+            "/conciliacion/previstos",
+            query_string={
+                "estado": estado,
+                "inmueble_id": inmueble_id,
+                "pagina": 1,
+            },
+        )
+
+        assert response.status_code == 200
+
+        action = (
+            f"/conciliacion/previstos/"
+            f"{movimiento_id}/{accion}"
+        )
+
+        # Comprobamos los campos del formulario
+        # correspondiente a la acción.
+        formulario = response.text.split(
+            f'action="{action}"', 1
+        )[1].split("</form>", 1)[0]
+
+        assert 'name="estado"' in formulario
+        assert f'value="{estado}"' in formulario
+        assert 'name="inmueble_id"' in formulario
+        assert f'value="{inmueble_id}"' in formulario
+        assert 'name="pagina"' in formulario
+        assert 'value="1"' in formulario
 

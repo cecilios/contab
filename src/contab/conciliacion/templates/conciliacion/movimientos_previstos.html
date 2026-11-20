@@ -5,6 +5,25 @@
 {% endblock %}
 
 {% block content %}
+
+{% macro filtros_retorno() %}
+    <input
+        type="hidden"
+        name="estado"
+        value="{{ estado_seleccionado }}"
+    >
+    <input
+        type="hidden"
+        name="inmueble_id"
+        value="{{ inmueble_id_seleccionado }}"
+    >
+    <input
+        type="hidden"
+        name="pagina"
+        value="{{ pagina }}"
+    >
+{% endmacro %}
+
     <h1>Movimientos previstos</h1>
 
     <nav class="submenu-navegacion">
@@ -154,6 +173,7 @@
                                             conciliacion_id=conciliacion.id
                                         ) }}"
                                     >
+                                        {{ filtros_retorno() }}
                                         <button type="submit">
                                             Deshacer asociación
                                             {{ importe_a_texto(
@@ -175,6 +195,7 @@
                                         movimiento_id=movimiento.id
                                     ) }}"
                                 >
+                                    {{ filtros_retorno() }}
                                     <button type="submit">
                                         Deshacer conciliación
                                     </button>
@@ -184,7 +205,11 @@
                             {% if movimiento.estado == "PENDIENTE" %}
                                 <a href="{{ url_for(
                                     'conciliacion.conciliar_movimiento_previsto_manualmente_desde_interfaz',
-                                    movimiento_id=movimiento.id
+                                    movimiento_id=movimiento.id,
+                                    origen='listado',
+                                    estado=estado_seleccionado,
+                                    inmueble_id=inmueble_id_seleccionado,
+                                    pagina=pagina
                                 ) }}">
                                     Conciliar manualmente
                                 </a>
@@ -196,14 +221,10 @@
                                         movimiento_id=movimiento.id
                                     ) }}"
                                 >
-                                    <input
-                                        type="hidden"
-                                        name="estado"
-                                        value="{{ estado_seleccionado }}"
-                                    >
+                                    {{ filtros_retorno() }}
 
                                     <button type="submit">
-                                        Cancelar
+                                        Anular previsto
                                     </button>
                                 </form>
 
@@ -215,14 +236,10 @@
                                         movimiento_id=movimiento.id
                                     ) }}"
                                 >
-                                    <input
-                                        type="hidden"
-                                        name="estado"
-                                        value="{{ estado_seleccionado }}"
-                                    >
+                                    {{ filtros_retorno() }}
 
                                     <button type="submit">
-                                        Restaurar
+                                        Restaurar previsto
                                     </button>
                                 </form>
                             {% endif %}
