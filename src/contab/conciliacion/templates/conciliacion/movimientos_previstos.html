@@ -107,7 +107,6 @@
                     <th>Tipo</th>
                     <th>Concepto</th>
                     <th>Contraparte</th>
-                    <th>Origen</th>
                     <th>Importe</th>
                     <th class="estado-previsto">Estado</th>
                     <th>Acciones</th>
@@ -132,15 +131,6 @@
                         <td>{{ movimiento.concepto }}</td>
                         <td>{{ movimiento.contraparte }}</td>
                         <td>
-                            {% if movimiento.apunte_id is not none %}
-                                Apunte contable
-                            {% elif movimiento.contrato_id is not none %}
-                                Contrato
-                            {% else %}
-                                Previsión independiente
-                            {% endif %}
-                        </td>
-                        <td>
                             {{ importe_a_texto(
                                 movimiento.importe_esperado
                             ) }}
@@ -163,6 +153,16 @@
                             {% endif %}
                         </td>
                         <td>
+                            <a
+                                class="movimientos-previstos__relaciones"
+                                href="{{ url_for(
+                                    'conciliacion.ver_relaciones',
+                                    tipo='previsto',
+                                    identificador=movimiento.id
+                                ) }}"
+                            >
+                                Relaciones
+                            </a>
                             {% if movimiento.estado in ["CONCILIADO", "PARCIAL"] %}
                                 {% for conciliacion in movimiento.conciliaciones %}
                                     <form

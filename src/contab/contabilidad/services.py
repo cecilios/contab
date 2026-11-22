@@ -23,6 +23,7 @@ from contab.models import (
     ApunteContable,
     Contrato,
     DistribucionApunte,
+    Factura,
     ImputacionContrato,
     Inmueble,
     MovimientoPrevisto,
@@ -1234,11 +1235,23 @@ def preparar_apuntes_automaticos(
     return preparados
 
 
-def eliminar_apunte_contable(
+def validar_eliminacion_apunte_contable(
     session: Session,
     apunte: ApunteContable,
 ) -> None:
-    """Elimina un apunte y sus movimientos todavía pendientes."""
+    """Comprueba si el apunte puede eliminarse."""
+
+    factura_id = session.scalar(
+        select(Factura.id).where(
+            Factura.apunte_contable_id == apunte.id
+        )
+    )
+
+    if factura_id is not None:
+        raise ContabilidadError(
+            "El apunte tiene una factura vinculada. "
+            "Debe eliminarse la factura desde Facturación."
+        )
 
     if _tiene_imputaciones_persistidas(apunte):
         raise ContabilidadError(
@@ -1247,16 +1260,22 @@ def eliminar_apunte_contable(
         )
 
     if any(
-        movimiento.estado in {
-            "CONCILIADO",
-            "PARCIAL",
-        }
+        movimiento.estado in {"CONCILIADO", "PARCIAL"}
         for movimiento in apunte.movimientos_previstos
     ):
         raise ContabilidadError(
             "No puede eliminarse un apunte que tiene "
             "movimientos conciliados."
         )
+
+
+def eliminar_apunte_contable(
+    session: Session,
+    apunte: ApunteContable,
+) -> None:
+    """Elimina un apunte y sus movimientos todavía pendientes."""
+
+    validar_eliminacion_apunte_contable(session, apunte)
 
     for movimiento in list(
         apunte.movimientos_previstos

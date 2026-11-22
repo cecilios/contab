@@ -101,6 +101,13 @@
                             ) }}
                         </td>
                         <td>
+                            <a href="{{ url_for(
+                                'conciliacion.ver_relaciones',
+                                tipo='bancario',
+                                identificador=movimiento.id
+                            ) }}">
+                                Relaciones
+                            </a>
                             {% if movimiento.estado == "PENDIENTE" %}
                                 <form
                                     method="post"

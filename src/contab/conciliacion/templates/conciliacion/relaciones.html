@@ -1,0 +1,433 @@
+
+{% extends "base.html" %}
+
+{% block title %}Relaciones - Contab{% endblock %}
+
+{% block content %}
+
+{% macro contexto_relaciones() %}
+    <input type="hidden" name="relaciones_tipo" value="{{ tipo }}">
+    <input type="hidden" name="relaciones_id" value="{{ origen.id }}">
+{% endmacro %}
+
+
+{% macro acciones_previsto(previsto) %}
+
+    {% if previsto.estado == "PENDIENTE" %}
+
+        <a href="{{ url_for(
+            'conciliacion.conciliar_movimiento_previsto_manualmente_desde_interfaz',
+            movimiento_id=previsto.id,
+            origen='relaciones',
+            relaciones_tipo=tipo,
+            relaciones_id=origen.id
+        ) }}">
+            Conciliar manualmente
+        </a>
+
+        <form
+            class="relaciones-accion-inline"
+            method="post"
+            action="{{ url_for(
+                'conciliacion.cancelar_movimiento_previsto_desde_interfaz',
+                movimiento_id=previsto.id
+            ) }}"
+            onsubmit="return confirm('¿Anular este movimiento previsto?')"
+        >
+            {{ contexto_relaciones() }}
+
+            <button
+                type="submit"
+                class="relaciones-enlace-accion"
+            >
+                Anular previsto
+            </button>
+        </form>
+
+    {% elif previsto.estado == "CANCELADO" %}
+
+        <form
+            class="relaciones-accion-inline"
+            method="post"
+            action="{{ url_for(
+                'conciliacion.restaurar_movimiento_previsto_desde_interfaz',
+                movimiento_id=previsto.id
+            ) }}"
+        >
+            {{ contexto_relaciones() }}
+
+            <button
+                type="submit"
+                class="relaciones-enlace-accion"
+            >
+                Restaurar previsto
+            </button>
+        </form>
+
+    {% elif (
+        previsto.estado == "CONCILIADO"
+        and previsto.metodo_conciliacion == "MANUAL"
+    ) %}
+
+        <form
+            class="relaciones-accion-inline"
+            method="post"
+            action="{{ url_for(
+                'conciliacion.deshacer_conciliacion_manual_desde_interfaz',
+                movimiento_id=previsto.id
+            ) }}"
+            onsubmit="return confirm('¿Deshacer la conciliación manual?')"
+        >
+            {{ contexto_relaciones() }}
+
+            <button
+                type="submit"
+                class="relaciones-enlace-accion"
+            >
+                Deshacer conciliación manual
+            </button>
+        </form>
+
+    {% endif %}
+
+{% endmacro %}
+
+
+{% macro deshacer_asociacion(previsto, conciliacion) %}
+    <form
+        class="relaciones-accion-inline"
+        method="post"
+        action="{{ url_for(
+            'conciliacion.deshacer_asociacion_bancaria_desde_interfaz',
+            movimiento_id=previsto.id,
+            conciliacion_id=conciliacion.id
+        ) }}"
+        onsubmit="return confirm('¿Deshacer esta asociación bancaria?')"
+    >
+        {{ contexto_relaciones() }}
+
+        <button
+            type="submit"
+            class="relaciones-enlace-accion"
+        >
+            Deshacer conciliación
+            ({{ importe_a_texto(conciliacion.importe_asociado) }})
+        </button>
+    </form>
+{% endmacro %}
+
+
+{% macro accion_eliminar_apunte(apunte) %}
+    {% if apunte.id in apuntes_eliminables %}
+        <a href="{{ url_for(
+            'contabilidad.eliminar_apunte',
+            apunte_id=apunte.id
+        ) }}">
+            Eliminar
+        </a>
+    {% endif %}
+{% endmacro %}
+
+{% macro accion_eliminar_factura(factura) %}
+    {% if factura.id in facturas_eliminables %}
+        <form
+            class="relaciones-accion-inline"
+            method="post"
+            action="{{ url_for(
+                'facturacion.eliminar_factura',
+                factura_id=factura.id
+            ) }}"
+            onsubmit="return confirm(
+                '¿Eliminar esta factura? También se eliminarán su apunte contable y movimiento previsto asociados.'
+            )"
+        >
+            <button
+                type="submit"
+                class="relaciones-enlace-accion"
+            >
+                Eliminar
+            </button>
+        </form>
+    {% endif %}
+{% endmacro %}
+
+
+<h1>Relaciones</h1>
+
+<nav class="submenu-navegacion">
+    <a href="{{ url_for('contabilidad.listar_apuntes') }}">
+        Apuntes contables
+    </a>
+    <a href="{{ url_for(
+        'conciliacion.listar_movimientos_bancarios'
+    ) }}">
+        Movimientos bancarios
+    </a>
+    <a href="{{ url_for(
+        'conciliacion.listar_movimientos_previstos'
+    ) }}">
+        Movimientos previstos
+    </a>
+    <a href="{{ url_for(
+        'conciliacion.revisar_conciliacion'
+    ) }}">
+        Revisar conciliación
+    </a>
+</nav>
+
+
+{# Elemento de origen #}
+
+{% if tipo == "bancario" %}
+
+    <section>
+        <h2>Movimiento bancario de origen</h2>
+
+        <p class="relaciones-origen">
+            {{ origen.fecha.strftime("%d/%m/%Y") }}
+            · {{ origen.descripcion_original }}
+            · {{ importe_a_texto(origen.importe) }}
+            · {{ origen.estado }}
+        </p>
+    </section>
+
+{% elif tipo == "previsto" %}
+
+    <section>
+        <h2>Movimiento previsto de origen</h2>
+
+        <div class="relaciones-origen">
+            <div class="relaciones-linea">
+                {{ origen.concepto }}
+                · {{ importe_a_texto(origen.importe_esperado) }}
+                · {{ origen.estado }}
+
+                {{ acciones_previsto(origen) }}
+            </div>
+        </div>
+    </section>
+
+{% else %}
+
+    <section>
+        <h2>Apunte contable de origen</h2>
+
+        <p class="relaciones-origen">
+            {{ origen.fecha.strftime("%d/%m/%Y") }}
+            · {{ origen.concepto }}
+            · {{ importe_a_texto(origen.total) }}
+            {{ accion_eliminar_apunte(origen) }}
+        </p>
+    </section>
+
+{% endif %}
+
+
+{# Factura asociada al apunte de origen #}
+
+{% if tipo == "apunte" %}
+
+    {% set factura_origen = facturas.get(origen.id) %}
+
+    {% if factura_origen %}
+        <section>
+            <h2>Factura asociada</h2>
+
+            <div class="relaciones-factura relaciones-linea">
+                {{ factura_origen.numero_factura }}
+                · {{ importe_a_texto(factura_origen.total) }}
+                {{ accion_eliminar_factura(factura_origen) }}
+            </div>
+        </section>
+    {% endif %}
+
+{% endif %}
+
+
+{# Previstos y relaciones #}
+
+{% if previstos %}
+
+    {% if tipo == "previsto" %}
+        <h2>Origen contable y conciliaciones</h2>
+    {% else %}
+        <h2>Movimientos previstos</h2>
+    {% endif %}
+
+    {% for previsto in previstos %}
+
+        <section class="relaciones-previsto">
+
+            {# Datos del previsto si no es el elemento de origen #}
+
+            {% if tipo != "previsto" %}
+
+                <div class="relaciones-linea">
+                    <strong>Movimiento previsto:</strong>
+                    {{ previsto.concepto }}
+                    · {{ importe_a_texto(
+                        previsto.importe_esperado
+                    ) }}
+                    · {{ previsto.estado }}
+
+                    {% if tipo == "bancario" %}
+                        {% for conciliacion in asociaciones[previsto.id] %}
+                            {% if conciliacion.movimiento_bancario_id == origen.id %}
+                                · Parte conciliada con bancario origen:
+                                {{ importe_a_texto(
+                                    conciliacion.importe_asociado
+                                ) }}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+
+                    <a href="{{ url_for(
+                        'conciliacion.ver_relaciones',
+                        tipo='previsto',
+                        identificador=previsto.id
+                    ) }}">
+                        Relaciones
+                    </a>
+
+                    {# Origen bancario: deshacer junto al previsto #}
+
+                    {% if tipo == "bancario" %}
+                        {% for conciliacion in asociaciones[previsto.id] %}
+                            {% if conciliacion.movimiento_bancario_id == origen.id %}
+                                {{ deshacer_asociacion(
+                                    previsto,
+                                    conciliacion
+                                ) }}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+
+                    {{ acciones_previsto(previsto) }}
+                </div>
+
+            {% endif %}
+
+
+            {# Apunte contable relacionado #}
+
+            {% set apunte = apuntes.get(previsto.apunte_id) %}
+
+            {% if apunte and tipo != "apunte" %}
+                <p>
+                    <strong>Apunte contable:</strong>
+                    {{ apunte.fecha.strftime("%d/%m/%Y") }}
+                    · {{ apunte.concepto }}
+                    · {{ importe_a_texto(apunte.total) }}
+
+                    <a href="{{ url_for(
+                        'conciliacion.ver_relaciones',
+                        tipo='apunte',
+                        identificador=apunte.id
+                    ) }}">
+                        Relaciones
+                    </a>
+                    {{ accion_eliminar_apunte(apunte) }}
+                </p>
+            {% endif %}
+
+
+            {# Factura relacionada #}
+
+            {% set factura = facturas.get(previsto.apunte_id) %}
+
+            {% if factura and tipo != "apunte" %}
+                <div class="relaciones-linea">
+                    <strong>Factura:</strong>
+                    {{ factura.numero_factura }}
+                    · {{ importe_a_texto(factura.total) }}
+                    {{ accion_eliminar_factura(factura) }}
+                </div>
+            {% endif %}
+
+
+            {# Conciliación manual #}
+
+            {% if previsto.metodo_conciliacion == "MANUAL" %}
+                <p>
+                    <strong>Conciliación manual</strong>
+
+                    {% if previsto.notas %}
+                        · {{ previsto.notas }}
+                    {% endif %}
+                </p>
+            {% endif %}
+
+
+            {# Bancarios asociados #}
+
+            {% set conciliaciones = asociaciones[previsto.id] %}
+
+            {% if conciliaciones %}
+
+                {% if tipo == "bancario" %}
+                    {% if conciliaciones|length > 1 %}
+                        <h4>Otros movimientos bancarios asociados</h4>
+                    {% endif %}
+                {% else %}
+                    <h4>Movimientos bancarios asociados</h4>
+                {% endif %}
+
+                {% for conciliacion in conciliaciones %}
+
+                    {% set bancario = conciliacion.movimiento_bancario %}
+
+                    {% if tipo != "bancario" or bancario.id != origen.id %}
+
+                        <div class="relaciones-linea">
+                            {{ bancario.fecha.strftime("%d/%m/%Y") }}
+                            · {{ bancario.descripcion_original }}
+                            · Importe bancario:
+                            {{ importe_a_texto(bancario.importe) }}
+                            · Importe atribuido:
+                            {{ importe_a_texto(
+                                conciliacion.importe_asociado
+                            ) }}
+
+                            <a href="{{ url_for(
+                                'conciliacion.ver_relaciones',
+                                tipo='bancario',
+                                identificador=bancario.id
+                            ) }}">
+                                Relaciones
+                            </a>
+
+                            {# Origen previsto: deshacer junto al bancario #}
+
+                            {% if tipo == "previsto" %}
+                                {{ deshacer_asociacion(
+                                    previsto,
+                                    conciliacion
+                                ) }}
+                            {% endif %}
+                        </div>
+
+                    {% endif %}
+
+                {% endfor %}
+
+            {% elif previsto.metodo_conciliacion != "MANUAL" %}
+
+                <p>Sin conciliaciones bancarias.</p>
+
+            {% endif %}
+
+        </section>
+
+    {% endfor %}
+
+{% elif tipo == "apunte" %}
+
+    <p>Este apunte no tiene movimientos previstos asociados.</p>
+
+{% elif tipo == "bancario" %}
+
+    <p>Este movimiento bancario no tiene previstos asociados.</p>
+
+{% endif %}
+
+{% endblock %}

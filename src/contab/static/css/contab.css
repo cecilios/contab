@@ -163,6 +163,14 @@ button {
     min-width: 18rem;
 }
 
+.movimientos-previstos__relaciones {
+    display: block;
+    margin-bottom: 0.4rem;
+}
+
+.movimientos-previstos td:last-child {  /* Dar mas anchura a columna Acciones */
+    min-width: 12rem;
+}
 
 /* Pantalla con las Revisiones de renta (revisiones.html) */
 
@@ -1484,4 +1492,60 @@ fieldset {
     .ingresos-gastos__resumen {
         break-inside: avoid;
     }
+}
+
+
+/* Pantalla de relaciones contables */
+
+.relaciones-previsto {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background-color: #fff;
+}
+
+.relaciones-previsto h3 {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+}
+
+.relaciones-previsto h4 {
+    margin-bottom: 0.5rem;
+}
+
+.relaciones-previsto p {
+    margin: 0.5rem 0;
+}
+
+.relaciones-previsto a {
+    display: inline-block;
+    margin: 0.25rem 0.75rem 0.25rem 0;
+}
+
+.relaciones-origen,
+.relaciones-factura {
+    margin: 0.5rem 0 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background-color: #fff;
+}
+
+.relaciones-accion-inline {
+    display: inline;
+}
+
+.relaciones-enlace-accion {
+    display: inline;
+    width: auto;
+    min-width: 0;
+    margin: 0 0 0 0.5rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #0000ee;
+    text-decoration: underline;
+    cursor: pointer;
+    font: inherit;
 }

@@ -32,6 +32,15 @@
     {% endif %}
 
     <form method="post">
+        {% if desde_relaciones %}
+            <input type="hidden" name="origen" value="relaciones">
+            <input type="hidden"
+                   name="relaciones_tipo"
+                   value="{{ relaciones_tipo }}">
+            <input type="hidden"
+                   name="relaciones_id"
+                   value="{{ relaciones_id }}">
+        {% endif %}
 
         {% if desde_listado %}
             <input type="hidden" name="origen" value="listado">

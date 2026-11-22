@@ -19,7 +19,9 @@ from contab.formato import (
     texto_a_fecha,
 )
 from contab.models import (
+    ApunteContable,
     Conciliacion,
+    Factura,
     Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
@@ -54,6 +56,14 @@ from contab.context import (
     get_bank_name,
     get_database_name,
     get_session_factory,
+)
+from contab.contabilidad.services import (
+    ContabilidadError,
+    validar_eliminacion_apunte_contable,
+)
+from contab.facturacion.services import (
+    FacturacionError,
+    preparar_eliminacion_factura,
 )
 
 
@@ -237,6 +247,29 @@ def _render_formulario_importacion(
         resultado=resultado,
         database_name=get_database_name(),
     )
+
+
+def _url_retorno_tras_accion_previsto() -> str:
+    """Regresa a Relaciones o al listado habitual."""
+
+    tipo = request.form.get("relaciones_tipo")
+    identificador = request.form.get(
+        "relaciones_id",
+        type=int,
+    )
+
+    if (
+        tipo in {"apunte", "previsto", "bancario"}
+        and identificador is not None
+        and identificador > 0
+    ):
+        return url_for(
+            "conciliacion.ver_relaciones",
+            tipo=tipo,
+            identificador=identificador,
+        )
+
+    return _url_listado_previstos()
 
 
 def _obtener_revision_conciliacion(db_session):
@@ -747,7 +780,7 @@ def cancelar_movimiento_previsto_desde_interfaz(
     except ConciliacionError as exc:
         return str(exc), 400
 
-    return redirect(_url_listado_previstos())
+    return redirect(_url_retorno_tras_accion_previsto())
 
 
 @bp.post("/previstos/<int:movimiento_id>/restaurar")
@@ -779,7 +812,7 @@ def restaurar_movimiento_previsto_desde_interfaz(
     except ConciliacionError as exc:
         return str(exc), 400
 
-    return redirect(_url_listado_previstos())
+    return redirect(_url_retorno_tras_accion_previsto())
 
 
 @bp.route(
@@ -816,6 +849,14 @@ def conciliar_movimiento_previsto_manualmente_desde_interfaz(
                 desde_listado=(
                     request.args.get("origen") == "listado"
                 ),
+                desde_relaciones=(
+                    request.values.get("origen") == "relaciones"
+                ),
+                relaciones_tipo=request.values.get("relaciones_tipo"),
+                relaciones_id=request.values.get(
+                    "relaciones_id",
+                    type=int,
+                ),
             )
 
         try:
@@ -840,17 +881,27 @@ def conciliar_movimiento_previsto_manualmente_desde_interfaz(
                         request.form.get("origen") == "listado"
                     ),
                     error=str(exc),
+                    desde_relaciones=(
+                        request.values.get("origen") == "relaciones"
+                    ),
+                    relaciones_tipo=request.values.get("relaciones_tipo"),
+                    relaciones_id=request.values.get(
+                        "relaciones_id",
+                        type=int,
+                    ),
                 ),
                 400,
             )
 
+        if request.form.get("origen") == "relaciones":
+            return redirect(_url_retorno_tras_accion_previsto())
 
-    if request.form.get("origen") == "listado":
-        return redirect(_url_listado_previstos())
+        if request.form.get("origen") == "listado":
+            return redirect(_url_listado_previstos())
 
-    return redirect(
-        url_for("conciliacion.revisar_conciliacion")
-    )
+        return redirect(
+            url_for("conciliacion.revisar_conciliacion")
+        )
 
 
 @bp.post(
@@ -885,7 +936,7 @@ def deshacer_conciliacion_manual_desde_interfaz(
             session.rollback()
             return str(exc), 400
 
-    return redirect(_url_listado_previstos())
+    return redirect(_url_retorno_tras_accion_previsto())
 
 
 
@@ -1023,7 +1074,7 @@ def deshacer_asociacion_bancaria_desde_interfaz(
             db_session.rollback()
             return str(exc), 400
 
-    return redirect(_url_listado_previstos())
+    return redirect(_url_retorno_tras_accion_previsto())
 
 
 @bp.post("/revisar/propuestas/aceptar")
@@ -1475,5 +1526,113 @@ def debug_revision():
             saldo_movimiento_bancario=saldo_movimiento_bancario,
             saldo_movimiento_previsto=saldo_movimiento_previsto,
             database_name=database_name,
+        )
+
+
+@bp.get("/relaciones/<tipo>/<int:identificador>")
+def ver_relaciones(tipo: str, identificador: int):
+    """Muestra el entorno contable de un apunte, previsto o bancario."""
+
+    modelos = {
+        "apunte": ApunteContable,
+        "previsto": MovimientoPrevisto,
+        "bancario": MovimientoBancario,
+    }
+
+    modelo = modelos.get(tipo)
+
+    if modelo is None:
+        abort(404)
+
+    session_factory = get_session_factory()
+
+    with session_factory() as db_session:
+        origen = db_session.get(modelo, identificador)
+
+        if origen is None:
+            abort(404)
+
+        if tipo == "apunte":
+            previstos = list(origen.movimientos_previstos)
+        elif tipo == "previsto":
+            previstos = [origen]
+        else:
+            previstos = [
+                conciliacion.movimiento_previsto
+                for conciliacion in origen.conciliaciones
+            ]
+
+        previstos.sort(key=lambda previsto: previsto.id)
+
+        apuntes = {
+            previsto.apunte_id: previsto.apunte
+            for previsto in previstos
+            if previsto.apunte_id is not None
+        }
+
+        if tipo == "apunte":
+            apuntes[origen.id] = origen
+
+        facturas = {}
+
+        if apuntes:
+            facturas = {
+                factura.apunte_contable_id: factura
+                for factura in db_session.scalars(
+                    select(Factura).where(
+                        Factura.apunte_contable_id.in_(apuntes)
+                    )
+                )
+            }
+
+        asociaciones = {}
+
+        for previsto in previstos:
+            conciliaciones = list(previsto.conciliaciones)
+
+            asociaciones[previsto.id] = sorted(
+                conciliaciones,
+                key=lambda conciliacion: (
+                    conciliacion.movimiento_bancario.fecha,
+                    conciliacion.id,
+                ),
+            )
+
+        apuntes_eliminables = set()
+
+        for apunte in apuntes.values():
+            try:
+                validar_eliminacion_apunte_contable(
+                    db_session,
+                    apunte,
+                )
+            except ContabilidadError:
+                pass
+            else:
+                apuntes_eliminables.add(apunte.id)
+
+        facturas_eliminables = set()
+
+        for factura in facturas.values():
+            try:
+                preparar_eliminacion_factura(factura)
+            except FacturacionError:
+                pass
+            else:
+                facturas_eliminables.add(factura.id)
+
+
+        return render_template(
+            "conciliacion/relaciones.html",
+            tipo=tipo,
+            origen=origen,
+            previstos=previstos,
+            apuntes=apuntes,
+            facturas=facturas,
+            asociaciones=asociaciones,
+            importe_a_texto=importe_a_texto,
+            database_name=get_database_name(),
+            apuntes_eliminables=apuntes_eliminables,
+            facturas_eliminables=facturas_eliminables,
         )
 

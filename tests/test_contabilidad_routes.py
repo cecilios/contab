@@ -176,6 +176,9 @@ def test_listado_muestra_apuntes_ordenados() -> None:
         ])
         session.commit()
 
+        id_antiguo = antiguo.id
+        id_reciente = reciente.id
+
     client = app.test_client()
 
     client.post(
@@ -198,6 +201,12 @@ def test_listado_muestra_apuntes_ordenados() -> None:
     )
 
     assert posicion_reciente < posicion_antiguo
+
+    for identificador in (id_antiguo, id_reciente):
+        assert (
+            f'href="/conciliacion/relaciones/apunte/{identificador}"'
+            in response.text
+        )
 
 
 def test_listado_muestra_importes_negativos() -> None:

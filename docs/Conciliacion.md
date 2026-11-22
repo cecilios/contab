@@ -159,6 +159,32 @@ compensarla. Esas decisiones no corresponden a la conciliación bancaria.
 
 
 
+## Relaciones entre registros
+
+La pantalla **Relaciones** permite consultar conjuntamente los
+movimientos bancarios, movimientos previstos, apuntes contables y
+facturas vinculados a una operación.
+
+Se accede desde los listados de apuntes contables, movimientos
+previstos y movimientos bancarios. La consulta parte de un registro
+de origen y muestra sus relaciones, sin extender automáticamente
+la búsqueda a todas las relaciones indirectas. Los enlaces
+**Relaciones** permiten consultar individualmente otro registro.
+
+Desde esta pantalla pueden realizarse las operaciones de corrección
+permitidas por el estado y las reglas de negocio: deshacer una
+asociación bancaria concreta, conciliar o deshacer una conciliación
+manual, anular o restaurar un previsto y eliminar apuntes o facturas.
+
+Las acciones sólo se ofrecen cuando son aplicables. Deshacer una
+asociación bancaria afecta exclusivamente a esa asociación, aunque
+el movimiento participe en otras conciliaciones.
+
+La eliminación de un apunte vinculado a una factura debe realizarse
+mediante la eliminación de la factura, respetando las restricciones
+de facturación. No se permite eliminar directamente ese apunte.
+
+
 ## Situación económica del contrato
 
 Contab dispone de una pantalla de situación económica por

@@ -680,6 +680,9 @@ def test_listar_movimientos_bancarios() -> None:
         ])
         session.commit()
 
+        id_antiguo = antiguo.id
+        id_reciente = reciente.id
+
     client = app.test_client()
     client.post(
         "/",
@@ -701,6 +704,12 @@ def test_listar_movimientos_bancarios() -> None:
     ) < response.text.index(
         "Comunidad agosto"
     )
+
+    for identificador in (id_antiguo, id_reciente):
+        assert (
+            f'href="/conciliacion/relaciones/bancario/{identificador}"'
+            in response.text
+        )
 
 
 def test_listar_movimientos_filtra_por_estado() -> None:
@@ -899,6 +908,8 @@ def test_listar_movimientos_previstos() -> None:
         ])
         session.commit()
 
+        movimiento_id = movimiento.id
+
     client = app.test_client()
     client.post(
         "/",
@@ -919,7 +930,11 @@ def test_listar_movimientos_previstos() -> None:
     assert "Comercializadora" in response.text
     assert "125,37" in response.text
     assert "Pendiente" in response.text
-    assert "Previsión independiente" in response.text
+
+    assert (
+        f'href="/conciliacion/relaciones/previsto/{movimiento_id}"'
+        in response.text
+    )
 
 
 def test_listar_movimientos_previstos_filtra_por_inmueble() -> None:
