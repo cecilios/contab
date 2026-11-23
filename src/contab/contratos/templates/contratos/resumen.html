@@ -92,6 +92,10 @@
                         Saldo pendiente
                     </th>
 
+                    <th class="resumen-contratos__columna-importe">
+                        Reembolsos pendientes de solicitar
+                    </th>
+
                     <th class="resumen-contratos__columna-detalle no-imprimir">
                         Detalle
                     </th>
@@ -147,6 +151,12 @@
                             ) }} €
                         </td>
 
+                        <td class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                fila.reembolsos_pendientes
+                            ) }} €
+                        </td>
+
                         <td class="resumen-contratos__detalle no-imprimir">
                             <a
                                 href="{{ url_for(
@@ -164,7 +174,7 @@
                 {% else %}
 
                     <tr class="resumen-contratos__fila-vacia">
-                        <td colspan="5">
+                        <td colspan="6">
                             No hay contratos para el ejercicio
                             seleccionado.
                         </td>
@@ -193,6 +203,12 @@
                         <th class="resumen-contratos__importe">
                             {{ importe_a_texto(
                                 saldo_pendiente
+                            ) }} €
+                        </th>
+
+                        <th class="resumen-contratos__importe">
+                            {{ importe_a_texto(
+                                reembolsos_pendientes_total
                             ) }} €
                         </th>
 

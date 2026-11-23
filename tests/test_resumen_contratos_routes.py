@@ -4,6 +4,7 @@
 import re
 
 from datetime import date
+from sqlalchemy import func, select
 
 from contab.app import create_app
 from contab.database import Base
@@ -11,9 +12,12 @@ from contab.models import (
     ApunteContable,
     Conciliacion,
     Contrato,
+    ImputacionContrato,
     Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
+    SolicitudReembolso,
+    SolicitudReembolsoLinea,
 )
 
 
@@ -128,6 +132,48 @@ def _registrar_alquiler_prueba(
     session.add_all([apunte, previsto])
     session.flush()
     return apunte
+
+
+def _registrar_gasto_reembolso_prueba(
+    session,
+    contrato,
+    *,
+    fecha,
+    importe,
+    negativo=False,
+):
+    """Registra un gasto repercutible aún sin gestionar."""
+
+    apunte = ApunteContable(
+        inmueble=contrato.inmueble,
+        fecha=fecha,
+        naturaleza="GASTO",
+        categoria="GAS_AGUA",
+        concepto="Gasto repercutible de prueba",
+        tratamiento="REPERCUTIR",
+        importe_negativo=negativo,
+        base=importe,
+        iva_importe=0,
+        retencion_importe=0,
+        total=importe,
+    )
+
+    session.add(apunte)
+    return apunte
+
+
+def _fila_resumen_contrato(html, contrato_id):
+    coincidencia = re.search(
+        rf'<tr[^>]*data-contrato-id="{contrato_id}"'
+        rf'[^>]*>(.*?)</tr>',
+        html,
+        re.DOTALL,
+    )
+    assert coincidencia is not None
+    return coincidencia.group(1)
+
+
+
 
 
 def test_resumen_contratos_sin_datos():
@@ -627,8 +673,319 @@ def test_resumen_muestra_saldo_negativo_sin_columna_conciliacion():
     # El informe ya no presenta datos de conciliación.
     assert "Pendiente de conciliar" not in html
 
-    # Quedan tres columnas económicas y la de detalle.
+    # Quedan cuatro columnas económicas y la de detalle.
     assert html.count(
         'class="resumen-contratos__columna-importe"'
-    ) == 3
+    ) == 4
+
+
+def test_resumen_muestra_reembolsos_pendientes_de_solicitar():
+    """Muestra gastos repercutibles aún no solicitados."""
+
+    app = _crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    hoy = date.today()
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-REEMBOLSOS",
+            tipo="L",
+            codigo_facturacion="RE",
+            descripcion="Local con gastos repercutibles",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
+        )
+
+        contrato = _crear_contrato_prueba(
+            session,
+            inmueble,
+            inicio=date(hoy.year - 1, 1, 1),
+        )
+
+        gasto_pendiente = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(hoy.year, 3, 10),
+            naturaleza="GASTO",
+            categoria="GAS_AGUA",
+            concepto="Agua pendiente",
+            tratamiento="REPERCUTIR",
+            base=4107,
+            iva_importe=0,
+            retencion_importe=0,
+            total=4107,
+        )
+
+        gasto_no_repercutible = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(hoy.year, 3, 11),
+            naturaleza="GASTO",
+            categoria="GAS_AGUA",
+            concepto="Agua propietario",
+            tratamiento="CONTABILIZAR",
+            base=2000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=2000,
+        )
+
+        session.add_all([
+            gasto_pendiente,
+            gasto_no_repercutible,
+        ])
+        session.commit()
+        contrato_id = contrato.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/contratos/resumen",
+        query_string={"ejercicio": hoy.year},
+    )
+
+    assert response.status_code == 200
+
+    html = response.text
+
+    assert "Reembolsos pendientes de solicitar" in html
+
+    coincidencia = re.search(
+        rf'<tr[^>]*data-contrato-id="{contrato_id}"'
+        rf'[^>]*>(.*?)</tr>',
+        html,
+        re.DOTALL,
+    )
+
+    assert coincidencia is not None
+    assert "41,07 €" in coincidencia.group(1)
+
+    # Consultar el informe no genera imputaciones.
+    with session_factory() as session:
+        assert session.scalar(
+            select(func.count(ImputacionContrato.id))
+        ) == 0
+
+
+def test_resumen_no_duplica_reembolsos_ya_solicitados():
+    """Solo suma gastos todavía pendientes de solicitar."""
+
+    app = _crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+    ejercicio = date.today().year
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-SOLICITADO",
+            tipo="L",
+            codigo_facturacion="SOL",
+            descripcion="Local",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
+        )
+
+        contrato = _crear_contrato_prueba(
+            session,
+            inmueble,
+            inicio=date(ejercicio - 1, 1, 1),
+        )
+
+        pendiente = _registrar_gasto_reembolso_prueba(
+            session,
+            contrato,
+            fecha=date(ejercicio, 3, 10),
+            importe=4107,
+        )
+
+        solicitado = _registrar_gasto_reembolso_prueba(
+            session,
+            contrato,
+            fecha=date(ejercicio, 3, 11),
+            importe=2530,
+        )
+
+        imputacion = ImputacionContrato(
+            apunte=solicitado,
+            contrato=contrato,
+            base=2530,
+            iva_importe=0,
+            retencion_importe=0,
+            importe=2530,
+        )
+
+        solicitud = SolicitudReembolso(
+            contrato=contrato,
+            fecha_envio=date(ejercicio, 4, 1),
+        )
+
+        linea = SolicitudReembolsoLinea(
+            solicitud=solicitud,
+            apunte=solicitado,
+            concepto="Agua solicitada",
+            importe=2530,
+        )
+
+        movimiento = MovimientoPrevisto(
+            inmueble=inmueble,
+            contrato=contrato,
+            solicitud_reembolso=solicitud,
+            naturaleza="INGRESO",
+            concepto="Reembolso solicitado",
+            importe_esperado=2530,
+        )
+
+        session.add_all([
+            pendiente,
+            imputacion,
+            solicitud,
+            linea,
+            movimiento,
+        ])
+        session.commit()
+        contrato_id = contrato.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/contratos/resumen",
+        query_string={"ejercicio": ejercicio},
+    )
+
+    assert response.status_code == 200
+    fila = _fila_resumen_contrato(
+        response.text,
+        contrato_id,
+    )
+
+    assert "41,07 €" in fila
+    assert "66,37 €" not in fila
+
+
+def test_resumen_reembolsos_pendientes_compensa_abonos():
+    """Un gasto negativo reduce el reembolso pendiente."""
+
+    app = _crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+    ejercicio = date.today().year
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-ABONOS",
+            tipo="L",
+            codigo_facturacion="AB",
+            descripcion="Local",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
+        )
+
+        contrato = _crear_contrato_prueba(
+            session,
+            inmueble,
+            inicio=date(ejercicio - 1, 1, 1),
+        )
+
+        _registrar_gasto_reembolso_prueba(
+            session,
+            contrato,
+            fecha=date(ejercicio, 3, 10),
+            importe=4107,
+        )
+
+        _registrar_gasto_reembolso_prueba(
+            session,
+            contrato,
+            fecha=date(ejercicio, 3, 11),
+            importe=2530,
+            negativo=True,
+        )
+
+        session.commit()
+        contrato_id = contrato.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/contratos/resumen",
+        query_string={"ejercicio": ejercicio},
+    )
+
+    assert response.status_code == 200
+    fila = _fila_resumen_contrato(
+        response.text,
+        contrato_id,
+    )
+
+    # 41,07 - 25,30 = 15,77 €
+    assert "15,77 €" in fila
+
+
+def test_resumen_incluye_finalizado_con_reembolso_pendiente():
+    """No oculta un contrato saldado con gastos por reclamar."""
+
+    app = _crear_app_test()
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+    ejercicio = date.today().year
+
+    with session_factory() as session:
+        inmueble = Inmueble(
+            referencia="LOCAL-FINALIZADO-RE",
+            tipo="L",
+            codigo_facturacion="FRE",
+            descripcion="Local",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            **DATOS_PROPIEDAD,
+        )
+
+        contrato = _crear_contrato_prueba(
+            session,
+            inmueble,
+            inicio=date(ejercicio - 1, 1, 1),
+            fin=date(ejercicio, 1, 31),
+        )
+
+        _registrar_gasto_reembolso_prueba(
+            session,
+            contrato,
+            fecha=date(ejercicio, 1, 15),
+            importe=4107,
+        )
+
+        session.commit()
+        contrato_id = contrato.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    response = client.get(
+        "/contratos/resumen",
+        query_string={"ejercicio": ejercicio},
+    )
+
+    assert response.status_code == 200
+    fila = _fila_resumen_contrato(
+        response.text,
+        contrato_id,
+    )
+
+    assert "41,07 €" in fila
+    assert "0,00 €" in fila
+
 

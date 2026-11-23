@@ -15,6 +15,9 @@ from contab.formato import (
 from contab.contabilidad.situacion_contrato import (
     calcular_situacion_contrato,
 )
+from contab.contabilidad.services import (
+    buscar_gastos_repercutibles_pendientes,
+)
 from contab.contratos.services import (
     ContratoError,
     crear_anexo_carencia,
@@ -1652,6 +1655,7 @@ def resumen_contratos():
         total_a_ingresar = 0
         total_ingresado = 0
         saldo_pendiente = 0
+        reembolsos_pendientes_total = 0
 
         for contrato in contratos:
             situacion = calcular_situacion_contrato(
@@ -1661,6 +1665,21 @@ def resumen_contratos():
                 fecha_hasta=fecha_hasta,
             )
 
+            gastos_pendientes = buscar_gastos_repercutibles_pendientes(
+                session,
+                contrato=contrato,
+            )
+
+            reembolsos_pendientes = sum(
+                (
+                    -gasto.imputacion.importe
+                    if gasto.apunte.importe_negativo
+                    else gasto.imputacion.importe
+                )
+                for gasto in gastos_pendientes
+                if gasto.apunte.fecha <= fecha_hasta
+            )
+
             # Vigente en la fecha de referencia:
             # se muestra aunque su saldo sea cero.
             vigente = (
@@ -1668,9 +1687,13 @@ def resumen_contratos():
                 or contrato.fecha_fin >= fecha_hasta
             )
 
-            # Los finalizados durante el ejercicio
-            # solo se muestran si conservan saldo.
-            if not vigente and situacion.saldo == 0:
+            # Los finalizados durante el ejercicio solo se muestran si conservan
+            # saldo o reembolsos pendientes
+            if (
+                not vigente
+                and situacion.saldo == 0
+                and reembolsos_pendientes == 0
+            ):
                 continue
 
             filas.append(
@@ -1679,12 +1702,14 @@ def resumen_contratos():
                     "total_a_ingresar": situacion.total_exigible,
                     "total_ingresado": situacion.total_cobrado,
                     "saldo_pendiente": situacion.saldo,
+                    "reembolsos_pendientes": reembolsos_pendientes,
                 }
             )
 
             total_a_ingresar += situacion.total_exigible
             total_ingresado += situacion.total_cobrado
             saldo_pendiente += situacion.saldo
+            reembolsos_pendientes_total += reembolsos_pendientes
 
         # Agrupar por inmueble y ordenar los contratos
         # por fecha inicial.
@@ -1708,5 +1733,6 @@ def resumen_contratos():
             importe_a_texto=importe_a_texto,
             database_name=get_database_name(),
             anio_actual=anio_actual,
+            reembolsos_pendientes_total=reembolsos_pendientes_total,
         )
 
