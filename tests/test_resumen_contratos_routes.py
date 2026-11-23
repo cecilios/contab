@@ -127,6 +127,7 @@ def _registrar_alquiler_prueba(
 
     session.add_all([apunte, previsto])
     session.flush()
+    return apunte
 
 
 def test_resumen_contratos_sin_datos():
@@ -192,7 +193,7 @@ def test_resumen_separa_contratos_y_acumula_saldos():
 
         # El contrato anterior arrastra una deuda
         # de 200 euros del ejercicio precedente.
-        _registrar_alquiler_prueba(
+        apunte_diciembre = _registrar_alquiler_prueba(
             session,
             anterior,
             fecha=date(anio_anterior, 12, 10),
@@ -213,13 +214,14 @@ def test_resumen_separa_contratos_y_acumula_saldos():
             estado="CONCILIADO",
             metodo_conciliacion="MANUAL",
             notas="Cobrado en efectivo",
+            apunte=apunte_diciembre,
         )
 
         session.add(cobro_anterior)
 
         # En el ejercicio seleccionado, el contrato
         # anterior tiene otros 500 euros exigibles.
-        _registrar_alquiler_prueba(
+        apunte_enero = _registrar_alquiler_prueba(
             session,
             anterior,
             fecha=date(ejercicio, 1, 10),
@@ -239,6 +241,7 @@ def test_resumen_separa_contratos_y_acumula_saldos():
             estado="CONCILIADO",
             metodo_conciliacion="MANUAL",
             notas="Cobrado fuera de la cuenta bancaria",
+            apunte=apunte_enero,
         )
 
         session.add(cobro_ejercicio)
@@ -568,7 +571,7 @@ def test_resumen_muestra_saldo_negativo_sin_columna_conciliacion():
         )
 
         # El usuario registra un alquiler de 1.000 euros.
-        _registrar_alquiler_prueba(
+        apunte_enero= _registrar_alquiler_prueba(
             session,
             contrato,
             fecha=date(hoy.year, 1, 1),
@@ -589,6 +592,7 @@ def test_resumen_muestra_saldo_negativo_sin_columna_conciliacion():
             estado="CONCILIADO",
             metodo_conciliacion="MANUAL",
             notas="Cobro confirmado fuera de la cuenta importada",
+            apunte=apunte_enero,
         )
 
         session.add(cobro)

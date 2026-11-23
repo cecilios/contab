@@ -41,12 +41,12 @@ from contab.contabilidad.services import (
     crear_apunte_contable,
     eliminar_apunte_contable,
     modificar_apunte_contable,
+    preparar_registro_contable,
     proponer_nombre_documento,
     validar_modificacion_con_movimientos,
 )
 from contab.conciliacion.services import (
     ConciliacionError,
-    crear_movimiento_desde_apunte,
 )
 
 
@@ -1058,25 +1058,22 @@ def nuevo_apunte():
                     valores=valores,
                 )
 
-                apunte = crear_apunte_contable(
+                registro = preparar_registro_contable(
                     inmueble=inmueble,
+                    crear_movimiento=movimiento["crear"],
+                    fecha_prevista_desde=movimiento[
+                        "fecha_prevista_desde"
+                    ],
+                    fecha_prevista_hasta=movimiento[
+                        "fecha_prevista_hasta"
+                    ],
                     **valores,
                 )
 
-                session.add(apunte)
+                session.add(registro.apunte)
 
-                if movimiento["crear"]:
-                    movimiento_previsto = crear_movimiento_desde_apunte(
-                        apunte=apunte,
-                        fecha_prevista_desde=movimiento[
-                            "fecha_prevista_desde"
-                        ],
-                        fecha_prevista_hasta=movimiento[
-                            "fecha_prevista_hasta"
-                        ],
-                    )
-
-                    session.add(movimiento_previsto)
+                if registro.movimiento_previsto is not None:
+                    session.add(registro.movimiento_previsto)
 
     except (
         KeyError,

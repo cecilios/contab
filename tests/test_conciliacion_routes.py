@@ -13,6 +13,7 @@ from contab.conciliacion.services import (
 )
 from contab.database import Base
 from contab.models import (
+    ApunteContable,
     Conciliacion,
     Contrato,
     Inmueble,
@@ -36,6 +37,39 @@ def crear_inmueble_prueba(**datos) -> Inmueble:
     }
 
     return Inmueble(**{**propiedad, **datos})
+
+
+def crear_previsto_prueba(**datos) -> MovimientoPrevisto:
+    """Crea un previsto con un apunte contable de prueba."""
+
+    naturaleza = datos["naturaleza"]
+    importe = datos["importe_esperado"]
+
+    apunte = ApunteContable(
+        inmueble=datos["inmueble"],
+        fecha=(
+            datos.get("fecha_prevista_desde")
+            or date(2026, 1, 1)
+        ),
+        naturaleza=naturaleza,
+        categoria=(
+            "ING_OTRAS_RENTAS"
+            if naturaleza == "INGRESO"
+            else "GAS_COMUNIDAD"
+        ),
+        concepto=datos["concepto"],
+        base=importe,
+        iva_importe=0,
+        retencion_importe=0,
+        total=importe,
+        tratamiento="CONTABILIZAR",
+        tercero_nombre="",
+    )
+
+    return MovimientoPrevisto(
+        apunte=apunte,
+        **datos,
+    )
 
 
 
@@ -123,7 +157,7 @@ def crear_escenario_aceptacion_individual():
             provincia="Madrid",
         )
 
-        previsto_comunidad = MovimientoPrevisto(
+        previsto_comunidad = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 1),
             fecha_prevista_hasta=date(2026, 9, 5),
@@ -145,7 +179,7 @@ def crear_escenario_aceptacion_individual():
             estado="PENDIENTE",
         )
 
-        previsto_alquiler = MovimientoPrevisto(
+        previsto_alquiler = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 1),
             fecha_prevista_hasta=date(2026, 9, 5),
@@ -167,7 +201,7 @@ def crear_escenario_aceptacion_individual():
             estado="PENDIENTE",
         )
 
-        previsto_diferente = MovimientoPrevisto(
+        previsto_diferente = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 1),
             fecha_prevista_hasta=date(2026, 9, 5),
@@ -239,7 +273,7 @@ def crear_escenario_rechazo_agrupado():
             provincia="Madrid",
         )
 
-        previsto_agrupado = MovimientoPrevisto(
+        previsto_agrupado = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 10, 1),
             fecha_prevista_hasta=date(2026, 10, 10),
@@ -273,7 +307,7 @@ def crear_escenario_rechazo_agrupado():
         )
 
         # Propuesta independiente, de distinta naturaleza.
-        previsto_independiente = MovimientoPrevisto(
+        previsto_independiente = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 10, 1),
             fecha_prevista_hasta=date(2026, 10, 10),
@@ -343,7 +377,7 @@ def crear_escenario_seleccion_manual(
         )
 
         previstos = [
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 fecha_prevista_desde=date(2026, 10, 1),
                 fecha_prevista_hasta=date(2026, 10, 10),
@@ -412,7 +446,7 @@ def crear_escenario_movimientos_parciales():
             provincia="Madrid",
         )
 
-        previsto_parcial = MovimientoPrevisto(
+        previsto_parcial = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 10, 1),
             fecha_prevista_hasta=date(2026, 10, 10),
@@ -434,7 +468,7 @@ def crear_escenario_movimientos_parciales():
             estado="CONCILIADO",
         )
 
-        previsto_anterior = MovimientoPrevisto(
+        previsto_anterior = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 1),
             fecha_prevista_hasta=date(2026, 9, 10),
@@ -891,7 +925,7 @@ def test_listar_movimientos_previstos() -> None:
             provincia="Pontevedra",
         )
 
-        movimiento = MovimientoPrevisto(
+        movimiento = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 15),
             fecha_prevista_hasta=date(2026, 9, 20),
@@ -967,7 +1001,7 @@ def test_listar_movimientos_previstos_filtra_por_inmueble() -> None:
         )
 
         movimientos = [
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=local,
                 fecha_prevista_desde=date(2026, 9, 1),
                 naturaleza="GASTO",
@@ -975,7 +1009,7 @@ def test_listar_movimientos_previstos_filtra_por_inmueble() -> None:
                 importe_esperado=10000,
                 estado="PENDIENTE",
             ),
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=piso,
                 fecha_prevista_desde=date(2026, 9, 2),
                 naturaleza="GASTO",
@@ -983,7 +1017,7 @@ def test_listar_movimientos_previstos_filtra_por_inmueble() -> None:
                 importe_esperado=20000,
                 estado="PENDIENTE",
             ),
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=local,
                 fecha_prevista_desde=date(2026, 9, 3),
                 naturaleza="GASTO",
@@ -1059,7 +1093,7 @@ def test_paginacion_previstos_conserva_filtro_inmueble() -> None:
         )
 
         movimientos = [
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 fecha_prevista_desde=date(2026, 9, 1),
                 naturaleza="GASTO",
@@ -1124,7 +1158,7 @@ def test_cancelar_movimiento_previsto_desde_interfaz() -> None:
             poblacion="Pontevedra",
             provincia="Pontevedra",
         )
-        movimiento = MovimientoPrevisto(
+        movimiento = crear_previsto_prueba(
             inmueble=inmueble,
             naturaleza="GASTO",
             concepto="Recibo de comunidad",
@@ -1192,7 +1226,7 @@ def test_restaurar_movimiento_previsto_desde_interfaz() -> None:
             poblacion="Pontevedra",
             provincia="Pontevedra",
         )
-        movimiento = MovimientoPrevisto(
+        movimiento = crear_previsto_prueba(
             inmueble=inmueble,
             naturaleza="GASTO",
             concepto="Recibo de comunidad",
@@ -1263,28 +1297,28 @@ def test_acciones_movimientos_previstos_segun_estado() -> None:
         )
 
         movimientos = [
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 naturaleza="GASTO",
                 concepto="Movimiento pendiente",
                 importe_esperado=10000,
                 estado="PENDIENTE",
             ),
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 naturaleza="GASTO",
                 concepto="Movimiento cancelado",
                 importe_esperado=10000,
                 estado="CANCELADO",
             ),
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 naturaleza="GASTO",
                 concepto="Movimiento parcial",
                 importe_esperado=10000,
                 estado="PARCIAL",
             ),
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 naturaleza="GASTO",
                 concepto="Movimiento conciliado",
@@ -1356,7 +1390,7 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
         )
 
         # Propuesta exacta: comunidad.
-        previsto_1 = MovimientoPrevisto(
+        previsto_1 = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 1),
             fecha_prevista_hasta=date(2026, 9, 5),
@@ -1391,7 +1425,7 @@ def test_revisar_conciliacion_clasifica_movimientos() -> None:
         )
 
         # Propuesta clara, pero con importes diferentes.
-        previsto_2 = MovimientoPrevisto(
+        previsto_2 = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 1),
             fecha_prevista_hasta=date(2026, 9, 5),
@@ -1872,7 +1906,7 @@ def test_conciliar_movimiento_previsto_manualmente_desde_interfaz() -> None:
             provincia="Madrid",
         )
 
-        movimiento = MovimientoPrevisto(
+        movimiento = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 5),
             naturaleza="GASTO",
@@ -1978,7 +2012,7 @@ def test_formulario_conciliacion_manual_muestra_movimiento() -> None:
             provincia="Madrid",
         )
 
-        movimiento = MovimientoPrevisto(
+        movimiento = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 5),
             naturaleza="GASTO",
@@ -2056,7 +2090,7 @@ def test_conciliacion_manual_desde_interfaz_rechaza_notas_vacias() -> None:
             provincia="Madrid",
         )
 
-        movimiento = MovimientoPrevisto(
+        movimiento = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 5),
             naturaleza="GASTO",
@@ -2164,7 +2198,7 @@ def test_deshacer_conciliacion_manual_desde_interfaz() -> None:
             provincia="Madrid",
         )
 
-        movimiento = MovimientoPrevisto(
+        movimiento = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 9, 5),
             naturaleza="GASTO",
@@ -2448,7 +2482,7 @@ def test_deshacer_asociacion_bancaria_desde_interfaz() -> None:
             provincia="Madrid",
         )
 
-        previsto = MovimientoPrevisto(
+        previsto = crear_previsto_prueba(
             inmueble=inmueble,
             naturaleza="INGRESO",
             concepto="Alquiler octubre",
@@ -2538,7 +2572,7 @@ def test_deshacer_asociacion_bancaria_conserva_las_otras() -> None:
             provincia="Madrid",
         )
 
-        previsto = MovimientoPrevisto(
+        previsto = crear_previsto_prueba(
             inmueble=inmueble,
             naturaleza="INGRESO",
             concepto="Alquiler octubre",
@@ -2662,7 +2696,7 @@ def test_deshacer_asociacion_bancaria_rechaza_previsto_ajeno() -> None:
             provincia="Madrid",
         )
 
-        previsto = MovimientoPrevisto(
+        previsto = crear_previsto_prueba(
             inmueble=inmueble,
             naturaleza="INGRESO",
             concepto="Alquiler octubre",
@@ -2671,7 +2705,7 @@ def test_deshacer_asociacion_bancaria_rechaza_previsto_ajeno() -> None:
             metodo_conciliacion="INDIVIDUAL",
         )
 
-        otro_previsto = MovimientoPrevisto(
+        otro_previsto = crear_previsto_prueba(
             inmueble=inmueble,
             naturaleza="INGRESO",
             concepto="Alquiler noviembre",
@@ -2757,7 +2791,7 @@ def test_revisar_conciliacion_presenta_propuestas_agrupadas(
         )
 
         previstos = [
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 naturaleza="INGRESO",
                 concepto=f"Previsto grupo {indice}",
@@ -2918,7 +2952,7 @@ def test_aceptar_propuesta_agrupada_desde_revision(
         )
 
         previstos = [
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 fecha_prevista_desde=date(2026, 10, 1),
                 fecha_prevista_hasta=date(2026, 10, 10),
@@ -2952,7 +2986,7 @@ def test_aceptar_propuesta_agrupada_desde_revision(
         ]
 
         # Otra propuesta independiente que no debe modificarse.
-        previsto_independiente = MovimientoPrevisto(
+        previsto_independiente = crear_previsto_prueba(
             inmueble=inmueble,
             fecha_prevista_desde=date(2026, 10, 1),
             fecha_prevista_hasta=date(2026, 10, 10),
@@ -3544,7 +3578,7 @@ def test_confirmar_seleccion_manual_cardinalidades(
         )
 
         previstos = [
-            MovimientoPrevisto(
+            crear_previsto_prueba(
                 inmueble=inmueble,
                 fecha_prevista_desde=date(2026, 1, 1),
                 fecha_prevista_hasta=date(2026, 1, 5),
@@ -4251,7 +4285,7 @@ def test_proponer_conciliacion_uno_a_uno_con_diferencia(
 ) -> None:
     """Sugiere una pareja fiable aunque sus importes difieran."""
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         fecha_prevista_desde=date(2026, 10, 1),
         fecha_prevista_hasta=date(2026, 10, 10),
@@ -5753,7 +5787,7 @@ def test_acciones_previstos_conservan_contexto_del_listado():
             provincia="Madrid",
         )
 
-        pendiente = MovimientoPrevisto(
+        pendiente = crear_previsto_prueba(
             inmueble=inmueble,
             naturaleza="INGRESO",
             concepto="Cobro pendiente",
@@ -5761,7 +5795,7 @@ def test_acciones_previstos_conservan_contexto_del_listado():
             estado="PENDIENTE",
         )
 
-        conciliado = MovimientoPrevisto(
+        conciliado = crear_previsto_prueba(
             inmueble=inmueble,
             naturaleza="INGRESO",
             concepto="Cobro manual",

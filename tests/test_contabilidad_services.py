@@ -22,6 +22,7 @@ from contab.contabilidad.services import (
     modificar_apunte_contable,
     preparar_apuntes_automaticos,
     preparar_imputaciones_contrato,
+    preparar_registro_contable,
     proponer_nombre_documento,
 )
 from contab.models import (
@@ -3632,5 +3633,199 @@ def test_modificar_signo_apunte_actualiza_movimiento_pendiente(
 
     assert len(movimientos) == 1
     assert movimientos[0].id == movimiento_id
+
+
+def test_preparar_registro_contable_alquiler(
+    contrato, categorias,
+):
+    registro = preparar_registro_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 6, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler junio",
+        base=85000,
+    )
+
+    assert registro.apunte.categoria == "ING_ALQUILERES"
+
+    movimiento = registro.movimiento_previsto
+
+    assert movimiento is not None
+    assert movimiento.apunte is registro.apunte
+    assert movimiento.contrato is contrato
+    assert movimiento.importe_esperado == 85000
+
+
+def test_preparar_registro_contable_distribuye_inmueble_t():
+    inmueble, local_a, local_b = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    registro = preparar_registro_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 6, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad junio",
+        base=10000,
+    )
+
+    distribuciones = {
+        distribucion.inmueble.referencia:
+        distribucion.base
+        for distribucion in registro.apunte.distribuciones
+    }
+
+    assert distribuciones == {
+        local_a.referencia: 6000,
+        local_b.referencia: 4000,
+    }
+
+    assert registro.movimiento_previsto is not None
+    assert registro.movimiento_previsto.apunte is registro.apunte
+    assert registro.movimiento_previsto.importe_esperado == 10000
+
+
+def test_preparar_registro_contable_sin_movimiento(
+    inmueble, categorias,
+):
+    registro = preparar_registro_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 6, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler junio",
+        base=85000,
+        crear_movimiento=False,
+    )
+
+    assert registro.apunte.total == 85000
+    assert registro.movimiento_previsto is None
+
+
+def test_registro_calcula_reparto_contrato_y_propietario():
+    inmueble = _crear_inmueble_prueba(
+        referencia="LOCAL-1",
+        tipo="L",
+        codigo_facturacion="L1",
+        descripcion="Local",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    contrato = _contrato_para_imputacion(
+        inmueble,
+        fecha_inicio=date(2026, 10, 4),
+        fecha_fin=date(2026, 10, 8),
+    )
+
+    registro = preparar_registro_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 10),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 10),
+        dia_hasta_incluido=True,
+        tratamiento="REPERCUTIR",
+        calcular_imputaciones=True,
+    )
+
+    assert len(registro.imputaciones_contrato) == 1
+
+    imputacion = registro.imputaciones_contrato[0]
+
+    assert imputacion.contrato is contrato
+    assert imputacion.apunte is registro.apunte
+    assert imputacion.importe == 5000
+    assert registro.importe_propietario == 5000
+
+    assert registro.movimiento_previsto is not None
+    assert registro.movimiento_previsto.importe_esperado == 10000
+
+
+def test_registro_calcula_imputaciones_inmueble_t():
+    inmueble, local_a, local_b = (
+        _inmueble_subdividido_para_distribuir()
+    )
+
+    contrato_a = _contrato_para_imputacion(
+        local_a,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    registro = preparar_registro_contable(
+        inmueble=inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad",
+        base=10000,
+        tratamiento="REPERCUTIR",
+        calcular_imputaciones=True,
+    )
+
+    assert len(registro.apunte.distribuciones) == 2
+    assert len(registro.imputaciones_contrato) == 1
+
+    imputacion = registro.imputaciones_contrato[0]
+
+    assert imputacion.contrato is contrato_a
+    assert imputacion.distribucion_apunte.inmueble is local_a
+    assert imputacion.importe == 6000
+
+    assert registro.importe_propietario == 4000
+
+    assert registro.movimiento_previsto is not None
+    assert registro.movimiento_previsto.importe_esperado == 10000
+
+
+def test_registro_calcula_imputaciones_sin_persistirlas(
+    session, contrato,
+):
+    registro = preparar_registro_contable(
+        inmueble=contrato.inmueble,
+        categorias=_categorias_gastos_comunes(),
+        fecha=date(2026, 10, 15),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Comunidad octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+        calcular_imputaciones=True,
+    )
+
+    assert len(registro.imputaciones_contrato) == 1
+    assert registro.imputaciones_contrato[0].contrato is contrato
+    assert registro.importe_propietario == 0
+
+    # Se guardan únicamente el apunte y su previsto.
+    session.add(registro.apunte)
+    session.add(registro.movimiento_previsto)
+    session.commit()
+
+    # Calcular el reparto no debe persistir las imputaciones.
+    assert session.scalars(
+        select(ImputacionContrato)
+    ).all() == []
+
+    # El gasto continúa pendiente de repercutir.
+    pendientes = buscar_gastos_repercutibles_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert len(pendientes) == 1
+    assert pendientes[0].imputacion.importe == 10000
 
 

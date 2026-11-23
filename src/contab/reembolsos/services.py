@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from contab.conciliacion.services import (
-    crear_movimiento_previsto,
+    crear_movimiento_desde_solicitud,
 )
 from contab.models import (
     ApunteContable,
@@ -318,9 +318,8 @@ def confirmar_solicitud_reembolso(
             else "GASTO"
         )
 
-        movimiento = crear_movimiento_previsto(
-            inmueble=contrato.inmueble,
-            contrato=contrato,
+        movimiento = crear_movimiento_desde_solicitud(
+            solicitud=solicitud,
             naturaleza=naturaleza,
             concepto=(
                 f"Reembolso. {preparada.lineas[0].concepto}"

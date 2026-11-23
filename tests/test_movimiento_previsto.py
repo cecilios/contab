@@ -31,28 +31,6 @@ def apunte(session, inmueble) -> ApunteContable:
     return apunte
 
 
-def test_crear_movimiento_previsto_sin_apunte(
-    session,
-    inmueble,
-) -> None:
-    movimiento = MovimientoPrevisto(
-        inmueble=inmueble,
-        fecha_prevista_desde=date(2026, 9, 5),
-        naturaleza="GASTO",
-        concepto="Recibo de agua",
-        importe_esperado=5000,
-    )
-
-    session.add(movimiento)
-    session.commit()
-
-    assert movimiento.id is not None
-    assert movimiento.apunte is None
-    assert movimiento.contrato is None
-    assert movimiento.contraparte == ""
-    assert movimiento.estado == "PENDIENTE"
-
-
 def test_crear_movimiento_previsto_con_apunte_y_contrato(
     session,
     inmueble,

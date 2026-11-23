@@ -164,6 +164,32 @@ def escenario():
             estado="CONCILIADO",
         )
 
+        apunte_manual = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 11, 1),
+            naturaleza="INGRESO",
+            categoria="ING_OTRAS_RENTAS",
+            concepto="Origen cobro manual",
+            tratamiento="CONTABILIZAR",
+            base=30000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=30000,
+        )
+
+        apunte_pendiente = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 11, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Origen gasto pendiente",
+            tratamiento="CONTABILIZAR",
+            base=40000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=40000,
+        )
+
         previsto_manual = MovimientoPrevisto(
             inmueble=inmueble,
             naturaleza="INGRESO",
@@ -172,6 +198,7 @@ def escenario():
             estado="CONCILIADO",
             metodo_conciliacion="MANUAL",
             notas="Cobro comprobado externamente",
+            apunte=apunte_manual,
         )
         previsto_pendiente = MovimientoPrevisto(
             inmueble=inmueble,
@@ -179,6 +206,7 @@ def escenario():
             concepto="PREVISTO PENDIENTE RELACIONES",
             importe_esperado=40000,
             estado="PENDIENTE",
+            apunte=apunte_pendiente,
         )
 
         session.add_all([

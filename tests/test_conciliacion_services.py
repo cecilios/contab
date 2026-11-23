@@ -8,16 +8,19 @@ from sqlalchemy.exc import IntegrityError
 
 from contab.config import CategoriaContable
 from contab.models import (
+    ApunteContable,
     Conciliacion,
     Contrato,
     Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
+    SolicitudReembolso,
 )
 from contab.contabilidad.services import crear_apunte_contable
 import contab.conciliacion.services as servicios_conciliacion
 from contab.conciliacion.services import (
     ConciliacionError,
+    ContratoNoIdentificableError,
     PropuestaConciliacion,
     _seleccionar_propuestas_agrupadas,
     actualizar_estado_movimiento_bancario,
@@ -34,6 +37,7 @@ from contab.conciliacion.services import (
     confirmar_grupo_conciliacion,
     confirmar_propuesta_conciliacion,
     crear_movimiento_desde_apunte,
+    crear_movimiento_desde_solicitud,
     crear_movimiento_previsto,
     descartar_movimiento_bancario,
     deshacer_asociacion_bancaria,
@@ -103,15 +107,6 @@ def _escenario_propuestas_en_competencia(
     return previsto, individual, primero, segundo
 
 
-def _previsto_para_confirmar(inmueble, concepto, importe):
-    return crear_movimiento_previsto(
-        inmueble=inmueble,
-        naturaleza="INGRESO",
-        concepto=concepto,
-        importe_esperado=importe,
-    )
-
-
 def _bancario_para_confirmar(referencia, importe):
     return MovimientoBancario(
         fecha=date(2026, 10, 5),
@@ -159,6 +154,97 @@ def _contrato_para_cierre_agrupado(inmueble):
     )
 
 
+def _apunte_alquiler_prueba(inmueble):
+    return ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 6, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler junio",
+        base=85000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=85000,
+        tratamiento="CONTABILIZAR",
+        tercero_nombre="",
+    )
+
+
+def crear_previsto_prueba(**datos) -> MovimientoPrevisto:
+    """Crea un previsto con origen contable para pruebas."""
+
+    naturaleza = datos["naturaleza"]
+    importe = datos["importe_esperado"]
+
+    apunte = ApunteContable(
+        inmueble=datos["inmueble"],
+        fecha=(
+            datos.get("fecha_prevista_desde")
+            or date(2026, 1, 1)
+        ),
+        naturaleza=naturaleza,
+        categoria=(
+            "ING_OTRAS_RENTAS"
+            if naturaleza == "INGRESO"
+            else "GAS_COMUNIDAD"
+        ),
+        concepto=datos["concepto"],
+        base=importe,
+        iva_importe=0,
+        retencion_importe=0,
+        total=importe,
+        tratamiento="CONTABILIZAR",
+        tercero_nombre="",
+    )
+
+    return MovimientoPrevisto(
+        apunte=apunte,
+        **datos,
+    )
+
+
+def crear_previsto_servicio_prueba(**datos) -> MovimientoPrevisto:
+    """Prepara un previsto con origen mediante el servicio común."""
+
+    naturaleza = datos["naturaleza"]
+    importe = datos["importe_esperado"]
+
+    apunte = ApunteContable(
+        inmueble=datos["inmueble"],
+        fecha=(
+            datos.get("fecha_prevista_desde")
+            or date(2026, 1, 1)
+        ),
+        naturaleza=naturaleza,
+        categoria=(
+            "ING_OTRAS_RENTAS"
+            if naturaleza == "INGRESO"
+            else "GAS_COMUNIDAD"
+        ),
+        concepto=datos["concepto"],
+        base=importe,
+        iva_importe=0,
+        retencion_importe=0,
+        total=importe,
+        tratamiento="CONTABILIZAR",
+        tercero_nombre="",
+    )
+
+    return crear_movimiento_previsto(
+        apunte=apunte,
+        **datos,
+    )
+
+
+def _previsto_para_confirmar(inmueble, concepto, importe):
+    return crear_previsto_servicio_prueba(
+        inmueble=inmueble,
+        naturaleza="INGRESO",
+        concepto=concepto,
+        importe_esperado=importe,
+    )
+
+
 
 
 def test_crear_movimiento_previsto(inmueble) -> None:
@@ -189,7 +275,7 @@ def test_movimiento_previsto_rechaza_metodo_conciliacion_invalido(
     session,
     inmueble,
 ) -> None:
-    movimiento = MovimientoPrevisto(
+    movimiento = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="GASTO",
         concepto="Movimiento de prueba",
@@ -2009,7 +2095,7 @@ def test_saldo_movimientos_sin_conciliaciones(
         estado="PENDIENTE",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -2051,7 +2137,7 @@ def test_saldo_bancario_con_varios_previstos(
         estado="CONCILIADO",
     )
 
-    alquiler = MovimientoPrevisto(
+    alquiler = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -2060,7 +2146,7 @@ def test_saldo_bancario_con_varios_previstos(
         estado="CONCILIADO",
     )
 
-    agua = MovimientoPrevisto(
+    agua = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Reembolso de agua",
@@ -2111,7 +2197,7 @@ def test_saldo_previsto_con_varios_bancarios(
 ) -> None:
     """Calcula el pendiente tras pagos sucesivos del mismo previsto."""
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -2450,7 +2536,7 @@ def test_validar_asociacion_respeta_saldo_bancario_restante(
         estado="PENDIENTE",
     )
 
-    primero = MovimientoPrevisto(
+    primero = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -2458,7 +2544,7 @@ def test_validar_asociacion_respeta_saldo_bancario_restante(
         estado="CONCILIADO",
     )
 
-    segundo = MovimientoPrevisto(
+    segundo = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Agua",
@@ -2494,7 +2580,7 @@ def test_validar_asociacion_respeta_saldo_previsto_restante(
 ) -> None:
     """No permite cobrar dos veces el importe de un movimiento previsto."""
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -2558,7 +2644,7 @@ def test_validar_asociacion_rechaza_pareja_duplicada(
         estado="PENDIENTE",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -2604,7 +2690,7 @@ def test_asociar_movimientos_crea_asociacion_parcial(
         estado="PENDIENTE",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -2673,7 +2759,7 @@ def test_asociar_movimientos_un_bancario_varios_previstos(
         estado="PENDIENTE",
     )
 
-    alquiler = MovimientoPrevisto(
+    alquiler = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -2681,7 +2767,7 @@ def test_asociar_movimientos_un_bancario_varios_previstos(
         estado="PENDIENTE",
     )
 
-    agua = MovimientoPrevisto(
+    agua = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Reembolso de agua",
@@ -2733,7 +2819,7 @@ def test_asociar_movimientos_un_previsto_varios_bancarios(
 ) -> None:
     """Permite relacionar dos transferencias con un previsto."""
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -2812,7 +2898,7 @@ def test_asociar_movimientos_rechaza_importe_excesivo(
         estado="PENDIENTE",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -3074,7 +3160,7 @@ def test_confirmar_grupo_un_bancario_dos_previstos(
         estado="PENDIENTE",
     )
 
-    alquiler = MovimientoPrevisto(
+    alquiler = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -3082,7 +3168,7 @@ def test_confirmar_grupo_un_bancario_dos_previstos(
         estado="PENDIENTE",
     )
 
-    agua = MovimientoPrevisto(
+    agua = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Reembolso de agua",
@@ -3136,7 +3222,7 @@ def test_confirmar_grupo_dos_bancarios_un_previsto(
 ) -> None:
     """Confirma dos transferencias contra un único alquiler."""
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -3202,7 +3288,7 @@ def test_confirmar_grupo_admite_asociacion_parcial(
         estado="PENDIENTE",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -3253,7 +3339,7 @@ def test_confirmar_grupo_rechaza_exceso_sin_modificar_nada(
         estado="PENDIENTE",
     )
 
-    primero = MovimientoPrevisto(
+    primero = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -3261,7 +3347,7 @@ def test_confirmar_grupo_rechaza_exceso_sin_modificar_nada(
         estado="PENDIENTE",
     )
 
-    segundo = MovimientoPrevisto(
+    segundo = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Otros gastos",
@@ -3308,7 +3394,7 @@ def test_confirmar_grupo_rechaza_naturaleza_sin_efectos(
         estado="PENDIENTE",
     )
 
-    alquiler = MovimientoPrevisto(
+    alquiler = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -3316,7 +3402,7 @@ def test_confirmar_grupo_rechaza_naturaleza_sin_efectos(
         estado="PENDIENTE",
     )
 
-    gasto = MovimientoPrevisto(
+    gasto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="GASTO",
         concepto="Recibo de agua",
@@ -3365,7 +3451,7 @@ def test_confirmar_grupo_rechaza_pareja_repetida(
         estado="PENDIENTE",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -3408,7 +3494,7 @@ def test_confirmar_grupo_completa_previsto_parcial(
 ) -> None:
     """Completa un previsto parcial sin perder su conciliación anterior."""
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -3498,7 +3584,7 @@ def test_confirmar_grupo_completa_bancario_parcial(
         estado="PARCIAL",
     )
 
-    alquiler = MovimientoPrevisto(
+    alquiler = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -3507,7 +3593,7 @@ def test_confirmar_grupo_completa_bancario_parcial(
         metodo_conciliacion="INDIVIDUAL",
     )
 
-    agua = MovimientoPrevisto(
+    agua = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Reembolso de agua",
@@ -3578,7 +3664,7 @@ def test_confirmar_grupo_actualiza_estados_antes_de_persistir(
         estado="PENDIENTE",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -3635,7 +3721,7 @@ def test_deshacer_asociacion_bancaria_individual(
         estado="CONCILIADO",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler octubre",
@@ -3695,7 +3781,7 @@ def test_deshacer_asociacion_conserva_otros_previstos(
         estado="CONCILIADO",
     )
 
-    alquiler = MovimientoPrevisto(
+    alquiler = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -3704,7 +3790,7 @@ def test_deshacer_asociacion_conserva_otros_previstos(
         metodo_conciliacion="INDIVIDUAL",
     )
 
-    agua = MovimientoPrevisto(
+    agua = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Agua",
@@ -3767,7 +3853,7 @@ def test_deshacer_asociacion_conserva_otros_bancarios(
 ) -> None:
     """Al retirar una transferencia, el previsto vuelve a parcial."""
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -3859,7 +3945,7 @@ def test_deshacer_asociacion_rechaza_no_persistida(
         estado="PENDIENTE",
     )
 
-    previsto = MovimientoPrevisto(
+    previsto = crear_previsto_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler",
@@ -4005,7 +4091,7 @@ def test_proponer_grupo_con_previsto_parcial(
 ) -> None:
     """Propone dos bancarios para completar un previsto parcial."""
 
-    previsto = crear_movimiento_previsto(
+    previsto = crear_previsto_servicio_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler de octubre",
@@ -4110,7 +4196,7 @@ def test_proponer_grupo_con_bancario_parcial(
         estado="PENDIENTE",
     )
 
-    previsto_anterior = crear_movimiento_previsto(
+    previsto_anterior = crear_previsto_servicio_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Alquiler pendiente",
@@ -4118,7 +4204,7 @@ def test_proponer_grupo_con_bancario_parcial(
         contraparte="Juan Pérez",
     )
 
-    previsto_1 = crear_movimiento_previsto(
+    previsto_1 = crear_previsto_servicio_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Reembolso de agua",
@@ -4128,7 +4214,7 @@ def test_proponer_grupo_con_bancario_parcial(
         contraparte="Juan Pérez",
     )
 
-    previsto_2 = crear_movimiento_previsto(
+    previsto_2 = crear_previsto_servicio_prueba(
         inmueble=inmueble,
         naturaleza="INGRESO",
         concepto="Reembolso de comunidad",
@@ -5366,7 +5452,7 @@ def test_confirmar_propuesta_rechaza_naturalezas_distintas(
 ) -> None:
     """Rechaza asociar un ingreso bancario con un gasto previsto."""
 
-    previsto = crear_movimiento_previsto(
+    previsto = crear_previsto_servicio_prueba(
         inmueble=inmueble,
         naturaleza="GASTO",
         concepto="Recibo de comunidad",
@@ -8505,5 +8591,234 @@ def test_movimiento_previsto_de_apunte_negativo_rechaza_naturaleza_incorrecta(
             concepto="Devolución de comunidad",
             importe_esperado=5000,
         )
+
+
+def test_previsto_alquiler_identifica_contrato_automaticamente(
+    session, contrato,
+):
+    apunte = _apunte_alquiler_prueba(contrato.inmueble)
+
+    movimiento = crear_movimiento_desde_apunte(
+        apunte=apunte,
+    )
+
+    assert movimiento.contrato is contrato
+    assert movimiento.apunte is apunte
+
+
+def test_previsto_alquiler_sin_contrato_vigente_falla(
+    session, contrato,
+):
+    contrato.fecha_inicio = date(2026, 7, 1)
+
+    apunte = _apunte_alquiler_prueba(contrato.inmueble)
+
+    with pytest.raises(
+        ContratoNoIdentificableError,
+        match="No existe un contrato vigente",
+    ):
+        crear_movimiento_desde_apunte(
+            apunte=apunte,
+        )
+
+
+def test_previsto_alquiler_rechaza_contrato_no_vigente(
+    session, contrato,
+):
+    contrato.fecha_inicio = date(2026, 7, 1)
+
+    apunte = _apunte_alquiler_prueba(contrato.inmueble)
+
+    with pytest.raises(
+        ContratoNoIdentificableError,
+        match="no está vigente",
+    ):
+        crear_movimiento_desde_apunte(
+            apunte=apunte,
+            contrato=contrato,
+        )
+
+
+def test_previsto_alquiler_rechaza_contratos_ambiguos(
+    session, contrato,
+):
+    otro = _contrato_para_cierre_agrupado(
+        contrato.inmueble
+    )
+    session.add(otro)
+    session.flush()
+
+    apunte = _apunte_alquiler_prueba(
+        contrato.inmueble
+    )
+
+    with pytest.raises(
+        ContratoNoIdentificableError,
+        match="varios contratos vigentes",
+    ):
+        crear_movimiento_desde_apunte(
+            apunte=apunte,
+        )
+
+
+def test_previsto_alquiler_rechaza_contrato_de_otro_inmueble(
+    session, contrato,
+):
+    otro_inmueble = Inmueble(
+        referencia="OTRO-LOCAL",
+        tipo="L",
+        codigo_facturacion="OT",
+        descripcion="Otro local",
+        direccion="Dirección de prueba",
+        poblacion="Madrid",
+        provincia="Madrid",
+        porcentaje_titular=10000,
+        tipo_derecho="PLENA_PROPIEDAD",
+        porcentaje_derecho=10000,
+        fecha_adquisicion=date(2020, 1, 1),
+        tipo_adquisicion="ONEROSA",
+        importe_adquisicion=0,
+        gastos_adquisicion=0,
+    )
+
+    apunte = _apunte_alquiler_prueba(
+        otro_inmueble
+    )
+
+    with pytest.raises(
+        ContratoNoIdentificableError,
+        match="no está vigente",
+    ):
+        crear_movimiento_desde_apunte(
+            apunte=apunte,
+            contrato=contrato,
+        )
+
+
+def test_crear_movimiento_desde_solicitud(
+    contrato,
+):
+    solicitud = SolicitudReembolso(
+        contrato=contrato,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    movimiento = crear_movimiento_desde_solicitud(
+        solicitud=solicitud,
+        naturaleza="INGRESO",
+        concepto="Reembolso de agua",
+        importe_esperado=4500,
+        contraparte="Inquilino",
+    )
+
+    assert movimiento.solicitud_reembolso is solicitud
+    assert movimiento.apunte is None
+    assert movimiento.contrato is contrato
+    assert movimiento.inmueble is contrato.inmueble
+    assert movimiento.importe_esperado == 4500
+    assert movimiento.estado == "PENDIENTE"
+
+
+def test_previsto_rechaza_dos_origenes(
+    contrato,
+):
+    apunte = _apunte_alquiler_prueba(
+        contrato.inmueble
+    )
+    solicitud = SolicitudReembolso(
+        contrato=contrato,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+        match="un único origen",
+    ):
+        crear_movimiento_previsto(
+            inmueble=contrato.inmueble,
+            naturaleza="INGRESO",
+            concepto="Movimiento incorrecto",
+            importe_esperado=10000,
+            apunte=apunte,
+            solicitud_reembolso=solicitud,
+        )
+
+
+def test_previsto_reembolso_rechaza_contrato_distinto(
+    contrato,
+):
+    solicitud = SolicitudReembolso(
+        contrato=contrato,
+        fecha_envio=date(2026, 10, 20),
+    )
+
+    with pytest.raises(
+        ConciliacionError,
+        match="mismo contrato",
+    ):
+        crear_movimiento_previsto(
+            inmueble=contrato.inmueble,
+            naturaleza="INGRESO",
+            concepto="Reembolso incorrecto",
+            importe_esperado=10000,
+            solicitud_reembolso=solicitud,
+            contrato=None,
+        )
+
+
+def test_movimiento_previsto_exige_origen(
+    session, inmueble,
+):
+    movimiento = MovimientoPrevisto(
+        inmueble=inmueble,
+        naturaleza="GASTO",
+        concepto="Movimiento sin origen",
+        importe_esperado=10000,
+        estado="PENDIENTE",
+    )
+
+    session.add(movimiento)
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+    session.rollback()
+
+
+def test_movimiento_previsto_rechaza_dos_origenes_en_bd(
+    session, contrato, categorias,
+):
+    apunte = crear_apunte_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 6, 1),
+        naturaleza="INGRESO",
+        categoria="ING_ALQUILERES",
+        concepto="Alquiler junio",
+        base=85000,
+    )
+
+    solicitud = SolicitudReembolso(
+        contrato=contrato,
+        fecha_envio=date(2026, 6, 10),
+    )
+
+    movimiento = MovimientoPrevisto(
+        inmueble=contrato.inmueble,
+        contrato=contrato,
+        apunte=apunte,
+        solicitud_reembolso=solicitud,
+        naturaleza="INGRESO",
+        concepto="Movimiento con dos orígenes",
+        importe_esperado=85000,
+        estado="PENDIENTE",
+    )
+
+    session.add(movimiento)
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+    session.rollback()
 
 

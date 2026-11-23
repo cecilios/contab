@@ -1555,6 +1555,20 @@ class MovimientoPrevisto(Base):
             """,
             name="ck_movimiento_previsto_metodo_conciliacion",
         ),
+        CheckConstraint(
+            """
+            (
+                apunte_id IS NOT NULL
+                AND solicitud_reembolso_id IS NULL
+            )
+            OR
+            (
+                apunte_id IS NULL
+                AND solicitud_reembolso_id IS NOT NULL
+            )
+            """,
+            name="ck_movimiento_previsto_origen",
+        ),
     )
 
     id: Mapped[int] = mapped_column(

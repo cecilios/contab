@@ -7,10 +7,9 @@ from sqlalchemy.orm import Session
 
 from contab.calculos import redondear_division
 from contab.config import CategoriaContable
-from contab.conciliacion.services import crear_movimiento_desde_apunte
 from contab.contabilidad.services import (
-    crear_apunte_contable,
     preparar_imputaciones_contrato,
+    preparar_registro_contable,
 )
 from contab.models import (
     ApunteContable,
@@ -674,9 +673,12 @@ def preparar_registro_contable_factura(
     periodo_desde = factura.periodo
     periodo_hasta = _ultimo_dia_mes(periodo_desde)
 
-    apunte = crear_apunte_contable(
+    registro = preparar_registro_contable(
         inmueble=contrato.inmueble,
         categorias=categorias,
+        contrato=contrato,
+        fecha_prevista_desde=periodo_desde,
+        fecha_prevista_hasta=periodo_hasta,
         fecha=factura.fecha_emision,
         naturaleza="INGRESO",
         categoria="ING_ALQUILERES",
@@ -692,14 +694,7 @@ def preparar_registro_contable_factura(
         dia_hasta_incluido=True,
     )
 
-    movimiento = crear_movimiento_desde_apunte(
-        apunte=apunte,
-        contrato=contrato,
-        fecha_prevista_desde=periodo_desde,
-        fecha_prevista_hasta=periodo_hasta,
-    )
-
-    return apunte, movimiento
+    return registro.apunte, registro.movimiento_previsto
 
 
 def contabilizar_ingreso_sin_factura(
@@ -732,9 +727,12 @@ def contabilizar_ingreso_sin_factura(
 
     periodo_hasta = _ultimo_dia_mes(periodo)
 
-    apunte = crear_apunte_contable(
+    registro = preparar_registro_contable(
         inmueble=contrato.inmueble,
         categorias=categorias,
+        contrato=contrato,
+        fecha_prevista_desde=periodo,
+        fecha_prevista_hasta=periodo_hasta,
         fecha=fecha,
         naturaleza="INGRESO",
         categoria="ING_ALQUILERES",
@@ -750,14 +748,7 @@ def contabilizar_ingreso_sin_factura(
         dia_hasta_incluido=True,
     )
 
-    movimiento = crear_movimiento_desde_apunte(
-        apunte=apunte,
-        contrato=contrato,
-        fecha_prevista_desde=periodo,
-        fecha_prevista_hasta=periodo_hasta,
-    )
-
-    return apunte, movimiento
+    return registro.apunte, registro.movimiento_previsto
 
 
 def preparar_periodo_facturacion(

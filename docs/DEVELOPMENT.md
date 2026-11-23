@@ -544,6 +544,40 @@ no Guardar button
 
 The save path still rechecks domain rules defensively.
 
+## Centralized creation of accounting records
+
+Creating an accounting entry is a domain operation, not simply inserting an `ApunteContable`.
+
+**All ordinary entry-creation workflows must use `preparar_registro_contable()`**, defined in `contabilidad/services.py`.
+
+This common service coordinates, as applicable:
+
+- Creation of `ApunteContable`.
+- Persistent `DistribucionApunte` records for type-T properties.
+- Creation of the associated `MovimientoPrevisto`, when requested.
+- Identification and validation of the contract for rental income.
+- Optional calculation of contract imputations, without persisting them prematurely.
+
+Do not bypass this service by calling `crear_apunte_contable()` and `crear_movimiento_desde_apunte()` separately from routes, billing workflows or new import processes. These lower-level functions implement individual responsibilities; using them independently can omit required relationships or validations.
+
+A `MovimientoPrevisto` persisted in the database must have exactly one economic origin:
+
+```text
+ApunteContable
+    → MovimientoPrevisto
+
+SolicitudReembolso
+    → MovimientoPrevisto
+```
+
+Reimbursement movements must be created through `crear_movimiento_desde_solicitud()`, not through the accounting-entry creation workflow.
+
+Contract imputations must only be persisted when consumed by an invoice or reimbursement request. Calculating them does not constitute a historical allocation decision.
+
+Services prepare and validate domain objects; routes or calling workflows own the transaction and commit.
+
+**When adding a new way to create accounting records, extend or reuse these shared services instead of duplicating their logic.** Tests must verify the resulting relationships, not merely that the accounting entry was saved.
+
 ## Accounting entry and expected movement
 
 Manual accounting-entry creation offers:
@@ -579,7 +613,11 @@ hasta < desde    → invalid
 
 Never invent the expected bank date from `ApunteContable.fecha`.
 
-`MovimientoPrevisto.apunte_id` remains nullable because independent expected movements are allowed.
+`MovimientoPrevisto.apunte_id` remains nullable because reimbursement
+movements originate from SolicitudReembolso. Every persisted expected movement
+must reference exactly one of these two origins. This is enforced by a database
+CHECK constraint.
+
 
 ## Editing entries linked to expected movements
 

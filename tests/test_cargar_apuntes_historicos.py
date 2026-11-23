@@ -520,3 +520,73 @@ def test_importe_rechaza_separadores_incorrectos(texto):
     with pytest.raises(ValueError):
         convertir(texto)
 
+
+def test_alquiler_historico_identifica_contrato(
+    session, contrato, categorias, carga, tmp_path,
+):
+    leer_apuntes, preparar_carga = carga
+
+    archivo = archivo_temporal(
+        tmp_path,
+        "LOCAL-1 ; 2026-06-01 ; ING_ALQUILERES ; "
+        "Alquiler junio ; 850,00\n",
+    )
+
+    with session.begin():
+        resumen = preparar_carga(
+            session,
+            categorias,
+            leer_apuntes(archivo),
+        )
+
+    movimiento = session.scalar(
+        select(MovimientoPrevisto)
+    )
+
+    assert resumen == (1, 1, 0)
+    assert movimiento is not None
+    assert movimiento.apunte is not None
+    assert movimiento.contrato_id == contrato.id
+    assert movimiento.estado == "CONCILIADO"
+    assert movimiento.metodo_conciliacion == "MANUAL"
+
+
+def test_alquiler_historico_sin_contrato_cancela_carga(
+    session, inmueble, categorias, categorias_historicas,
+    carga, tmp_path,
+):
+    leer_apuntes, preparar_carga = carga
+
+    todas_categorias = {
+        **categorias_historicas,
+        **categorias,
+    }
+
+    archivo = archivo_temporal(
+        tmp_path,
+        "LOCAL-1 ; 2026-05-01 ; COMUNIDAD ; "
+        "Comunidad mayo ; 100,00\n"
+        "LOCAL-1 ; 2026-06-01 ; ING_ALQUILERES ; "
+        "Alquiler junio ; 850,00\n",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="No existe un contrato vigente",
+    ):
+        with session.begin():
+            preparar_carga(
+                session,
+                todas_categorias,
+                leer_apuntes(archivo),
+            )
+
+    assert session.scalars(
+        select(ApunteContable)
+    ).all() == []
+
+    assert session.scalars(
+        select(MovimientoPrevisto)
+    ).all() == []
+
+

@@ -14,11 +14,16 @@ from contab.models import (
     Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
+    SolicitudReembolso,
 )
 
 
 class ConciliacionError(Exception):
     """Indica que no puede crearse un movimiento previsto válido."""
+
+class ContratoNoIdentificableError(ConciliacionError):
+    """No puede identificarse el contrato de un alquiler."""
+
 
 
 @dataclass
@@ -516,6 +521,7 @@ def crear_movimiento_previsto(
     apunte: ApunteContable | None = None,
     contrato: Contrato | None = None,
     notas: str = "",
+    solicitud_reembolso: SolicitudReembolso | None = None,
 ) -> MovimientoPrevisto:
     """Prepara un movimiento previsto pendiente sin persistirlo."""
 
@@ -536,6 +542,25 @@ def crear_movimiento_previsto(
         raise ConciliacionError(
             "El importe esperado debe ser mayor que cero."
         )
+
+    if apunte is not None and solicitud_reembolso is not None:
+        raise ConciliacionError(
+            "Un movimiento previsto debe tener un único origen."
+        )
+
+    if solicitud_reembolso is not None:
+        contrato_solicitud = solicitud_reembolso.contrato
+
+        if contrato_solicitud is None:
+            raise ConciliacionError(
+                "La solicitud de reembolso no tiene contrato."
+            )
+
+        if contrato is not contrato_solicitud:
+            raise ConciliacionError(
+                "El movimiento y la solicitud deben tener "
+                "el mismo contrato."
+            )
 
     if apunte is not None:
         if apunte.inmueble is not inmueble:
@@ -588,6 +613,7 @@ def crear_movimiento_previsto(
         contraparte=contraparte.strip(),
         estado="PENDIENTE",
         notas=notas.strip() or None,
+        solicitud_reembolso=solicitud_reembolso,
     )
 
 
@@ -619,6 +645,15 @@ def crear_movimiento_desde_apunte(
 ) -> MovimientoPrevisto:
     """Crea un movimiento previsto reutilizando los datos del apunte."""
 
+    if (
+        apunte.naturaleza == "INGRESO"
+        and apunte.categoria == "ING_ALQUILERES"
+    ):
+        contrato = resolver_contrato_alquiler(
+            apunte,
+            contrato=contrato,
+        )
+
     return crear_movimiento_previsto(
         inmueble=apunte.inmueble,
         apunte=apunte,
@@ -642,6 +677,34 @@ def crear_movimiento_desde_apunte(
             else contraparte
         ),
         notas=notas,
+    )
+
+
+def crear_movimiento_desde_solicitud(
+    *,
+    solicitud: SolicitudReembolso,
+    naturaleza: str,
+    concepto: str,
+    importe_esperado: int,
+    contraparte: str = "",
+) -> MovimientoPrevisto:
+    """Prepara un previsto vinculado a una solicitud de reembolso."""
+
+    contrato = solicitud.contrato
+
+    if contrato is None:
+        raise ConciliacionError(
+            "La solicitud de reembolso no tiene contrato."
+        )
+
+    return crear_movimiento_previsto(
+        inmueble=contrato.inmueble,
+        contrato=contrato,
+        solicitud_reembolso=solicitud,
+        naturaleza=naturaleza,
+        concepto=concepto,
+        importe_esperado=importe_esperado,
+        contraparte=contraparte,
     )
 
 
@@ -2537,4 +2600,56 @@ def diagnosticar_grupo_conciliacion(
         parejas=parejas,
         puntuacion_total=puntuacion_total,
     )
+
+
+def resolver_contrato_alquiler(
+    apunte: ApunteContable,
+    contrato: Contrato | None = None,
+) -> Contrato:
+    """Identifica y valida el contrato de un alquiler."""
+
+    fecha = apunte.fecha
+    inmueble = apunte.inmueble
+
+    def vigente(candidato: Contrato) -> bool:
+        return (
+            candidato.inmueble is inmueble
+            and candidato.fecha_inicio <= fecha
+            and (
+                candidato.fecha_fin is None
+                or candidato.fecha_fin >= fecha
+            )
+        )
+
+    if contrato is not None:
+        if not vigente(contrato):
+            raise ContratoNoIdentificableError(
+                f"El contrato indicado no está vigente "
+                f"para {inmueble.referencia} "
+                f"el {fecha:%d/%m/%Y}."
+            )
+
+        return contrato
+
+    candidatos = [
+        candidato
+        for candidato in inmueble.contratos
+        if vigente(candidato)
+    ]
+
+    if not candidatos:
+        raise ContratoNoIdentificableError(
+            f"No existe un contrato vigente "
+            f"para {inmueble.referencia} "
+            f"el {fecha:%d/%m/%Y}."
+        )
+
+    if len(candidatos) > 1:
+        raise ContratoNoIdentificableError(
+            f"Existen varios contratos vigentes "
+            f"para {inmueble.referencia} "
+            f"el {fecha:%d/%m/%Y}."
+        )
+
+    return candidatos[0]
 

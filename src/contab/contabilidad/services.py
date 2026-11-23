@@ -60,6 +60,16 @@ class ApunteAutomaticoPreparado:
     movimiento_previsto: MovimientoPrevisto
 
 
+@dataclass(frozen=True)
+class RegistroContablePreparado:
+    """Resultado de preparar un registro contable."""
+
+    apunte: ApunteContable
+    movimiento_previsto: MovimientoPrevisto | None
+    imputaciones_contrato: tuple[ImputacionContrato, ...] = ()
+    importe_propietario: int = 0
+
+
 
 def _datos_apunte_contable(
     *,
@@ -1085,6 +1095,61 @@ def crear_apunte_contable(
     return apunte
 
 
+def preparar_registro_contable(
+    *,
+    inmueble: Inmueble,
+    categorias: dict[str, CategoriaContable],
+    crear_movimiento: bool = True,
+    contrato: Contrato | None = None,
+    fecha_prevista_desde: date | None = None,
+    fecha_prevista_hasta: date | None = None,
+    calcular_imputaciones: bool = False,
+    **datos_apunte,
+) -> RegistroContablePreparado:
+    """Prepara un apunte y su movimiento previsto, sin persistirlos."""
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        **datos_apunte,
+    )
+
+    movimiento = None
+
+    if crear_movimiento:
+        movimiento = crear_movimiento_desde_apunte(
+            apunte=apunte,
+            contrato=contrato,
+            fecha_prevista_desde=fecha_prevista_desde,
+            fecha_prevista_hasta=fecha_prevista_hasta,
+        )
+
+    imputaciones = ()
+    importe_propietario = 0
+
+    if calcular_imputaciones:
+        if apunte.naturaleza != "GASTO":
+            raise ContabilidadError(
+                "Solo pueden calcularse imputaciones "
+                "contractuales de gastos."
+            )
+
+        imputaciones_calculadas, importe_propietario = (
+            preparar_imputaciones_contrato(
+                apunte=apunte,
+            )
+        )
+
+        imputaciones = tuple(imputaciones_calculadas)
+
+    return RegistroContablePreparado(
+        apunte=apunte,
+        movimiento_previsto=movimiento,
+        imputaciones_contrato=imputaciones,
+        importe_propietario=importe_propietario,
+    )
+
+
 def preparar_apuntes_automaticos(
     session: Session,
     *,
@@ -1203,8 +1268,7 @@ def preparar_apuntes_automaticos(
                 f"{referencia}, {concepto}."
             )
 
-        # Reutilizar la validación y creación contable.
-        apunte = crear_apunte_contable(
+        registro = preparar_registro_contable(
             inmueble=inmueble,
             categorias=categorias,
             fecha=periodo,
@@ -1216,19 +1280,14 @@ def preparar_apuntes_automaticos(
             periodo_hasta=periodo_hasta,
             dia_hasta_incluido=True,
             tratamiento="CONTABILIZAR",
-        )
-
-        # Crear siempre el movimiento previsto asociado.
-        movimiento_previsto = crear_movimiento_desde_apunte(
-            apunte=apunte,
             fecha_prevista_desde=fecha_prevista_desde,
             fecha_prevista_hasta=fecha_prevista_hasta,
         )
 
         preparados.append(
             ApunteAutomaticoPreparado(
-                apunte=apunte,
-                movimiento_previsto=movimiento_previsto,
+                apunte=registro.apunte,
+                movimiento_previsto=registro.movimiento_previsto,
             )
         )
 

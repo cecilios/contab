@@ -12,6 +12,55 @@ Los apuntes contables de Contab sirven principalmente para:
 
 Contab no pretende gestionar un archivo documental. Las facturas, recibos y justificantes continúan archivándose en el sistema de archivos.
 
+## Apuntes contables y movimientos relacionados
+
+Contab distingue tres cuestiones: **qué ingreso o gasto se ha producido**, **qué dinero debe entrar o salir del banco** y **a quién corresponde económicamente ese ingreso o gasto**. Son cuestiones relacionadas, pero no equivalentes.
+
+### El apunte contable: el hecho económico
+
+`ApunteContable` registra el ingreso o gasto: su fecha, inmueble, categoría, concepto, importes y tratamiento. Es la base de la contabilidad y de los informes fiscales.
+
+Un apunte no acredita por sí mismo que se haya cobrado o pagado.
+
+### El movimiento previsto: la expectativa de cobro o pago
+
+`MovimientoPrevisto` representa una operación monetaria que debe comprobarse mediante conciliación bancaria o confirmación manual.
+
+Todo movimiento previsto guardado tiene **exactamente un origen**:
+
+- Un `ApunteContable`, por ejemplo, el pago de una factura de electricidad o el cobro de un alquiler.
+- Una `SolicitudReembolso`, cuando se espera recuperar del inquilino un gasto previamente soportado.
+
+No puede carecer de origen ni tener ambos simultáneamente.
+
+Un apunte puede originar varios movimientos previstos, aunque normalmente genera uno. También puede no generar ninguno si no corresponde una operación monetaria.
+
+### La conciliación: comprobar el cobro o pago
+
+`MovimientoBancario` representa una operación registrada por el banco. La conciliación relaciona los movimientos bancarios con los previstos y permite comprobar pagos y cobros, incluso parciales o agrupados.
+
+Cuando la operación se acredita por otra vía, puede confirmarse mediante una **conciliación manual**, con una explicación obligatoria y sin movimiento bancario.
+
+La conciliación no crea ni sustituye el hecho contable: confirma su realización monetaria.
+
+### Distribuciones e imputaciones: atribuir el gasto
+
+`DistribucionApunte` reparte un gasto común de un inmueble subdividido entre sus locales.
+
+`ImputacionContrato` determina qué parte de un gasto corresponde al propietario y qué parte se atribuye a cada contrato, teniendo en cuenta los períodos y las proporciones aplicables.
+
+Estas operaciones **no representan movimientos bancarios adicionales**. Las imputaciones pueden calcularse para preparar una operación, pero solo se guardan cuando se utilizan efectivamente en una factura o solicitud de reembolso.
+
+Por ejemplo, una factura de electricidad de 100 € atribuida en 40 € al propietario y 60 € al inquilino produce:
+
+- Un apunte contable por 100 €.
+- Un movimiento previsto de pago al proveedor por 100 €.
+- Una atribución económica de 40 € al propietario y 60 € al inquilino.
+- Si se solicita el reembolso, otro movimiento previsto de cobro por 60 €, cuyo origen es la solicitud de reembolso.
+
+**Principio fundamental:** los apuntes registran hechos económicos; los movimientos previstos permiten conciliar cobros y pagos; las distribuciones e imputaciones determinan a quién corresponde cada importe. Ninguna de estas funciones debe confundirse con las demás.
+
+
 ## Operativa manual actual
 --------------------------
 
