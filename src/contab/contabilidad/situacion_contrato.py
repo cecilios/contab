@@ -24,6 +24,7 @@ class MovimientoEconomico:
     fecha: date | None
     concepto: str
     importe: int
+    notas: str | None = None
 
 
 @dataclass
@@ -338,6 +339,7 @@ def calcular_situacion_contrato(
             fecha=fecha,
             concepto=movimiento.concepto,
             importe=signo * movimiento.importe_esperado,
+            notas=movimiento.notas,
         )
 
         pagos.append(cobro_manual)

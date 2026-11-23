@@ -210,6 +210,7 @@ def test_cobro_conciliado_manualmente(
     assert len(situacion.cobros) == 1
     assert situacion.cobros[0].fecha == date(2026, 9, 1)
     assert situacion.cobros[0].importe == 75000
+    assert situacion.cobros[0].notas == "Cobrado en efectivo"
 
 
 def test_saldo_anterior_y_fecha_de_corte(
@@ -1469,6 +1470,7 @@ def test_cobro_manual_sin_ninguna_fecha(
     assert len(situacion.cobros) == 1
     assert situacion.cobros[0].fecha is None
     assert situacion.cobros[0].importe == 13000
+    assert situacion.cobros[0].notas == "Cobrado en efectivo"
 
 
 def test_cobros_muestran_bancarios_completos_sin_duplicarlos(
@@ -1573,6 +1575,8 @@ def test_cobros_muestran_bancarios_completos_sin_duplicarlos(
     # no con el importe bancario completo.
     assert situacion.total_exigible == 110000
     assert situacion.saldo == 0
+
+    assert all(cobro.notas is None for cobro in situacion.cobros)
 
 
 def test_bancario_compartido_no_duplica_saldo_entre_contratos(

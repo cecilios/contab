@@ -222,12 +222,20 @@
                                                 '%d/%m/%Y'
                                             ) }}
                                         {% else %}
-                                            Fecha desconocida
+                                            Cobro manual
                                         {% endif %}
                                     </td>
 
                                     <td class="situacion-contrato__concepto">
                                         {{ movimiento.concepto }}
+
+                                        {% if movimiento.notas %}
+                                            <div class="situacion-contrato__notas">
+                                                <small>
+                                                    {{ movimiento.notas }}
+                                                </small>
+                                            </div>
+                                        {% endif %}
                                     </td>
 
                                     <td class="situacion-contrato__importe">
