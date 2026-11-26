@@ -225,6 +225,7 @@ def _factura_editada_desde_formulario(
         ],
         iva_porcentaje=iva_porcentaje,
         retencion_porcentaje=retencion_porcentaje,
+        permitir_negativos=True,
     )
 
     return FacturaEditada(
@@ -923,7 +924,11 @@ def previsualizar_factura(contrato_id: int):
                     factura=factura,
                     factura_editada=factura_editada,
                 )
-            except (ValueError, FacturacionError) as exc:
+            except (
+                ValueError,
+                FacturacionError,
+                CalculoFacturaError,
+            ) as exc:
                 return str(exc), 400
 
             datos_documento = preparar_datos_documento_factura(
@@ -1020,8 +1025,22 @@ def contabilizar_factura(contrato_id: int):
         total_previsualizado = int(
             request.form["total_previsualizado"]
         )
-    except (ValueError, KeyError) as exc:
+    except (
+        ValueError,
+        KeyError,
+        CalculoFacturaError,
+    ) as exc:
         return str(exc), 400
+
+    if (
+        factura_editada.base < 0
+        or factura_editada.total < 0
+    ):
+        return (
+            "No puede contabilizarse una factura "
+            "con base o total negativos.",
+            400,
+        )
 
     if (
         factura_editada.base != base_previsualizada

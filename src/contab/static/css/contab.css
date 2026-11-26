@@ -479,6 +479,12 @@ tbody tr:has(
     text-align: right;
 }
 
+.factura-aviso-negativo { /* Aviso de propuestas de factura negativas. */
+    color: #a33;
+    font-weight: 600;
+    margin: 0.5rem 0;
+}
+
 /* Reembolsos */
 
 .reembolso-grupo {

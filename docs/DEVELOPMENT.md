@@ -947,8 +947,8 @@ Income entries only support CONTABILIZAR.
 Expense entries support CONTABILIZAR, REPERCUTIR and FACTURAR,
 regardless of their sign.
 
-The registration of negative FACTURAR expenses is supported.
-Their effective inclusion in invoices remains pending.
+Negative FACTURAR expenses are supported throughout the
+ordinary invoice workflow.
 
 
 ## Expense reimbursement workflow
@@ -2020,6 +2020,22 @@ referencia_facturable = "distribucion:<id>"
 ```
 
 This reference identifies the source allocation across preparation, editing, preview and final accounting.
+
+Automatic expense lines use the sign of the original
+ApunteContable. ImputacionContrato retains positive magnitudes.
+
+All pending expenses are included in the initial proposal,
+even when the resulting invoice base or total is negative.
+
+calcular_importes_factura() accepts permitir_negativos=True
+for provisional preparation and preview only.
+
+Final accounting rejects negative bases and totals.
+The default calculation restrictions and database constraints
+remain unchanged.
+
+The user may remove expense lines to obtain a valid invoice.
+Removed expenses remain pending.
 
 ### Editing and validation
 

@@ -483,6 +483,23 @@ def test_calcular_factura_rechaza_base_negativa() -> None:
         )
 
 
+def test_calcular_factura_provisional_admite_base_negativa() -> None:
+    """Permite calcular una propuesta de factura negativa."""
+
+    # La devolución de un gasto supera la renta mensual.
+    calculo = calcular_importes_factura(
+        importes=[50000, -65000],
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        permitir_negativos=True,
+    )
+
+    assert calculo.base == -15000
+    assert calculo.iva_importe == -3150
+    assert calculo.retencion_importe == -2850
+    assert calculo.total == -15300
+
+
 def test_calcular_factura_redondea_iva_hacia_arriba() -> None:
     """Comprueba el redondeo del IVA hacia arriba al superar medio céntimo."""
     lineas = [
@@ -4755,11 +4772,24 @@ def test_buscar_gastos_facturables_pendientes_usa_distribucion_de_inmueble_t(
     assert gasto.imputacion.importe == 6000
 
 
+@pytest.mark.parametrize(
+    "base_gasto, importe_negativo, importe_linea, base_factura",
+    [
+        (12000, False, 12000, 112000),
+        (12000, True, -12000, 88000),
+        (100000, True, -100000, 0),
+        (120000, True, -120000, -20000),
+    ],
+)
 def test_preparar_periodo_facturacion_incluye_gasto_facturable_pendiente(
     session,
     contrato,
+    base_gasto,
+    importe_negativo,
+    importe_linea,
+    base_factura,
 ) -> None:
-    """Añade a la factura la parte pendiente de un gasto FACTURAR."""
+    """Incorpora gastos positivos y negativos a la factura."""
 
     _anadir_titular(contrato)
 
@@ -4780,14 +4810,23 @@ def test_preparar_periodo_facturacion_incluye_gasto_facturable_pendiente(
         ),
     }
 
+    # El usuario contabiliza un recibo de comunidad
+    # o una devolución de un recibo anterior.
+    concepto = (
+        "Devolución de comunidad"
+        if importe_negativo
+        else "Recibo de comunidad"
+    )
+
     apunte = crear_apunte_contable(
         inmueble=contrato.inmueble,
         categorias=categorias,
         fecha=date(2026, 9, 15),
         naturaleza="GASTO",
         categoria="GAS_COMUNIDAD",
-        concepto="Recibo de comunidad",
-        base=12000,
+        concepto=concepto,
+        base=base_gasto,
+        importe_negativo=importe_negativo,
         tratamiento="FACTURAR",
     )
 
@@ -4797,6 +4836,7 @@ def test_preparar_periodo_facturacion_incluye_gasto_facturable_pendiente(
     ])
     session.commit()
 
+    # El usuario prepara la facturación de octubre.
     preparacion = preparar_periodo_facturacion(
         session,
         contratos=[contrato],
@@ -4810,15 +4850,56 @@ def test_preparar_periodo_facturacion_incluye_gasto_facturable_pendiente(
 
     assert len(factura.lineas) == 2
 
+    # La renta mensual permanece inalterada.
     assert factura.lineas[0].concepto == (
         "Alquiler. Octubre de 2026"
     )
     assert factura.lineas[0].importe == 100000
 
-    assert factura.lineas[1].concepto == "Recibo de comunidad"
-    assert factura.lineas[1].importe == 12000
+    # El gasto aumenta o minora la base de la factura
+    # según el signo del apunte original.
+    linea_gasto = factura.lineas[1]
 
-    assert factura.base == 112000
+    assert linea_gasto.concepto == concepto
+    assert linea_gasto.importe == importe_linea
+
+    assert factura.base == base_factura
+
+    # Los impuestos se calculan sobre la base resultante.
+    calculo = calcular_importes_factura(
+        importes=[100000, importe_linea],
+        iva_porcentaje=contrato.iva_porcentaje,
+        retencion_porcentaje=contrato.retencion_porcentaje,
+        permitir_negativos=base_factura < 0,
+    )
+
+    assert factura.iva_importe == calculo.iva_importe
+    assert (
+        factura.retencion_importe
+        == calculo.retencion_importe
+    )
+    assert factura.total == calculo.total
+
+    # La imputación conserva su magnitud positiva
+    # y su vinculación con el apunte original.
+    imputacion = linea_gasto.imputacion_facturable
+
+    assert imputacion is not None
+    assert imputacion.importe == base_gasto
+    assert imputacion.apunte is apunte
+
+    assert linea_gasto.referencia_facturable == (
+        f"apunte:{apunte.id}"
+    )
+
+    # Preparar la factura todavía no consume el gasto.
+    pendientes = buscar_gastos_facturables_pendientes(
+        session,
+        contrato=contrato,
+    )
+
+    assert len(pendientes) == 1
+    assert pendientes[0].apunte is apunte
 
 
 def test_preparar_periodo_no_repite_gasto_facturable_ya_gestionado(
@@ -5195,11 +5276,21 @@ def test_validar_edicion_factura_admite_eliminar_gasto_facturable(
     )
 
 
+@pytest.mark.parametrize(
+    "importe_negativo, importe_linea, base_factura",
+    [
+        (False, 12000, 112000),
+        (True, -12000, 88000),
+    ],
+)
 def test_emitir_factura_vincula_gasto_facturable_a_linea(
     session,
     contrato,
+    importe_negativo,
+    importe_linea,
+    base_factura,
 ) -> None:
-    """Persiste la imputación FACTURAR vinculada a su línea de factura."""
+    """Persiste la imputación FACTURAR vinculada a su línea."""
 
     _anadir_titular(contrato)
 
@@ -5236,6 +5327,7 @@ def test_emitir_factura_vincula_gasto_facturable_a_linea(
         concepto="Recibo de comunidad",
         base=12000,
         tratamiento="FACTURAR",
+        importe_negativo=importe_negativo,
     )
 
     session.add_all([
@@ -5261,7 +5353,7 @@ def test_emitir_factura_vincula_gasto_facturable_a_linea(
             ),
             LineaFacturaEditada(
                 concepto="Comunidad septiembre",
-                importe=12000,
+                importe=importe_linea,
                 referencia_facturable=(
                     preparada.lineas[1].referencia_facturable
                 ),
@@ -5270,10 +5362,10 @@ def test_emitir_factura_vincula_gasto_facturable_a_linea(
         notas=[],
         iva_porcentaje=0,
         retencion_porcentaje=0,
-        base=112000,
+        base=base_factura,
         iva_importe=0,
         retencion_importe=0,
-        total=112000,
+        total=base_factura,
     )
 
     # El usuario confirma la factura que acaba de preparar.
@@ -5303,6 +5395,16 @@ def test_emitir_factura_vincula_gasto_facturable_a_linea(
 
     assert imputacion.factura_linea is factura.lineas[1]
     assert factura.lineas[1].concepto == "Comunidad septiembre"
+    # La factura conserva el signo de la línea,
+    # pero la imputación almacena una magnitud positiva.
+    assert factura.lineas[1].importe == importe_linea
+    assert factura.base == base_factura
+    assert factura.total == base_factura
+
+    # El apunte original permanece inalterado.
+    assert apunte.importe_negativo is importe_negativo
+    assert apunte.base == 12000
+    assert apunte.total == 12000
 
     # El usuario prepara la factura del mes siguiente.
     # El gasto ya facturado no debe volver a aparecer.
@@ -5429,11 +5531,20 @@ def test_emitir_factura_rechaza_gasto_facturable_duplicado(
     assert pendientes[0].apunte is gasto
 
 
-
+@pytest.mark.parametrize(
+    "importe_negativo, importe_linea, base_factura",
+    [
+        (False, 6000, 106000),
+        (True, -6000, 94000),
+    ],
+)
 def test_emitir_factura_persiste_gasto_distribuido_de_inmueble_t(
     session,
+    importe_negativo,
+    importe_linea,
+    base_factura,
 ) -> None:
-    """Factura sólo la parte del gasto T atribuida a un contrato."""
+    """Factura la parte de un gasto T atribuida a un contrato."""
 
     inmueble, local_a, local_b = (
         _inmueble_subdividido_para_facturacion()
@@ -5500,6 +5611,7 @@ def test_emitir_factura_persiste_gasto_distribuido_de_inmueble_t(
         concepto="Comunidad septiembre",
         base=10000,
         tratamiento="FACTURAR",
+        importe_negativo=importe_negativo,
     )
 
     session.add_all([
@@ -5521,7 +5633,7 @@ def test_emitir_factura_persiste_gasto_distribuido_de_inmueble_t(
     preparada = preparacion.locales[0]
 
     assert len(preparada.lineas) == 2
-    assert preparada.lineas[1].importe == 6000
+    assert preparada.lineas[1].importe == importe_linea
 
     referencia = preparada.lineas[1].referencia_facturable
 
@@ -5537,17 +5649,17 @@ def test_emitir_factura_persiste_gasto_distribuido_de_inmueble_t(
             ),
             LineaFacturaEditada(
                 concepto="Comunidad local A",
-                importe=6000,
+                importe=importe_linea,
                 referencia_facturable=referencia,
             ),
         ],
         notas=[],
         iva_porcentaje=0,
         retencion_porcentaje=0,
-        base=106000,
+        base=base_factura,
         iva_importe=0,
         retencion_importe=0,
-        total=106000,
+        total=base_factura,
     )
 
     factura, apunte, movimiento = emitir_factura(
@@ -5580,6 +5692,11 @@ def test_emitir_factura_persiste_gasto_distribuido_de_inmueble_t(
     assert imputacion.factura_linea is factura.lineas[1]
     assert factura.lineas[1].concepto == "Comunidad local A"
 
+    # El signo se conserva en la línea de factura.
+    assert factura.lineas[1].importe == importe_linea
+    assert factura.base == base_factura
+    assert factura.total == base_factura
+
     # El local A ya no tiene pendiente ese gasto.
     pendientes_a = buscar_gastos_facturables_pendientes(
         session,
@@ -5602,6 +5719,7 @@ def test_emitir_factura_persiste_gasto_distribuido_de_inmueble_t(
     assert gasto.base == 10000
     assert gasto.total == 10000
 
+    assert gasto.importe_negativo is importe_negativo
 
 
 def test_emitir_factura_sin_gasto_retirado_lo_mantiene_pendiente(

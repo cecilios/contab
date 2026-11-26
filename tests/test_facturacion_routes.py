@@ -5152,9 +5152,14 @@ GAS_COMUNIDAD = GASTO | Comunidad
         assert session.scalar(select(Factura)) is None
 
 
-
-def test_eliminar_factura_libera_gasto_facturable() -> None:
-    """Eliminar una factura devuelve sus gastos FACTURAR a pendientes."""
+@pytest.mark.parametrize(
+    "importe_negativo",
+    [False, True],
+)
+def test_eliminar_factura_libera_gasto_facturable(
+    importe_negativo,
+) -> None:
+    """Eliminar una factura devuelve sus gastos a pendientes."""
 
     app = _crear_app_test()
 
@@ -5189,12 +5194,17 @@ def test_eliminar_factura_libera_gasto_facturable() -> None:
             iva_importe=0,
             retencion_importe=0,
             total=12000,
+            importe_negativo=importe_negativo,
         )
 
         # La segunda línea de la factura corresponde a ese gasto.
         linea_gasto = factura.lineas[1]
         linea_gasto.concepto = "Comunidad septiembre"
-        linea_gasto.importe = 12000
+        linea_gasto.importe = (
+            -12000
+            if importe_negativo
+            else 12000
+        )
 
         imputacion = ImputacionContrato(
             apunte=gasto,
@@ -5286,6 +5296,10 @@ def test_eliminar_factura_libera_gasto_facturable() -> None:
         assert gasto_conservado.tratamiento == "FACTURAR"
         assert gasto_conservado.base == 12000
         assert gasto_conservado.total == 12000
+        assert (
+            gasto_conservado.importe_negativo
+            is importe_negativo
+        )
 
         # El usuario vuelve a preparar una factura para el contrato.
         # El gasto eliminado de la factura debe estar pendiente otra vez.
@@ -5810,5 +5824,222 @@ LOCAL-INEXISTENTE | GAS_COMUNIDAD | Comunidad | 64,20
 
         assert apuntes == []
         assert previstos == []
+
+
+def test_factura_negativa_permite_previsualizar_pero_no_contabilizar(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Permite preparar una factura negativa sin emitirla."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    plantilla = tmp_path / "factura.html"
+    plantilla.write_text(
+        "Base: {{ factura.base }}. "
+        "Total: {{ factura.total }}.",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "contab.facturacion.routes.get_invoice_template_path",
+        lambda: plantilla,
+    )
+
+    app = _crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2030, 12, 31),
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=100000,
+            iva_porcentaje=0,
+            retencion_porcentaje=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        contrato.titulares.append(
+            ContratoInquilino(
+                inquilino=Inquilino(
+                    nombre="Ana Pérez",
+                    nif="11111111A",
+                ),
+                orden=1,
+            )
+        )
+
+        contrato.rentas.append(
+            RentaContrato(
+                fecha_desde=contrato.fecha_inicio,
+                importe=100000,
+            )
+        )
+
+        # El usuario ha contabilizado una devolución
+        # superior al importe del alquiler mensual.
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            tratamiento="FACTURAR",
+            concepto="Devolución de comunidad",
+            base=120000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=120000,
+            importe_negativo=True,
+        )
+
+        session.add_all([
+            contrato,
+            apunte,
+        ])
+        session.commit()
+
+        contrato_id = contrato.id
+        apunte_id = apunte.id
+
+    client = app.test_client()
+
+    client.post(
+        "/",
+        data={"database": "test"},
+    )
+
+    url_modificar = (
+        f"/facturacion/facturas/{contrato_id}/modificar"
+        "?periodo=10/2026"
+        "&fecha_emision=01/10/2026"
+    )
+
+    url_contabilizar = (
+        f"/facturacion/facturas/{contrato_id}/contabilizar"
+    )
+
+    datos = {
+        "linea_concepto": [
+            "Alquiler. Octubre de 2026",
+            "Devolución de comunidad",
+        ],
+        "linea_importe": [
+            "1000,00",
+            "-1200,00",
+        ],
+        "linea_referencia_facturable": [
+            "",
+            f"apunte:{apunte_id}",
+        ],
+        "iva_porcentaje": "0",
+        "retencion_porcentaje": "0",
+        "nota_texto": [],
+    }
+
+    # El usuario abre el formulario de modificación.
+    response = client.get(url_modificar)
+
+    assert response.status_code == 200
+
+    assert (
+        "Devolución de comunidad"
+        in response.get_data(as_text=True)
+    )
+
+    # El usuario previsualiza la factura negativa.
+    response = client.post(
+        url_modificar,
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    assert (
+        "Base: -20000. Total: -20000."
+        in response.get_data(as_text=True)
+    )
+
+    # El usuario intenta contabilizar la factura negativa.
+    response = client.post(
+        url_contabilizar,
+        data={
+            **datos,
+            "periodo": "10/2026",
+            "fecha_emision": "01/10/2026",
+            "base_previsualizada": "-20000",
+            "iva_previsualizado": "0",
+            "retencion_previsualizada": "0",
+            "total_previsualizado": "-20000",
+        },
+    )
+
+    assert response.status_code == 400
+
+    assert (
+        "No puede contabilizarse una factura "
+        "con base o total negativos."
+        in response.get_data(as_text=True)
+    )
+
+    # El intento de contabilización no ha generado
+    # ninguna factura ni sus elementos asociados.
+    with session_factory() as session:
+        assert session.scalar(select(Factura)) is None
+        assert session.scalar(select(FacturaLinea)) is None
+        assert session.scalar(select(ImputacionContrato)) is None
+        assert session.scalar(select(MovimientoPrevisto)) is None
+
+        apuntes = session.scalars(
+            select(ApunteContable)
+        ).all()
+
+        assert len(apuntes) == 1
+        assert apuntes[0].id == apunte_id
+        assert apuntes[0].importe_negativo is True
+
+        # La devolución continúa pendiente de facturar.
+        contrato = session.get(Contrato, contrato_id)
+
+        pendientes = buscar_gastos_facturables_pendientes(
+            session,
+            contrato=contrato,
+        )
+
+        assert len(pendientes) == 1
+        assert pendientes[0].apunte.id == apunte_id
 
 

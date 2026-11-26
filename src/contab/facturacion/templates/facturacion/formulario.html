@@ -129,6 +129,13 @@
                 </div>
             </div>
 
+            {% if factura.base < 0 or factura.total < 0 %}
+                <div class="factura-aviso-negativo">
+                    La propuesta inicial tiene base o total negativos.
+                    Modifique las líneas para poder contabilizarla.
+                </div>
+            {% endif %}
+
             <h2>Notas</h2>
 
             <div class="factura-notas">

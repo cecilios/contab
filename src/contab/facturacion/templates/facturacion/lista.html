@@ -217,6 +217,12 @@
                                         Resolver revisión
                                     </a>
                                 {% else %}
+                                    {% if local.base < 0 or local.total < 0 %}
+                                        <div class="factura-aviso-negativo">
+                                            Importe negativo.
+                                            No contabilizable.
+                                        </div>
+                                    {% endif %}
                                     <form
                                         method="post"
                                         action="{{ url_for(

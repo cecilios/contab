@@ -568,6 +568,12 @@ La atribución utiliza las reglas contables existentes:
 
 La preparación mensual incorpora cada gasto pendiente como una línea adicional de `FacturaPreparada`, además de la renta y de las posibles diferencias por revisión.
 
+Los gastos positivos aumentan la base de la factura y los gastos
+negativos la minoran.
+
+Todos los gastos pendientes se incorporan a la propuesta inicial,
+independientemente del importe resultante.
+
 Cada línea automática conserva una referencia técnica a su origen:
 
 ```text
@@ -584,6 +590,15 @@ Antes de contabilizar, el usuario puede cambiar el concepto de una línea `FACTU
 No puede modificar su importe: éste procede de la imputación calculada a partir de los datos contables originales.
 
 Un gasto retirado permanece pendiente y podrá incorporarse a otra factura.
+
+Las propuestas de factura con base o total negativos pueden
+modificarse y previsualizarse, pero no contabilizarse.
+
+El listado de facturación y el formulario de modificación
+informan de esta limitación.
+
+El usuario debe modificar las líneas para obtener una factura
+contabilizable. Se admiten facturas de importe cero.
 
 No se permite utilizar dos veces la misma referencia facturable en una factura ni sustituirla por una referencia que no corresponda a los gastos preparados.
 

@@ -156,6 +156,15 @@ Los gastos negativos admiten los mismos tratamientos que los positivos.
 Los ingresos, positivos o negativos, solo admiten el tratamiento
 Contabilizar.
 
+Los gastos negativos con tratamiento Facturar se incorporan
+automáticamente a las facturas como líneas de importe negativo,
+minorando su base imponible.
+
+Si la base o el total de la factura resultan negativos, se permite
+modificar y previsualizar la propuesta, pero no contabilizarla.
+El usuario puede retirar alguna de las devoluciones, que permanecerá
+pendiente para una factura posterior.
+
 ## Integración con la conciliación
 ----------------------------------
 
@@ -314,11 +323,3 @@ Se mantiene esta distinción terminológica:
 - **distribuir**: repartir espacialmente un gasto común entre los locales;
 - **repercutir**: exigir al inquilino el reembolso de un gasto;
 - **facturar**: incorporar a una factura un gasto que sigue siendo contablemente del propietario.
-
-## Trabajo pendiente relacionado
----------------------------------
-
-- Incorporación de gastos `FACTURAR` a la preparación de facturas cuando un caso real lo requiera.
-- Avisos de duplicados probables, huecos y solapamientos de períodos.
-- Plantillas de conceptos habituales configurables en `contab.ini`.
-- Ajustes finales de presentación del formulario y del listado.

@@ -436,8 +436,14 @@ def calcular_importes_factura(
     importes: list[int],
     iva_porcentaje: int,
     retencion_porcentaje: int,
+    *,
+    permitir_negativos: bool = False,
 ) -> CalculoFactura:
-    """Calcula base, IVA, retención y total de una factura."""
+    """Calcula base, IVA, retención y total de una factura.
+
+    Los resultados negativos solo se permiten expresamente
+    durante la preparación provisional de facturas.
+    """
 
     if iva_porcentaje < 0:
         raise CalculoFacturaError(
@@ -451,7 +457,7 @@ def calcular_importes_factura(
 
     base = sum(importes)
 
-    if base < 0:
+    if base < 0 and not permitir_negativos:
         raise CalculoFacturaError(
             "Las líneas de factura no pueden producir "
             "una base negativa."
@@ -469,7 +475,7 @@ def calcular_importes_factura(
 
     total = base + iva_importe - retencion_importe
 
-    if total < 0:
+    if total < 0 and not permitir_negativos:
         raise CalculoFacturaError(
             "El cálculo produce un total de factura negativo."
         )
@@ -879,10 +885,16 @@ def preparar_periodo_facturacion(
                 )
 
                 for gasto in gastos_facturables:
+                    importe = (
+                        -gasto.imputacion.importe
+                        if gasto.apunte.importe_negativo
+                        else gasto.imputacion.importe
+                    )
+
                     lineas.append(
                         LineaFacturaPreparada(
                             concepto=gasto.apunte.concepto,
-                            importe=gasto.imputacion.importe,
+                            importe=importe,
                             imputacion_facturable=gasto.imputacion,
                             referencia_facturable=(
                                 _referencia_imputacion_facturable(
@@ -919,6 +931,7 @@ def preparar_periodo_facturacion(
                     ],
                     iva_porcentaje=contrato.iva_porcentaje,
                     retencion_porcentaje=contrato.retencion_porcentaje,
+                    permitir_negativos=True,
                 )
 
                 lineas = tuple(lineas)
