@@ -1549,3 +1549,95 @@ fieldset {
     cursor: pointer;
     font: inherit;
 }
+
+
+/* Formulario de apuntes contables */
+
+.formulario-apunte {
+    max-width: 1000px;
+}
+
+/* Restricciones de edición */
+
+.formulario-apunte__restricciones {
+    margin-bottom: 1.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #ccc;
+    background-color: #eee;
+}
+
+.formulario-apunte__restricciones-titulo {
+    margin: 0 0 0.5rem;
+    font-weight: bold;
+}
+
+.formulario-apunte__restricciones-mensaje {
+    margin: 0.25rem 0;
+}
+
+/* Campos protegidos */
+
+.formulario-apunte input[readonly],
+.formulario-apunte select:disabled {
+    background-color: #e8e8e8;
+    color: #444;
+    border: 1px solid #aaa;
+    cursor: not-allowed;
+    opacity: 1;
+}
+
+.formulario-apunte__tratamiento label:has(input:disabled) {
+    color: #777;
+    cursor: not-allowed;
+}
+
+/* Anchuras de campos */
+
+.formulario-apunte__inmueble {
+    width: 45ch;
+}
+
+.formulario-apunte__clasificacion {
+    width: 40ch;
+}
+
+.formulario-apunte__concepto,
+.formulario-apunte__documento {
+    width: 65ch;
+}
+
+.formulario-apunte__computo-periodo {
+    width: 28ch;
+    min-width: 0;
+}
+
+.formulario-apunte__tercero {
+    width: 45ch;
+}
+
+.formulario-apunte__nif {
+    width: 14ch;
+    min-width: 0;
+}
+
+.formulario-apunte__referencia {
+    width: 25ch;
+    min-width: 0;
+}
+
+.formulario-apunte .campo-importe {
+    text-align: right;
+}
+
+.formulario-apunte__total {
+    font-weight: bold;
+}
+
+/* Acciones */
+
+.formulario-apunte__acciones {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}

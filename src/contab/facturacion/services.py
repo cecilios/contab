@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 
 from contab.calculos import redondear_division
 from contab.config import CategoriaContable
+from contab.conciliacion.services import (
+    buscar_movimiento_alquiler,
+)
 from contab.contabilidad.services import (
     preparar_imputaciones_contrato,
     preparar_registro_contable,
@@ -255,19 +258,10 @@ def _movimiento_ingreso_periodo(
 ) -> MovimientoPrevisto | None:
     """Busca el movimiento de un alquiler ya contabilizado en el período."""
 
-    ultimo_dia = _ultimo_dia_mes(periodo)
-
-    return next(
-        (
-            movimiento
-            for movimiento in contrato.movimientos_previstos
-            if movimiento.apunte is not None
-            and movimiento.apunte.naturaleza == "INGRESO"
-            and movimiento.apunte.categoria == "ING_ALQUILERES"
-            and movimiento.apunte.periodo_desde == periodo
-            and movimiento.apunte.periodo_hasta == ultimo_dia
-        ),
-        None,
+    return buscar_movimiento_alquiler(
+        contrato,
+        periodo,
+        _ultimo_dia_mes(periodo),
     )
 
 

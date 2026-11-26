@@ -11,8 +11,11 @@ from contab.calculos import (
     redondear_division,
 )
 from contab.conciliacion.services import (
+    ContratoNoIdentificableError,
+    buscar_movimiento_alquiler,
     crear_movimiento_desde_apunte,
     naturaleza_prevista_apunte,
+    resolver_contrato_alquiler,
 )
 from contab.config import (
     ApunteAutomatico,
@@ -70,6 +73,186 @@ class RegistroContablePreparado:
     importe_propietario: int = 0
 
 
+CAMPOS_PROTEGIDOS_FACTURA = (
+    "inmueble",
+    "fecha",
+    "naturaleza",
+    "categoria",
+    "subcategoria",
+    "periodo_desde",
+    "periodo_hasta",
+    "dia_hasta_incluido",
+    "base",
+    "iva_importe",
+    "retencion_importe",
+    "importe_negativo",
+    "tratamiento",
+    "tercero_nombre",
+    "tercero_nif",
+    "referencia_documento",
+)
+
+CAMPOS_PROTEGIDOS_ALQUILER = (
+    "inmueble",
+    "naturaleza",
+    "categoria",
+    "periodo_desde",
+    "periodo_hasta",
+    "dia_hasta_incluido",
+    "importe_negativo",
+    "tratamiento",
+)
+
+CAMPOS_PROTEGIDOS_CONCILIACION = (
+    "inmueble",
+    "naturaleza",
+    "total",
+    "importe_negativo",
+)
+
+CAMPOS_PROTEGIDOS_IMPUTACIONES = (
+    "inmueble",
+    "naturaleza",
+    "fecha",
+    "base",
+    "iva_importe",
+    "retencion_importe",
+    "importe_negativo",
+    "periodo_desde",
+    "periodo_hasta",
+    "dia_hasta_incluido",
+    "tratamiento",
+)
+
+AVISO_PROTECCION_FACTURA = (
+    "Los datos procedentes de la factura vinculada "
+    "no pueden modificarse desde Contabilidad."
+)
+
+AVISO_PROTECCION_ALQUILER = (
+    "La identidad del alquiler está protegida. "
+    "La fecha debe permanecer dentro de la vigencia del contrato."
+)
+
+AVISO_PROTECCION_CONCILIACION = (
+    "No pueden modificarse el inmueble, la naturaleza, "
+    "el importe total ni su signo."
+)
+
+AVISO_PROTECCION_IMPUTACIONES = (
+    "No pueden modificarse los datos que afectan "
+    "al reparto ya realizado."
+)
+
+
+
+def _tiene_factura_vinculada(
+    session: Session,
+    apunte: ApunteContable,
+) -> bool:
+    """Indica si existe una factura vinculada al apunte."""
+
+    if apunte.id is None:
+        return False
+
+    return session.scalar(
+        select(Factura.id).where(
+            Factura.apunte_contable_id == apunte.id
+        )
+    ) is not None
+
+
+def _es_alquiler_vinculado(
+    apunte: ApunteContable,
+) -> bool:
+    """Indica si el apunte es un alquiler vinculado a un contrato."""
+
+    return (
+        apunte.naturaleza == "INGRESO"
+        and apunte.categoria == "ING_ALQUILERES"
+        and any(
+            movimiento.contrato is not None
+            for movimiento in apunte.movimientos_previstos
+        )
+    )
+
+
+def _tiene_movimientos_conciliados(
+    apunte: ApunteContable,
+) -> bool:
+    """Indica si existe una conciliación total o parcial."""
+
+    return any(
+        movimiento.estado in {"CONCILIADO", "PARCIAL"}
+        for movimiento in apunte.movimientos_previstos
+    )
+
+
+def restricciones_edicion_apunte(
+    session: Session,
+    apunte: ApunteContable,
+) -> tuple[set[str], list[str]]:
+    """Obtiene los campos protegidos y los motivos de protección."""
+
+    campos = set()
+    avisos = []
+
+    if _tiene_factura_vinculada(session, apunte):
+        campos.update(CAMPOS_PROTEGIDOS_FACTURA)
+        avisos.append(AVISO_PROTECCION_FACTURA)
+
+    if _es_alquiler_vinculado(apunte):
+        campos.update(CAMPOS_PROTEGIDOS_ALQUILER)
+        avisos.append(AVISO_PROTECCION_ALQUILER)
+
+    if _tiene_movimientos_conciliados(apunte):
+        campos.update(CAMPOS_PROTEGIDOS_CONCILIACION)
+        avisos.append(AVISO_PROTECCION_CONCILIACION)
+
+    if _tiene_imputaciones_persistidas(apunte):
+        campos.update(CAMPOS_PROTEGIDOS_IMPUTACIONES)
+        avisos.append(AVISO_PROTECCION_IMPUTACIONES)
+
+    return campos, avisos
+
+
+def _cambian_campos_protegidos(
+    *,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+    datos: dict,
+    campos,
+) -> bool:
+    """Comprueba si se modifica alguno de los atributos protegidos."""
+
+    return any(
+        (
+            inmueble is not apunte.inmueble
+            if campo == "inmueble"
+            else datos[campo] != getattr(apunte, campo)
+        )
+        for campo in campos
+    )
+
+
+def _validar_inmueble_apunte(
+    inmueble: Inmueble,
+    apunte_original: ApunteContable | None = None,
+) -> None:
+    """Impide nuevas asignaciones de inmuebles inactivos."""
+
+    if (
+        inmueble.activo is False
+        and (
+            apunte_original is None
+            or inmueble is not apunte_original.inmueble
+        )
+    ):
+        raise ContabilidadError(
+            "No puede asignarse un inmueble inactivo "
+            "a un apunte contable."
+        )
+
 
 def _datos_apunte_contable(
     *,
@@ -93,6 +276,7 @@ def _datos_apunte_contable(
     dia_hasta_incluido: bool | None = None,
     tratamiento: str = "CONTABILIZAR",
     nombre_documento: str = "",
+    apunte_original: ApunteContable | None = None,
 ) -> dict[str, object]:
     """Valida y normaliza los datos de un apunte."""
 
@@ -103,12 +287,20 @@ def _datos_apunte_contable(
     tratamiento = tratamiento.strip().upper()
     nombre_documento = nombre_documento.strip()
 
+    conserva_clasificacion = (
+        apunte_original is not None
+        and naturaleza == apunte_original.naturaleza
+        and categoria == apunte_original.categoria
+        and subcategoria == (apunte_original.subcategoria or "")
+    )
+
     try:
         validar_clasificacion_contable(
             categorias,
             naturaleza,
             categoria,
             subcategoria,
+            permitir_inactivas=conserva_clasificacion,
         )
     except ValueError as exc:
         raise ContabilidadError(str(exc)) from exc
@@ -181,6 +373,15 @@ def _datos_apunte_contable(
     }:
         raise ContabilidadError(
             "El tratamiento del apunte no es válido."
+        )
+
+    if (
+        naturaleza == "INGRESO"
+        and tratamiento != "CONTABILIZAR"
+    ):
+        raise ContabilidadError(
+            "Los ingresos solo admiten el tratamiento "
+            "Contabilizar."
         )
 
     return {
@@ -1062,6 +1263,8 @@ def crear_apunte_contable(
 ) -> ApunteContable:
     """Prepara un apunte contable validado sin persistirlo."""
 
+    _validar_inmueble_apunte(inmueble)
+
     datos = _datos_apunte_contable(
         categorias=categorias,
         fecha=fecha,
@@ -1359,30 +1562,245 @@ def validar_modificacion_con_movimientos(
 ) -> None:
     """Valida cambios incompatibles con movimientos ya conciliados."""
 
-    tiene_movimientos_protegidos = any(
-        movimiento.estado in {
-            "CONCILIADO",
-            "PARCIAL",
-        }
-        for movimiento in apunte.movimientos_previstos
-    )
+    if not _tiene_movimientos_conciliados(apunte):
+        return
 
-    cambia_datos_economicos = (
-        inmueble is not apunte.inmueble
-        or naturaleza != apunte.naturaleza
-        or total != apunte.total
-        or importe_negativo != apunte.importe_negativo
-    )
+    datos = {
+        "naturaleza": naturaleza,
+        "total": total,
+        "importe_negativo": importe_negativo,
+    }
 
-    if (
-        tiene_movimientos_protegidos
-        and cambia_datos_economicos
+    if _cambian_campos_protegidos(
+        apunte=apunte,
+        inmueble=inmueble,
+        datos=datos,
+        campos=CAMPOS_PROTEGIDOS_CONCILIACION,
     ):
         raise ContabilidadError(
             "No puede cambiarse el inmueble, la naturaleza "
             "o el importe (incluido su signo) de un apunte "
             "con un movimiento conciliado total o parcialmente."
         )
+
+
+def validar_modificacion_con_factura(
+    *,
+    session: Session,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+    datos: dict,
+) -> None:
+    """Protege los datos contables de una factura vinculada."""
+
+    if not _tiene_factura_vinculada(session, apunte):
+        return
+
+    if _cambian_campos_protegidos(
+        apunte=apunte,
+        inmueble=inmueble,
+        datos=datos,
+        campos=CAMPOS_PROTEGIDOS_FACTURA,
+    ):
+        raise ContabilidadError(
+            "No pueden modificarse los datos protegidos "
+            "de un apunte con una factura vinculada. "
+            "Si necesita corregir la factura, debe hacerlo "
+            "desde Facturación."
+        )
+
+
+def validar_modificacion_alquiler_vinculado(
+    *,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+    datos: dict,
+) -> None:
+    """Protege la identidad de un alquiler vinculado a un contrato."""
+
+    if not _es_alquiler_vinculado(apunte):
+        return
+
+    if _cambian_campos_protegidos(
+        apunte=apunte,
+        inmueble=inmueble,
+        datos=datos,
+        campos=CAMPOS_PROTEGIDOS_ALQUILER,
+    ):
+        raise ContabilidadError(
+            "No puede modificarse la identidad de un "
+            "alquiler vinculado a un contrato. "
+            "Si necesita corregir estos datos, debe "
+            "eliminar el apunte y contabilizarlo de nuevo, "
+            "siempre que su eliminación esté permitida."
+        )
+
+    if datos["fecha"] != apunte.fecha:
+        for movimiento in apunte.movimientos_previstos:
+            if movimiento.contrato is None:
+                continue
+
+            try:
+                resolver_contrato_alquiler(
+                    apunte,
+                    contrato=movimiento.contrato,
+                    fecha=datos["fecha"],
+                )
+            except ContratoNoIdentificableError as exc:
+                raise ContabilidadError(str(exc)) from exc
+
+
+def puede_reclasificarse_como_alquiler(
+    apunte: ApunteContable,
+) -> bool:
+    """Indica si la conciliación permite reclasificar como alquiler."""
+
+    return (
+        apunte.naturaleza == "INGRESO"
+        and apunte.categoria == "ING_ALQUILERES"
+    ) or not _tiene_movimientos_conciliados(apunte)
+
+
+def validar_reclasificacion_como_alquiler(
+    *,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+    datos: dict,
+) -> Contrato | None:
+    """Valida una reclasificación e identifica su contrato."""
+
+    era_alquiler = (
+        apunte.naturaleza == "INGRESO"
+        and apunte.categoria == "ING_ALQUILERES"
+    )
+
+    sera_alquiler = (
+        datos["naturaleza"] == "INGRESO"
+        and datos["categoria"] == "ING_ALQUILERES"
+    )
+
+    if era_alquiler or not sera_alquiler:
+        return None
+
+    if not apunte.movimientos_previstos:
+        return None
+
+    if not puede_reclasificarse_como_alquiler(apunte):
+        raise ContabilidadError(
+            "No puede reclasificarse como alquiler un "
+            "apunte con movimientos conciliados total "
+            "o parcialmente."
+        )
+
+    try:
+        contrato = resolver_contrato_alquiler(
+            apunte,
+            fecha=datos["fecha"],
+            inmueble=inmueble,
+        )
+    except ContratoNoIdentificableError as exc:
+        raise ContabilidadError(str(exc)) from exc
+
+    if (
+        datos["periodo_desde"] is not None
+        and datos["periodo_hasta"] is not None
+    ):
+        movimiento_existente = buscar_movimiento_alquiler(
+            contrato,
+            datos["periodo_desde"],
+            datos["periodo_hasta"],
+        )
+
+        if movimiento_existente is not None:
+            raise ContabilidadError(
+                "El ingreso de este contrato y período "
+                "ya está contabilizado."
+            )
+
+    return contrato
+
+
+def validar_modificacion_apunte_contable(
+    *,
+    session: Session,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+    datos: dict,
+) -> Contrato | None:
+    """Comprueba las restricciones de modificación de un apunte."""
+
+    validar_modificacion_con_factura(
+        session=session,
+        apunte=apunte,
+        inmueble=inmueble,
+        datos=datos,
+    )
+
+    validar_modificacion_alquiler_vinculado(
+        apunte=apunte,
+        inmueble=inmueble,
+        datos=datos,
+    )
+
+    validar_modificacion_con_movimientos(
+        apunte=apunte,
+        inmueble=inmueble,
+        naturaleza=datos["naturaleza"],
+        total=datos["total"],
+        importe_negativo=datos["importe_negativo"],
+    )
+
+    validar_modificacion_con_imputaciones(
+        apunte=apunte,
+        inmueble=inmueble,
+        naturaleza=datos["naturaleza"],
+        fecha=datos["fecha"],
+        base=datos["base"],
+        iva_importe=datos["iva_importe"],
+        retencion_importe=datos["retencion_importe"],
+        importe_negativo=datos["importe_negativo"],
+        periodo_desde=datos["periodo_desde"],
+        periodo_hasta=datos["periodo_hasta"],
+        dia_hasta_incluido=datos["dia_hasta_incluido"],
+        tratamiento=datos["tratamiento"],
+    )
+
+    return validar_reclasificacion_como_alquiler(
+        apunte=apunte,
+        inmueble=inmueble,
+        datos=datos,
+    )
+
+
+def preparar_modificacion_apunte_contable(
+    session: Session,
+    *,
+    apunte: ApunteContable,
+    inmueble: Inmueble,
+    **valores,
+) -> tuple[dict, Contrato | None]:
+    """Valida una modificación sin alterar el apunte persistido."""
+
+    _validar_inmueble_apunte(
+        inmueble,
+        apunte_original=apunte,
+    )
+
+    datos = _datos_apunte_contable(
+        apunte_original=apunte,
+        **valores,
+    )
+
+    contrato_reclasificacion = (
+        validar_modificacion_apunte_contable(
+            session=session,
+            apunte=apunte,
+            inmueble=inmueble,
+            datos=datos,
+        )
+    )
+
+    return datos, contrato_reclasificacion
 
 
 def modificar_apunte_contable(
@@ -1412,49 +1830,32 @@ def modificar_apunte_contable(
 ) -> ApunteContable:
     """Modifica un apunte después de validar todos sus datos."""
 
-    datos = _datos_apunte_contable(
-        categorias=categorias,
-        fecha=fecha,
-        naturaleza=naturaleza,
-        categoria=categoria,
-        subcategoria=subcategoria,
-        concepto=concepto,
-        base=base,
-        iva_importe=iva_importe,
-        retencion_importe=retencion_importe,
-        importe_negativo=importe_negativo,
-        tercero_nombre=tercero_nombre,
-        tercero_nif=tercero_nif,
-        referencia_documento=referencia_documento,
-        ruta_documento=ruta_documento,
-        notas=notas,
-        periodo_desde=periodo_desde,
-        periodo_hasta=periodo_hasta,
-        dia_hasta_incluido=dia_hasta_incluido,
-        tratamiento=tratamiento,
-        nombre_documento=nombre_documento,
-    )
-
-    validar_modificacion_con_movimientos(
-        apunte=apunte,
-        inmueble=inmueble,
-        naturaleza=datos["naturaleza"],
-        total=datos["total"],
-        importe_negativo=datos["importe_negativo"],
-    )
-
-    validar_modificacion_con_imputaciones(
-        apunte=apunte,
-        inmueble=inmueble,
-        fecha=datos["fecha"],
-        base=datos["base"],
-        iva_importe=datos["iva_importe"],
-        retencion_importe=datos["retencion_importe"],
-        importe_negativo=datos["importe_negativo"],
-        periodo_desde=datos["periodo_desde"],
-        periodo_hasta=datos["periodo_hasta"],
-        dia_hasta_incluido=datos["dia_hasta_incluido"],
-        tratamiento=datos["tratamiento"],
+    datos, contrato_reclasificacion = (
+        preparar_modificacion_apunte_contable(
+            session,
+            apunte=apunte,
+            inmueble=inmueble,
+            categorias=categorias,
+            fecha=fecha,
+            naturaleza=naturaleza,
+            categoria=categoria,
+            subcategoria=subcategoria,
+            concepto=concepto,
+            base=base,
+            iva_importe=iva_importe,
+            retencion_importe=retencion_importe,
+            importe_negativo=importe_negativo,
+            tercero_nombre=tercero_nombre,
+            tercero_nif=tercero_nif,
+            referencia_documento=referencia_documento,
+            ruta_documento=ruta_documento,
+            notas=notas,
+            periodo_desde=periodo_desde,
+            periodo_hasta=periodo_hasta,
+            dia_hasta_incluido=dia_hasta_incluido,
+            tratamiento=tratamiento,
+            nombre_documento=nombre_documento,
+        )
     )
 
     recalcular_distribuciones = (
@@ -1489,6 +1890,9 @@ def modificar_apunte_contable(
         movimiento.importe_esperado = apunte.total
         movimiento.contraparte = apunte.tercero_nombre
 
+        if contrato_reclasificacion is not None:
+            movimiento.contrato = contrato_reclasificacion
+
     return apunte
 
 
@@ -1496,6 +1900,7 @@ def validar_modificacion_con_imputaciones(
     *,
     apunte: ApunteContable,
     inmueble: Inmueble,
+    naturaleza: str,
     fecha: date,
     base: int,
     iva_importe: int,
@@ -1511,20 +1916,25 @@ def validar_modificacion_con_imputaciones(
     if not _tiene_imputaciones_persistidas(apunte):
         return
 
-    cambia_reparto = (
-        inmueble is not apunte.inmueble
-        or fecha != apunte.fecha
-        or base != apunte.base
-        or iva_importe != apunte.iva_importe
-        or retencion_importe != apunte.retencion_importe
-        or importe_negativo != apunte.importe_negativo
-        or periodo_desde != apunte.periodo_desde
-        or periodo_hasta != apunte.periodo_hasta
-        or dia_hasta_incluido != apunte.dia_hasta_incluido
-        or tratamiento != apunte.tratamiento
-    )
+    datos = {
+        "naturaleza": naturaleza,
+        "fecha": fecha,
+        "base": base,
+        "iva_importe": iva_importe,
+        "retencion_importe": retencion_importe,
+        "importe_negativo": importe_negativo,
+        "periodo_desde": periodo_desde,
+        "periodo_hasta": periodo_hasta,
+        "dia_hasta_incluido": dia_hasta_incluido,
+        "tratamiento": tratamiento,
+    }
 
-    if cambia_reparto:
+    if _cambian_campos_protegidos(
+        apunte=apunte,
+        inmueble=inmueble,
+        datos=datos,
+        campos=CAMPOS_PROTEGIDOS_IMPUTACIONES,
+    ):
         raise ContabilidadError(
             "No pueden modificarse los datos que afectan al reparto "
             "de un apunte con imputaciones de contrato persistidas."

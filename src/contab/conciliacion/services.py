@@ -2602,14 +2602,41 @@ def diagnosticar_grupo_conciliacion(
     )
 
 
+def buscar_movimiento_alquiler(
+    contrato: Contrato,
+    periodo_desde: date,
+    periodo_hasta: date,
+) -> MovimientoPrevisto | None:
+    """Busca un movimiento de alquiler del contrato y período indicados."""
+
+    return next(
+        (
+            movimiento
+            for movimiento in contrato.movimientos_previstos
+            if movimiento.apunte is not None
+            and movimiento.apunte.naturaleza == "INGRESO"
+            and movimiento.apunte.categoria == "ING_ALQUILERES"
+            and movimiento.apunte.periodo_desde == periodo_desde
+            and movimiento.apunte.periodo_hasta == periodo_hasta
+        ),
+        None,
+    )
+
+
 def resolver_contrato_alquiler(
     apunte: ApunteContable,
     contrato: Contrato | None = None,
+    *,
+    fecha: date | None = None,
+    inmueble: Inmueble | None = None,
 ) -> Contrato:
     """Identifica y valida el contrato de un alquiler."""
 
-    fecha = apunte.fecha
-    inmueble = apunte.inmueble
+    if fecha is None:
+        fecha = apunte.fecha
+
+    if inmueble is None:
+        inmueble = apunte.inmueble
 
     def vigente(candidato: Contrato) -> bool:
         return (
@@ -2652,4 +2679,5 @@ def resolver_contrato_alquiler(
         )
 
     return candidatos[0]
+
 

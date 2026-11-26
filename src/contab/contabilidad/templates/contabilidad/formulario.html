@@ -1,5 +1,22 @@
 {% extends "base.html" %}
 
+{% macro atributo_bloqueo(campo, atributo) -%}
+    {% if campo in campos_bloqueados %}
+        {{ atributo }}
+    {% endif %}
+{%- endmacro %}
+
+{% macro conservar_valor(campo) -%}
+    {% if campo in campos_bloqueados %}
+        <input
+            type="hidden"
+            name="{{ campo }}"
+            value="{{ datos.get(campo, '') }}"
+        >
+    {% endif %}
+{%- endmacro %}
+
+
 {% block title %}{{ titulo }} - Contab{% endblock %}
 
 {% block content %}
@@ -12,7 +29,24 @@
         <p class="warning">{{ aviso }}</p>
     {% endif %}
 
-    <form method="post">
+    {% if avisos_restricciones %}
+        <div
+            id="restricciones_edicion"
+            class="formulario-apunte__restricciones"
+        >
+            <p class="formulario-apunte__restricciones-titulo">
+                Restricciones de edición
+            </p>
+
+            {% for mensaje in avisos_restricciones %}
+                <p class="formulario-apunte__restricciones-mensaje">
+                    {{ mensaje }}
+                </p>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post" class="formulario-apunte">
         <input
             type="hidden"
             id="concepto_automatico"
@@ -31,7 +65,13 @@
 
         <p>
             <label for="inmueble_id">Inmueble</label>
-            <select id="inmueble_id" name="inmueble_id" required>
+            <select
+                id="inmueble_id"
+                class="formulario-apunte__inmueble"
+                name="inmueble_id"
+                required
+                {{ atributo_bloqueo("inmueble_id", "disabled") }}
+            >
                 <option value="">Seleccione un inmueble</option>
 
                 {% for inmueble in inmuebles %}
@@ -46,15 +86,18 @@
                     </option>
                 {% endfor %}
             </select>
+            {{ conservar_valor("inmueble_id") }}
         </p>
 
         <p>
             <label for="fecha">Fecha</label>
             <input
                 id="fecha"
+                class="campo-fecha"
                 name="fecha"
                 value="{{ datos.get('fecha', '') }}"
                 required
+                {{ atributo_bloqueo("fecha", "readonly") }}
             >
         </p>
 
@@ -63,7 +106,9 @@
             <select
                 id="clasificacion"
                 name="clasificacion"
+                class="formulario-apunte__clasificacion"
                 required
+                {{ atributo_bloqueo("clasificacion", "disabled") }}
             >
                 <option value="">Seleccione una clasificación</option>
 
@@ -76,6 +121,7 @@
                             <option
                                 value="{{ valor }}"
                                 data-concepto="{{ subcategoria.nombre }}"
+                                data-naturaleza="{{ categoria.naturaleza }}"
                                 {% if datos.get("clasificacion") == valor %}
                                     selected
                                 {% endif %}
@@ -88,6 +134,7 @@
                         <option
                             value="{{ categoria.codigo }}"
                             data-concepto="{{ categoria.nombre }}"
+                            data-naturaleza="{{ categoria.naturaleza }}"
                             {% if datos.get("clasificacion") == categoria.codigo %}
                                 selected
                             {% endif %}
@@ -97,6 +144,7 @@
                     {% endif %}
                 {% endfor %}
             </select>
+            {{ conservar_valor("clasificacion") }}
         </p>
 
         <p>
@@ -104,6 +152,7 @@
             <input
                 id="concepto"
                 name="concepto"
+                class="formulario-apunte__concepto"
                 value="{{ datos.get('concepto', '') }}"
             >
         </p>
@@ -115,6 +164,7 @@
             <input
                 id="nombre_documento"
                 name="nombre_documento"
+                class="formulario-apunte__documento"
                 value="{{ datos.get('nombre_documento', '') }}"
             >
         </p>
@@ -127,8 +177,10 @@
                 <input
                     id="periodo_desde"
                     name="periodo_desde"
+                    class="campo-fecha"
                     value="{{ datos.get('periodo_desde', '') }}"
                     placeholder="mm/aaaa o dd/mm/aaaa"
+                    {{ atributo_bloqueo("periodo_desde", "readonly") }}
                 >
             </p>
 
@@ -137,8 +189,10 @@
                 <input
                     id="periodo_hasta"
                     name="periodo_hasta"
+                    class="campo-fecha"
                     value="{{ datos.get('periodo_hasta', '') }}"
                     placeholder="dd/mm/aaaa"
+                    {{ atributo_bloqueo("periodo_hasta", "readonly") }}
                 >
             </p>
 
@@ -155,6 +209,8 @@
                 <select
                     id="dia_hasta_incluido"
                     name="dia_hasta_incluido"
+                    class="formulario-apunte__computo-periodo"
+                    {{ atributo_bloqueo("dia_hasta_incluido", "disabled") }}
                 >
                     <option value="">
                         Seleccione el criterio
@@ -176,6 +232,7 @@
                         Excluir fecha final
                     </option>
                 </select>
+                {{ conservar_valor("dia_hasta_incluido") }}
             </p>
 
             <p>
@@ -193,7 +250,12 @@
             "CONTABILIZAR"
         ) %}
 
-        <fieldset class="radio-group">
+
+        <fieldset
+            id="grupo_tratamiento"
+            class="radio-group"
+            data-protegido="{{ '1' if 'tratamiento' in campos_bloqueados else '0' }}"
+        >
             <legend>Tratamiento</legend>
 
             <p>
@@ -205,6 +267,7 @@
                         {% if tratamiento == "CONTABILIZAR" %}
                             checked
                         {% endif %}
+                        {{ atributo_bloqueo("tratamiento", "disabled") }}
                     >
                     Contabilizar
                 </label>
@@ -218,6 +281,12 @@
                         value="REPERCUTIR"
                         {% if tratamiento == "REPERCUTIR" %}
                             checked
+                        {% endif %}
+                        {% if
+                            "tratamiento" in campos_bloqueados
+                            or naturaleza_seleccionada == "INGRESO"
+                        %}
+                            disabled
                         {% endif %}
                     >
                     Trasladar el gasto
@@ -233,10 +302,18 @@
                         {% if tratamiento == "FACTURAR" %}
                             checked
                         {% endif %}
+                        {% if
+                            "tratamiento" in campos_bloqueados
+                            or naturaleza_seleccionada == "INGRESO"
+                        %}
+                            disabled
+                        {% endif %}
                     >
                     Facturar
                 </label>
             </p>
+
+            {{ conservar_valor("tratamiento") }}
         </fieldset>
 
         <p>
@@ -244,8 +321,10 @@
             <input
                 id="base"
                 name="base"
+                class="campo-importe"
                 value="{{ datos.get('base', '') }}"
                 required
+                {{ atributo_bloqueo("base", "readonly") }}
             >
         </p>
 
@@ -254,8 +333,10 @@
             <input
                 id="iva_importe"
                 name="iva_importe"
+                class="campo-importe"
                 value="{{ datos.get('iva_importe', '0,00') }}"
                 required
+                {{ atributo_bloqueo("iva_importe", "readonly") }}
             >
         </p>
 
@@ -264,8 +345,10 @@
             <input
                 id="retencion_importe"
                 name="retencion_importe"
+                class="campo-importe"
                 value="{{ datos.get('retencion_importe', '0,00') }}"
                 required
+                {{ atributo_bloqueo("retencion_importe", "readonly") }}
             >
         </p>
 
@@ -275,6 +358,7 @@
             </label>
             <input
                 id="importe_a_pagar"
+                class="campo-importe formulario-apunte__total"
                 value="{{ datos.get('importe_a_pagar', '') }}"
                 readonly
             >
@@ -290,7 +374,9 @@
                 <input
                     id="tercero_nombre"
                     name="tercero_nombre"
+                    class="formulario-apunte__tercero"
                     value="{{ datos.get('tercero_nombre', '') }}"
+                    {{ atributo_bloqueo("tercero_nombre", "readonly") }}
                 >
             </p>
 
@@ -301,7 +387,9 @@
                 <input
                     id="tercero_nif"
                     name="tercero_nif"
+                    class="formulario-apunte__nif"
                     value="{{ datos.get('tercero_nif', '') }}"
+                    {{ atributo_bloqueo("tercero_nif", "readonly") }}
                 >
             </p>
 
@@ -312,10 +400,12 @@
                 <input
                     id="referencia_documento"
                     name="referencia_documento"
+                    class="formulario-apunte__referencia"
                     value="{{ datos.get(
                         'referencia_documento',
                         ''
                     ) }}"
+                    {{ atributo_bloqueo("referencia_documento", "readonly") }}
                 >
             </p>
         </fieldset>
@@ -346,6 +436,7 @@
                         <input
                             id="fecha_prevista_desde"
                             name="fecha_prevista_desde"
+                            class="campo-fecha"
                             value="{{ datos.get(
                                 'fecha_prevista_desde',
                                 ''
@@ -361,6 +452,7 @@
                         <input
                             id="fecha_prevista_hasta"
                             name="fecha_prevista_hasta"
+                            class="campo-fecha"
                             value="{{ datos.get(
                                 'fecha_prevista_hasta',
                                 ''
@@ -372,7 +464,7 @@
             </fieldset>
         {% endif %}
 
-        <p>
+        <p class="formulario-apunte__acciones">
             <button
                 type="submit"
                 name="accion"
@@ -445,10 +537,51 @@
                 }
             }
 
+            function actualizarTratamiento() {
+                const grupo = document.getElementById(
+                    "grupo_tratamiento"
+                );
+
+                if (grupo.dataset.protegido === "1") {
+                    return;
+                }
+
+                const opcion = clasificacion.selectedOptions[0];
+
+                const esIngreso = (
+                    opcion?.dataset.naturaleza === "INGRESO"
+                );
+
+                const tratamientos = grupo.querySelectorAll(
+                    'input[type="radio"][name="tratamiento"]'
+                );
+
+                for (const tratamiento of tratamientos) {
+                    const esContabilizar = (
+                        tratamiento.value === "CONTABILIZAR"
+                    );
+
+                    tratamiento.disabled = (
+                        esIngreso && !esContabilizar
+                    );
+
+                    if (esIngreso && esContabilizar) {
+                        tratamiento.checked = true;
+                    }
+                }
+            }
+
             clasificacion.addEventListener(
                 "change",
                 actualizarConcepto
             );
+
+            clasificacion.addEventListener(
+                "change",
+                actualizarTratamiento
+            );
+
+            actualizarTratamiento();
 
             concepto.addEventListener("input", () => {
                 if (

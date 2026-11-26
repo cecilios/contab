@@ -149,11 +149,12 @@ No existen indicadores independientes para el signo de la base y del total.
 Al consultar o editar un apunte negativo, los importes se presentan con
 el signo menos.
 
-El indicador se aplica al apunte completo, sin cambiar su naturaleza
-contable (`INGRESO` o `GASTO`) ni su categoría.
+El signo se aplica al apunte completo, sin cambiar su naturaleza
+contable ni su clasificación.
 
-Los apuntes negativos están admitidos actualmente para los tratamientos
-`CONTABILIZAR` y `REPERCUTIR`. Su utilización con `FACTURAR` queda pendiente.
+Los gastos negativos admiten los mismos tratamientos que los positivos.
+Los ingresos, positivos o negativos, solo admiten el tratamiento
+Contabilizar.
 
 ## Integración con la conciliación
 ----------------------------------
@@ -180,7 +181,8 @@ En los dos últimos casos podrán aparecer posteriormente operaciones bancarias 
 - en `REPERCUTIR`, el ingreso correspondiente al reembolso del inquilino;
 - en `FACTURAR`, el cobro de la factura en la que se incorpore el gasto.
 
-Esas operaciones posteriores tendrán sus propios movimientos previstos y no sustituyen al movimiento previsto del pago original.
+Esas operaciones posteriores tendrán sus propios movimientos previstos y no sustituyen al
+movimiento previsto del pago original.
 
 El tratamiento determina cómo se utilizará posteriormente el apunte,
 pero no elimina el movimiento bancario correspondiente al pago original.
@@ -192,9 +194,11 @@ Si se genera, el movimiento previsto reutiliza automáticamente:
 - el importe total del apunte;
 - el nombre del tercero como contraparte.
 
-Las fechas previstas son datos propios de la conciliación y se introducen separadamente. Son opcionales y nunca se deducen de la fecha contable del apunte.
+Las fechas previstas son datos propios de la conciliación y se introducen separadamente.
+Son opcionales y nunca se deducen de la fecha contable del apunte.
 
-El apunte y su movimiento previsto se crean dentro de la misma operación, evitando que un fallo deje sólo una de las dos partes.
+El apunte y su movimiento previsto se crean dentro de la misma operación, evitando que un
+fallo deje sólo una de las dos partes.
 
 Cuando posteriormente se modifica el apunte, sus movimientos previstos
 vinculados se mantienen sincronizados en inmueble, naturaleza bancaria
@@ -210,29 +214,33 @@ No se modifican durante esa sincronización:
 - el método de conciliación;
 - las notas utilizadas para documentar una conciliación manual.
 
-Los movimientos pendientes y cancelados no imponen restricciones propias sobre la modificación del apunte. No obstante, pueden existir otros efectos históricos, como `ImputacionContrato` persistidas, que protejan los datos utilizados para calcularlos.
+Los movimientos pendientes y cancelados no imponen restricciones propias sobre la
+modificación del apunte. No obstante, pueden existir otros efectos históricos, como `ImputacionContrato` persistidas, que protejan los datos utilizados para calcularlos.
 
-Si existe algún movimiento conciliado total o parcialmente, no pueden
-modificarse el inmueble, la naturaleza, el importe ni su signo.
+Un apunte no puede eliminarse mientras tenga un movimiento previsto conciliado total o parcialmente. Los movimientos pendientes o cancelados se eliminan junto con el apunte.
 
-Los datos descriptivos sí pueden corregirse después de conciliar. El movimiento previsto se actualiza conservando intacta la conciliación existente.
 
-Un apunte tampoco puede eliminarse mientras tenga un movimiento previsto conciliado total o parcialmente. Los movimientos pendientes o cancelados se eliminan junto con el apunte.
+## Edición de apuntes
 
-Cuando existen `ImputacionContrato` persistidas, Contab conserva la decisión histórica de reparto. No pueden modificarse:
+Desde el listado de apuntes contables pueden corregirse los datos de un apunte existente, siempre que se respeten sus operaciones relacionadas.
 
-- el inmueble;
-- la fecha;
-- la base;
-- el IVA;
-- la retención;
-- el período;
-- el indicador `dia_hasta_incluido`;
-- el tratamiento.
+Las restricciones dependen de la situación del apunte:
 
-Esta protección se aplica tanto a imputaciones asociadas directamente al apunte como a imputaciones asociadas a una `DistribucionApunte` de un inmueble `T`.
+- **Factura vinculada:** solo pueden corregirse los datos descriptivos y documentales. Los datos propios de la factura están protegidos.
+- **Alquiler vinculado a un contrato:** no pueden cambiarse el inmueble, la naturaleza, la categoría, el período, el signo ni el tratamiento. La fecha debe permanecer dentro de la vigencia del contrato.
+- **Conciliación total o parcial:** no pueden cambiarse el inmueble, la naturaleza, el importe total ni su signo.
+- **Imputaciones realizadas:** no pueden cambiarse el inmueble, la naturaleza, la fecha, los importes, el signo, el período, su criterio de cómputo ni el tratamiento.
 
-Para corregir esos datos debe deshacerse primero el proceso posterior que creó las imputaciones, cuando todavía sea reversible.
+Cuando coinciden varias situaciones, se aplican todas sus restricciones.
+
+Un ingreso ordinario puede reclasificarse como alquiler si sus movimientos no están conciliados y, cuando existen movimientos previstos, puede identificarse el contrato correspondiente sin duplicar un alquiler ya contabilizado.
+
+El formulario informa de las restricciones, bloquea los campos protegidos y limita las opciones disponibles.
+
+Los apuntes históricos pueden conservar su inmueble y clasificación originales aunque estén inactivos. No pueden asignarse otros elementos inactivos.
+
+Las modificaciones deben validarse antes de guardarse.
+
 
 ## Ayudas para reducir la entrada manual
 ----------------------------------------
@@ -268,6 +276,11 @@ Cada apunte tiene uno de estos tratamientos:
 - **Facturar (`FACTURAR`)**: el gasto pertenece al propietario y forma parte de su contabilidad. Además, la parte atribuible a un inquilino se incorporará posteriormente a una factura, cuyo ingreso se contabilizará normalmente.
 
 El tratamiento contable no modifica la conciliación del pago original al proveedor.
+
+Los ingresos solo admiten el tratamiento Contabilizar. Los gastos admiten cualquiera de los tres tratamientos,
+independientemente de su signo.
+
+El formulario limita las opciones de tratamiento según la clasificación seleccionada.
 
 La existencia de un contrato vigente en la fecha del apunte no es requisito para seleccionar `REPERCUTIR` o `FACTURAR`. La atribución efectiva a contratos se determina posteriormente utilizando el período del gasto y los contratos que correspondan a ese período.
 

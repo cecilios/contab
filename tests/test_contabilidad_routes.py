@@ -26,6 +26,9 @@ from contab.conciliacion.services import (
 from contab.models import (
     ApunteContable,
     Conciliacion,
+    Contrato,
+    Factura,
+    ImputacionContrato,
     Inmueble,
     MovimientoBancario,
     MovimientoPrevisto,
@@ -49,6 +52,182 @@ def _valor_input(response, nombre: str) -> str:
 
     return unescape(coincidencia.group(1))
 
+
+def _campo_bloqueado(response, nombre: str) -> bool:
+    """Comprueba si un campo visible no puede editarse."""
+
+    coincidencia = re.search(
+        rf'<(?:input|select)\b'
+        rf'[^>]*\bid="{re.escape(nombre)}"'
+        rf'[^>]*>',
+        response.text,
+        re.DOTALL,
+    )
+
+    assert coincidencia is not None
+
+    return re.search(
+        r"\s(?:readonly|disabled)(?=\s|=|>)",
+        coincidencia.group(0),
+    ) is not None
+
+
+def _opciones_selector(
+    response,
+    nombre: str,
+) -> set[str]:
+    """Obtiene los valores no vacíos de un desplegable."""
+
+    coincidencia = re.search(
+        rf'<select\b[^>]*\bid="{re.escape(nombre)}"[^>]*>'
+        r'(.*?)</select>',
+        response.text,
+        re.DOTALL,
+    )
+
+    assert coincidencia is not None, nombre
+
+    return {
+        unescape(valor)
+        for valor in re.findall(
+            r'<option\b[^>]*\bvalue="([^"]*)"',
+            coincidencia.group(1),
+        )
+        if valor
+    }
+
+
+def _opciones_clasificacion(response) -> set[str]:
+    """Obtiene los códigos disponibles de clasificación."""
+
+    return _opciones_selector(
+        response,
+        "clasificacion",
+    )
+
+
+def _valor_selector(
+    response,
+    nombre: str,
+) -> str:
+    """Obtiene el valor seleccionado de un desplegable."""
+
+    coincidencia = re.search(
+        rf'<select\b[^>]*\bid="{re.escape(nombre)}"[^>]*>'
+        r'(.*?)</select>',
+        response.text,
+        re.DOTALL,
+    )
+
+    assert coincidencia is not None, nombre
+
+    opciones = re.findall(
+        r'<option\b[^>]*>',
+        coincidencia.group(1),
+        re.DOTALL,
+    )
+
+    assert opciones, nombre
+
+    for opcion in opciones:
+        if re.search(
+            r"\sselected(?=\s|=|>)",
+            opcion,
+        ):
+            valor = re.search(
+                r'\bvalue="([^"]*)"',
+                opcion,
+            )
+
+            assert valor is not None
+
+            return unescape(valor.group(1))
+
+    # Si ninguna opción está seleccionada expresamente,
+    # el navegador selecciona la primera.
+    valor = re.search(
+        r'\bvalue="([^"]*)"',
+        opciones[0],
+    )
+
+    assert valor is not None
+
+    return unescape(valor.group(1))
+
+
+def _tratamiento_bloqueado(response, tratamiento: str) -> bool:
+    """Comprueba si una opción de tratamiento está deshabilitada."""
+
+    coincidencia = re.search(
+        r'<input\b[^>]*\bname="tratamiento"'
+        rf'[^>]*\bvalue="{re.escape(tratamiento)}"'
+        r'[^>]*>',
+        response.text,
+        re.DOTALL,
+    )
+
+    assert coincidencia is not None
+
+    return re.search(
+        r"\sdisabled(?=\s|=|>)",
+        coincidencia.group(0),
+    ) is not None
+
+
+def _valor_campo_oculto(response, nombre: str) -> str:
+    """Obtiene el valor de un campo oculto del formulario."""
+
+    coincidencia = re.search(
+        r'<input\b'
+        r'[^>]*\btype="hidden"'
+        rf'[^>]*\bname="{re.escape(nombre)}"'
+        r'[^>]*\bvalue="([^"]*)"',
+        response.text,
+        re.DOTALL,
+    )
+
+    assert coincidencia is not None, nombre
+
+    return unescape(coincidencia.group(1))
+
+
+def _datos_formulario_apunte_bloqueado(response) -> dict:
+    """Recoge los valores enviados por un formulario protegido."""
+
+    campos_ocultos = (
+        "inmueble_id",
+        "clasificacion",
+        "dia_hasta_incluido",
+        "tratamiento",
+        "concepto_automatico",
+        "nombre_documento_automatico",
+    )
+
+    campos_texto = (
+        "fecha",
+        "concepto",
+        "nombre_documento",
+        "periodo_desde",
+        "periodo_hasta",
+        "base",
+        "iva_importe",
+        "retencion_importe",
+        "tercero_nombre",
+        "tercero_nif",
+        "referencia_documento",
+    )
+
+    datos = {
+        campo: _valor_campo_oculto(response, campo)
+        for campo in campos_ocultos
+    }
+
+    datos.update({
+        campo: _valor_input(response, campo)
+        for campo in campos_texto
+    })
+
+    return datos
 
 
 def crear_app_test():
@@ -1457,6 +1636,9 @@ def test_formulario_editar_apunte_muestra_datos(
         """
 [categorias_contables]
 GAS_TRIBUTOS = GASTO | Tributos
+GAS_COMUNIDAD = GASTO | Comunidad
+ING_ALQUILERES = INGRESO | Alquileres
+ING_OTROS = INGRESO | Otros ingresos
 
 [subcategorias_contables]
 GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
@@ -1517,6 +1699,17 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     assert 'value="21,00"' in response.text
     assert 'value="GAS_TRIBUTOS.TRU"' in response.text
     assert "selected" in response.text
+
+    # Un apunte sin dependencias conserva todas
+    # las posibilidades de clasificación.
+    assert _opciones_clasificacion(response) == {
+        "GAS_TRIBUTOS.TRU",
+        "GAS_COMUNIDAD",
+        "ING_ALQUILERES",
+        "ING_OTROS",
+    }
+
+    assert 'id="restricciones_edicion"' not in response.text
 
 
 def test_editar_apunte_guarda_cambios(
@@ -3211,6 +3404,9 @@ def test_editar_apunte_conciliado_rechaza_cambio_importe(
         """
 [categorias_contables]
 GAS_COMUNIDAD = GASTO | Comunidad
+GAS_REPARACIONES = GASTO | Reparaciones
+ING_ALQUILERES = INGRESO | Alquileres
+ING_OTROS = INGRESO | Otros ingresos
 
 [subcategorias_contables]
 """.strip(),
@@ -3274,6 +3470,49 @@ GAS_COMUNIDAD = GASTO | Comunidad
     client = app.test_client()
     client.post("/", data={"database": "test"})
 
+    # El usuario abre un apunte cuyo pago está conciliado.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    # No puede cambiar el inmueble.
+    assert _campo_bloqueado(response, "inmueble_id")
+
+    # Puede corregir otros datos siempre que conserve
+    # el importe total, su signo y la naturaleza.
+    campos_editables = (
+        "fecha",
+        "clasificacion",
+        "concepto",
+        "periodo_desde",
+        "periodo_hasta",
+        "dia_hasta_incluido",
+        "base",
+        "iva_importe",
+        "retencion_importe",
+        "tercero_nombre",
+        "tercero_nif",
+        "referencia_documento",
+    )
+
+    for campo in campos_editables:
+        assert not _campo_bloqueado(response, campo), campo
+
+    # La conciliación protege la naturaleza del apunte,
+    # pero no su clasificación dentro de los gastos.
+    assert _opciones_clasificacion(response) == {
+        "GAS_COMUNIDAD",
+        "GAS_REPARACIONES",
+    }
+
+    assert (
+        "No pueden modificarse el inmueble, la naturaleza, "
+        "el importe total ni su signo."
+        in response.text
+    )
+
     datos = {
         "inmueble_id": str(inmueble_id),
         "fecha": "15/09/2026",
@@ -3300,6 +3539,16 @@ GAS_COMUNIDAD = GASTO | Comunidad
     )
 
     assert response.status_code == 400
+
+    # La base sigue siendo editable porque puede corregirse
+    # junto con el IVA y la retención, manteniendo el total.
+    assert not _campo_bloqueado(response, "base")
+
+    assert _valor_input(
+        response,
+        "base",
+    ) == "120,00"
+
     assert (
         "No puede cambiarse el inmueble, la naturaleza "
         "o el importe"
@@ -4117,4 +4366,1145 @@ GAS_SERVICIOS_SUMINISTROS.AGUA = Agua
     assert "14/09/2026" in response.text
     assert 'class="warning"' in response.text
     assert _valor_input(response, "firma_validacion")
+
+
+@pytest.mark.parametrize(
+    "base_nueva, modificacion_permitida",
+    [
+        ("120,00", False),
+        ("100,00", True),
+    ],
+)
+def test_editar_apunte_con_imputacion_persistida(
+    tmp_path,
+    monkeypatch,
+    base_nueva,
+    modificacion_permitida,
+) -> None:
+    """Validar y Guardar respetan las imputaciones persistidas."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+GAS_REPARACIONES = GASTO | Reparaciones
+ING_ALQUILERES = INGRESO | Alquileres
+ING_OTROS = INGRESO | Otros ingresos
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2035, 12, 31),
+            fecha_fin=None,
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        # El usuario ha contabilizado un gasto de 100 euros.
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 9, 15),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Cuota de comunidad",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tratamiento="REPERCUTIR",
+        )
+
+        # El gasto tiene una imputación contractual persistida.
+        imputacion = ImputacionContrato(
+            apunte=apunte,
+            contrato=contrato,
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            importe=10000,
+        )
+
+        session.add_all([
+            inmueble,
+            contrato,
+            apunte,
+            imputacion,
+        ])
+        session.commit()
+
+        inmueble_id = inmueble.id
+        apunte_id = apunte.id
+        imputacion_id = imputacion.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre un apunte con imputaciones persistidas.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    campos_protegidos = (
+        "inmueble_id",
+        "fecha",
+        "periodo_desde",
+        "periodo_hasta",
+        "dia_hasta_incluido",
+        "base",
+        "iva_importe",
+        "retencion_importe",
+    )
+
+    for campo in campos_protegidos:
+        assert _campo_bloqueado(response, campo), campo
+
+    # El tratamiento está protegido por las dependencias
+    # del apunte, independientemente de su naturaleza.
+    for tratamiento in (
+        "CONTABILIZAR",
+        "REPERCUTIR",
+        "FACTURAR",
+    ):
+        assert _tratamiento_bloqueado(
+            response,
+            tratamiento,
+        )
+
+    # Puede corregirse la clasificación dentro de los gastos
+    # y también la información descriptiva del apunte.
+    campos_editables = (
+        "clasificacion",
+        "concepto",
+        "nombre_documento",
+        "tercero_nombre",
+        "tercero_nif",
+        "referencia_documento",
+    )
+
+    for campo in campos_editables:
+        assert not _campo_bloqueado(response, campo), campo
+
+    # Puede corregirse la categoría de gasto, pero no convertir el apunte en un ingreso.
+    assert _opciones_clasificacion(response) == {
+        "GAS_COMUNIDAD",
+        "GAS_REPARACIONES",
+    }
+
+    assert (
+        "No pueden modificarse los datos que afectan "
+        "al reparto ya realizado."
+        in response.text
+    )
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "15/09/2026",
+        "clasificacion": "GAS_COMUNIDAD",
+        "concepto": "Cuota de comunidad corregida",
+        "periodo_desde": "",
+        "periodo_hasta": "",
+        "tratamiento": "REPERCUTIR",
+        "base": base_nueva,
+        "iva_importe": "0,00",
+        "retencion_importe": "0,00",
+        "nombre_documento": "",
+        "tercero_nombre": "",
+        "tercero_nif": "",
+        "referencia_documento": "",
+        "accion": "validar",
+    }
+
+    base_original = _valor_input(response, "base")
+
+    # El usuario intenta validar la modificación del apunte.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    if modificacion_permitida:
+        assert response.status_code == 200
+
+        datos["nombre_documento"] = _valor_input(
+            response,
+            "nombre_documento",
+        )
+
+        datos["firma_validacion"] = _valor_input(
+            response,
+            "firma_validacion",
+        )
+
+        assert datos["firma_validacion"]
+
+        # El usuario guarda la corrección descriptiva.
+        datos["accion"] = "guardar"
+
+        response = client.post(
+            f"/contabilidad/{apunte_id}/editar",
+            data=datos,
+        )
+
+        assert response.status_code == 302
+
+    else:
+        assert response.status_code == 400
+
+        # El importe rechazado no debe permanecer en
+        # un campo que el usuario no puede modificar.
+        assert _valor_input(
+            response,
+            "base",
+        ) == base_original
+
+        assert _campo_bloqueado(response, "base")
+
+        assert (
+            'name="firma_validacion"'
+            not in response.text
+        )
+
+        assert 'value="guardar"' not in response.text
+
+        assert (
+            "No pueden modificarse los datos que afectan al reparto"
+            in response.text
+        )
+
+        assert 'name="firma_validacion"' not in response.text
+        assert 'value="guardar"' not in response.text
+
+    # Comprobar los datos realmente almacenados.
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+
+        imputacion = session.get(
+            ImputacionContrato,
+            imputacion_id,
+        )
+
+        assert apunte is not None
+        assert imputacion is not None
+
+        assert apunte.base == 10000
+        assert apunte.total == 10000
+
+        assert imputacion.base == 10000
+        assert imputacion.importe == 10000
+        assert imputacion.apunte_id == apunte_id
+
+        if modificacion_permitida:
+            assert apunte.concepto == (
+                "Cuota de comunidad corregida"
+            )
+        else:
+            assert apunte.concepto == "Cuota de comunidad"
+
+
+def test_editar_apunte_con_factura_rechaza_cambio_importe(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """El formulario impide modificar los importes de una factura."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+ING_OTROS = INGRESO | Otros ingresos
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        contrato = Contrato(
+            inmueble=inmueble,
+            fecha_inicio=date(2026, 1, 1),
+            fecha_vencimiento=date(2035, 12, 31),
+            fecha_fin=None,
+            genera_factura=True,
+            fecha_inicio_facturacion=date(2026, 1, 1),
+            fianza=0,
+            direccion_facturacion="Dirección",
+            poblacion_facturacion="Pontevedra",
+            provincia_facturacion="Pontevedra",
+            concepto_factura="Alquiler",
+        )
+
+        # El usuario tiene contabilizada una factura de octubre.
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 10, 1),
+            naturaleza="INGRESO",
+            categoria="ING_ALQUILERES",
+            concepto="Alquiler. Octubre de 2026",
+            base=100000,
+            iva_importe=21000,
+            retencion_importe=19000,
+            total=102000,
+            periodo_desde=date(2026, 10, 1),
+            periodo_hasta=date(2026, 10, 31),
+            dia_hasta_incluido=True,
+            tercero_nombre="Ana Pérez",
+            tercero_nif="11111111A",
+            referencia_documento="01/2026A1",
+        )
+
+        factura = Factura(
+            contrato=contrato,
+            apunte_contable=apunte,
+            numero_secuencia=1,
+            anio=2026,
+            numero_factura="01/2026A1",
+            referencia_inmueble=inmueble.referencia,
+            descripcion_inmueble=inmueble.descripcion,
+            direccion_facturacion=contrato.direccion_facturacion,
+            poblacion_facturacion=contrato.poblacion_facturacion,
+            provincia_facturacion=contrato.provincia_facturacion,
+            fecha_emision=date(2026, 10, 1),
+            periodo=date(2026, 10, 1),
+            base=100000,
+            iva_porcentaje=2100,
+            iva_importe=21000,
+            retencion_porcentaje=1900,
+            retencion_importe=19000,
+            total=102000,
+            estado="EMITIDA",
+        )
+
+        # El cobro de la factura todavía está pendiente.
+        movimiento = crear_movimiento_desde_apunte(
+            apunte=apunte,
+            contrato=contrato,
+            fecha_prevista_desde=date(2026, 10, 1),
+            fecha_prevista_hasta=date(2026, 10, 31),
+        )
+
+        session.add_all([
+            inmueble,
+            contrato,
+            apunte,
+            factura,
+            movimiento,
+        ])
+        session.commit()
+
+        inmueble_id = inmueble.id
+        apunte_id = apunte.id
+        factura_id = factura.id
+        movimiento_id = movimiento.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre el formulario de edición.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    # Los datos procedentes de la factura no pueden editarse.
+    campos_protegidos = (
+        "inmueble_id",
+        "fecha",
+        "clasificacion",
+        "periodo_desde",
+        "periodo_hasta",
+        "dia_hasta_incluido",
+        "base",
+        "iva_importe",
+        "retencion_importe",
+        "tercero_nombre",
+        "tercero_nif",
+        "referencia_documento",
+    )
+
+    for campo in campos_protegidos:
+        assert _campo_bloqueado(response, campo), campo
+
+    # Los controles deshabilitados necesitan campos ocultos
+    # para conservar sus valores al enviar el formulario.
+    assert _valor_campo_oculto(
+        response,
+        "inmueble_id",
+    ) == str(inmueble_id)
+
+    assert _valor_campo_oculto(
+        response,
+        "clasificacion",
+    ) == "ING_ALQUILERES"
+
+    assert _valor_campo_oculto(
+        response,
+        "tratamiento",
+    ) == "CONTABILIZAR"
+
+    assert _valor_campo_oculto(
+        response,
+        "dia_hasta_incluido",
+    ) == "1"
+
+    # El tratamiento está protegido por las dependencias
+    # del apunte, independientemente de su naturaleza.
+    for tratamiento in (
+        "CONTABILIZAR",
+        "REPERCUTIR",
+        "FACTURAR",
+    ):
+        assert _tratamiento_bloqueado(
+            response,
+            tratamiento,
+        )
+
+    assert _opciones_clasificacion(response) == {
+        "ING_ALQUILERES",
+    }
+
+    # Los datos descriptivos siguen siendo editables.
+    assert not _campo_bloqueado(response, "concepto")
+    assert not _campo_bloqueado(response, "nombre_documento")
+
+    assert (
+        "Los datos procedentes de la factura vinculada "
+        "no pueden modificarse desde Contabilidad."
+        in response.text
+    )
+
+    datos = {
+        "inmueble_id": str(inmueble_id),
+        "fecha": "01/10/2026",
+        "clasificacion": "ING_ALQUILERES",
+        "concepto": "Alquiler. Octubre de 2026",
+        "periodo_desde": "10/2026",
+        "periodo_hasta": "",
+        "dia_hasta_incluido": "1",
+        "tratamiento": "CONTABILIZAR",
+        "base": "1200,00",
+        "iva_importe": "210,00",
+        "retencion_importe": "190,00",
+        "nombre_documento": "",
+        "tercero_nombre": "Ana Pérez",
+        "tercero_nif": "11111111A",
+        "referencia_documento": "01/2026A1",
+        "accion": "validar",
+    }
+
+    # Guardar los valores originales mostrados por el formulario.
+    base_original = _valor_input(response, "base")
+
+    # El usuario también introduce una modificación descriptiva
+    # que sí está permitida.
+    concepto_modificado = "Concepto descriptivo corregido"
+    datos["concepto"] = concepto_modificado
+
+    # El usuario intenta cambiar la base del apunte
+    # directamente desde Contabilidad.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 400
+    assert "factura" in response.text.lower()
+
+    # El formulario debe recuperar el importe protegido.
+    assert _valor_input(
+        response,
+        "base",
+    ) == base_original
+
+    assert _campo_bloqueado(response, "base")
+
+    # La modificación descriptiva debe conservarse para
+    # que el usuario no tenga que introducirla nuevamente.
+    assert _valor_input(
+        response,
+        "concepto",
+    ) == concepto_modificado
+
+    # El formulario no puede considerarse validado.
+    assert 'name="firma_validacion"' not in response.text
+    assert 'value="guardar"' not in response.text
+
+    # La factura, el apunte y el movimiento previsto
+    # deben permanecer intactos.
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+        factura = session.get(
+            Factura,
+            factura_id,
+        )
+        movimiento = session.get(
+            MovimientoPrevisto,
+            movimiento_id,
+        )
+
+        assert apunte.base == 100000
+        assert apunte.iva_importe == 21000
+        assert apunte.retencion_importe == 19000
+        assert apunte.total == 102000
+
+        assert factura.apunte_contable_id == apunte_id
+        assert factura.base == apunte.base
+        assert factura.total == apunte.total
+
+        assert movimiento.apunte_id == apunte_id
+        assert movimiento.importe_esperado == 102000
+        assert movimiento.estado == "PENDIENTE"
+
+
+    # El usuario vuelve a abrir el formulario después
+    # del intento rechazado.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    datos_originales = _datos_formulario_apunte_bloqueado(
+        response
+    )
+
+    datos = datos_originales.copy()
+
+    # El usuario modifica únicamente los campos permitidos.
+    concepto_nuevo = "Concepto corregido de la factura"
+    documento_nuevo = "Factura-documento-corregido.pdf"
+
+    datos.update({
+        "concepto": concepto_nuevo,
+        "nombre_documento": documento_nuevo,
+        "concepto_automatico": "",
+        "nombre_documento_automatico": "",
+        "accion": "validar",
+    })
+
+    # El usuario pulsa Validar.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    # El formulario validado debe conservar las restricciones
+    # y proporcionar los datos necesarios para guardar.
+    datos_validados = _datos_formulario_apunte_bloqueado(
+        response
+    )
+
+    assert datos_validados["concepto"] == concepto_nuevo
+    assert datos_validados["nombre_documento"] == documento_nuevo
+
+    for campo in (
+        "inmueble_id",
+        "fecha",
+        "clasificacion",
+        "periodo_desde",
+        "periodo_hasta",
+        "dia_hasta_incluido",
+        "tratamiento",
+        "base",
+        "iva_importe",
+        "retencion_importe",
+        "tercero_nombre",
+        "tercero_nif",
+        "referencia_documento",
+    ):
+        assert datos_validados[campo] == datos_originales[campo]
+
+    firma_validacion = _valor_campo_oculto(
+        response,
+        "firma_validacion",
+    )
+
+    assert firma_validacion
+
+    # El usuario pulsa Guardar utilizando los valores
+    # del formulario que acaba de validar.
+    datos_validados["firma_validacion"] = firma_validacion
+    datos_validados["accion"] = "guardar"
+
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos_validados,
+    )
+
+    assert response.status_code == 302
+
+    # El usuario vuelve a abrir el apunte guardado.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    datos_guardados = _datos_formulario_apunte_bloqueado(
+        response
+    )
+
+    # Solo se han modificado los datos permitidos.
+    assert datos_guardados["concepto"] == concepto_nuevo
+    assert datos_guardados["nombre_documento"] == documento_nuevo
+
+    for campo in (
+        "inmueble_id",
+        "fecha",
+        "clasificacion",
+        "periodo_desde",
+        "periodo_hasta",
+        "dia_hasta_incluido",
+        "tratamiento",
+        "base",
+        "iva_importe",
+        "retencion_importe",
+        "tercero_nombre",
+        "tercero_nif",
+        "referencia_documento",
+    ):
+        assert datos_guardados[campo] == datos_originales[campo]
+
+
+def test_formulario_ingreso_conciliado_limita_clasificaciones(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Un ingreso conciliado no puede reclasificarse como alquiler."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_ALQUILERES = INGRESO | Alquileres
+ING_OTROS = INGRESO | Otros ingresos
+ING_INTERESES = INGRESO | Intereses
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        # El usuario ha contabilizado un ingreso ordinario.
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 10, 1),
+            naturaleza="INGRESO",
+            categoria="ING_OTROS",
+            concepto="Ingreso de octubre",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tratamiento="CONTABILIZAR",
+            tercero_nombre="Tercero de prueba",
+        )
+
+        # El cobro ya ha sido conciliado manualmente.
+        movimiento = crear_movimiento_desde_apunte(
+            apunte=apunte,
+        )
+
+        movimiento.estado = "CONCILIADO"
+        movimiento.metodo_conciliacion = "MANUAL"
+        movimiento.notas = "Cobrado en efectivo"
+
+        session.add_all([
+            inmueble,
+            apunte,
+            movimiento,
+        ])
+        session.commit()
+
+        apunte_id = apunte.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre el formulario para corregir
+    # la clasificación del ingreso.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    assert not _campo_bloqueado(
+        response,
+        "clasificacion",
+    )
+
+    # Puede seleccionar otras categorías de ingreso,
+    # excepto la de alquileres.
+    assert _opciones_clasificacion(response) == {
+        "ING_OTROS",
+        "ING_INTERESES",
+    }
+
+
+@pytest.mark.parametrize(
+    "naturaleza, categoria, bloqueados",
+    [
+        (
+            "INGRESO",
+            "ING_OTROS",
+            {"REPERCUTIR", "FACTURAR"},
+        ),
+        (
+            "GASTO",
+            "GAS_COMUNIDAD",
+            set(),
+        ),
+    ],
+)
+def test_formulario_limita_tratamientos_segun_naturaleza(
+    tmp_path,
+    monkeypatch,
+    naturaleza,
+    categoria,
+    bloqueados,
+) -> None:
+    """El formulario ofrece únicamente tratamientos compatibles."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+ING_OTROS = INGRESO | Otros ingresos
+GAS_COMUNIDAD = GASTO | Comunidad
+
+[subcategorias_contables]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local comercial",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        # El usuario registra un apunte sin dependencias
+        # que puedan proteger su tratamiento.
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 10, 1),
+            naturaleza=naturaleza,
+            categoria=categoria,
+            concepto="Apunte de octubre",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tratamiento="CONTABILIZAR",
+        )
+
+        session.add_all([inmueble, apunte])
+        session.commit()
+
+        apunte_id = apunte.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre el formulario de edición.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    # Comprobar individualmente las opciones disponibles.
+    for tratamiento in (
+        "CONTABILIZAR",
+        "REPERCUTIR",
+        "FACTURAR",
+    ):
+        assert _tratamiento_bloqueado(
+            response,
+            tratamiento,
+        ) == (tratamiento in bloqueados)
+
+
+@pytest.mark.parametrize(
+    "categoria, subcategoria, clasificaciones_esperadas",
+    [
+        (
+            "GAS_ANTIGUA",
+            None,
+            {
+                "GAS_ANTIGUA",
+                "GAS_COMUNIDAD",
+                "GAS_TRIBUTOS.IBI",
+            },
+        ),
+        (
+            "GAS_TRIBUTOS",
+            "ANTIGUA",
+            {
+                "GAS_COMUNIDAD",
+                "GAS_TRIBUTOS.IBI",
+                "GAS_TRIBUTOS.ANTIGUA",
+            },
+        ),
+    ],
+)
+def test_editar_apunte_con_elementos_inactivos(
+    tmp_path,
+    monkeypatch,
+    categoria,
+    subcategoria,
+    clasificaciones_esperadas,
+) -> None:
+    """Permite editar un apunte conservando sus elementos históricos."""
+
+    ruta = tmp_path / "contab.ini"
+    ruta.write_text(
+        """
+[categorias_contables]
+GAS_COMUNIDAD = GASTO | Comunidad
+GAS_ANTIGUA = GASTO | Categoría antigua | inactiva
+GAS_OTRA = GASTO | Otra categoría antigua | inactiva
+GAS_TRIBUTOS = GASTO | Tributos
+
+[subcategorias_contables]
+GAS_TRIBUTOS.IBI = IBI
+GAS_TRIBUTOS.ANTIGUA = Tasa antigua | inactiva
+GAS_TRIBUTOS.OTRA = Otra tasa antigua | inactiva
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "CONTAB_CONFIG",
+        str(ruta),
+    )
+
+    app = crear_app_test()
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local histórico",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        inmueble_activo = _crear_inmueble_prueba(
+            referencia="LOCAL-2",
+            tipo="L",
+            codigo_facturacion="A2",
+            descripcion="Local activo",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        otro_inmueble_inactivo = _crear_inmueble_prueba(
+            referencia="LOCAL-3",
+            tipo="L",
+            codigo_facturacion="A3",
+            descripcion="Otro local histórico",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        # El apunte se registró cuando su inmueble
+        # y su clasificación todavía estaban activos.
+        apunte = ApunteContable(
+            inmueble=inmueble,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria=categoria,
+            subcategoria=subcategoria,
+            concepto="Concepto original",
+            base=10000,
+            iva_importe=0,
+            retencion_importe=0,
+            total=10000,
+            tratamiento="CONTABILIZAR",
+        )
+
+        inmueble.activo = False
+        inmueble_activo.activo = True
+        otro_inmueble_inactivo.activo = False
+
+        session.add_all([
+            inmueble,
+            inmueble_activo,
+            otro_inmueble_inactivo,
+            apunte,
+        ])
+
+        session.commit()
+
+        inmueble_id = inmueble.id
+        inmueble_activo_id = inmueble_activo.id
+        apunte_id = apunte.id
+
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    # El usuario abre el formulario de edición
+    # de un apunte histórico.
+    response = client.get(
+        f"/contabilidad/{apunte_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    # Solo se ofrecen los inmuebles activos y el
+    # inmueble histórico asociado al propio apunte.
+    assert _opciones_selector(
+        response,
+        "inmueble_id",
+    ) == {
+        str(inmueble_id),
+        str(inmueble_activo_id),
+    }
+
+    # Solo se ofrecen las clasificaciones activas
+    # y la clasificación histórica del apunte.
+    assert _opciones_clasificacion(
+        response
+    ) == clasificaciones_esperadas
+
+    clasificacion = categoria
+
+    if subcategoria:
+        clasificacion += f".{subcategoria}"
+
+    assert _valor_selector(
+        response,
+        "inmueble_id",
+    ) == str(inmueble_id)
+
+    assert _valor_selector(
+        response,
+        "clasificacion",
+    ) == clasificacion
+
+    # El usuario corrige únicamente el concepto,
+    # conservando el inmueble y la clasificación.
+    datos = {
+        "inmueble_id": _valor_selector(
+            response,
+            "inmueble_id",
+        ),
+        "clasificacion": _valor_selector(
+            response,
+            "clasificacion",
+        ),
+        "dia_hasta_incluido": _valor_selector(
+            response,
+            "dia_hasta_incluido",
+        ),
+        "tratamiento": "CONTABILIZAR",
+        "concepto_automatico": "",
+        "nombre_documento_automatico": "",
+        "accion": "validar",
+    }
+
+    for campo in (
+        "fecha",
+        "concepto",
+        "nombre_documento",
+        "periodo_desde",
+        "periodo_hasta",
+        "base",
+        "iva_importe",
+        "retencion_importe",
+        "tercero_nombre",
+        "tercero_nif",
+        "referencia_documento",
+    ):
+        datos[campo] = _valor_input(response, campo)
+
+    datos["concepto"] = "Concepto corregido"
+
+    # El usuario pulsa Validar.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 200
+
+    assert _valor_selector(
+        response,
+        "inmueble_id",
+    ) == str(inmueble_id)
+
+    assert _valor_selector(
+        response,
+        "clasificacion",
+    ) == clasificacion
+
+    # Validar no debe modificar el apunte persistido.
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+
+        assert apunte.concepto == "Concepto original"
+
+    datos["nombre_documento"] = _valor_input(
+        response,
+        "nombre_documento",
+    )
+
+    datos["concepto_automatico"] = _valor_campo_oculto(
+        response,
+        "concepto_automatico",
+    )
+
+    datos["nombre_documento_automatico"] = (
+        _valor_campo_oculto(
+            response,
+            "nombre_documento_automatico",
+        )
+    )
+
+    datos["firma_validacion"] = _valor_campo_oculto(
+        response,
+        "firma_validacion",
+    )
+
+    datos["accion"] = "guardar"
+
+    # El usuario pulsa Guardar.
+    response = client.post(
+        f"/contabilidad/{apunte_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    # Se conserva la información histórica del apunte.
+    with session_factory() as session:
+        apunte = session.get(
+            ApunteContable,
+            apunte_id,
+        )
+
+        assert apunte.concepto == "Concepto corregido"
+        assert apunte.inmueble_id == inmueble_id
+        assert apunte.inmueble.activo is False
+        assert apunte.categoria == categoria
+        assert apunte.subcategoria == subcategoria
+        assert apunte.total == 10000
 

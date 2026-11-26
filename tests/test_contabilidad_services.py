@@ -6,6 +6,11 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from contab.facturacion.services import (
+    FacturacionError,
+    contabilizar_ingreso_sin_factura,
+    emitir_factura,
+)
 from contab.config import (
     ApunteAutomatico,
     CategoriaContable,
@@ -29,11 +34,29 @@ from contab.models import (
     ApunteContable,
     Contrato,
     DistribucionApunte,
+    Factura,
     ImputacionContrato,
     Inmueble,
     MovimientoPrevisto,
 )
 
+
+
+
+CASOS_NATURALEZA_SIGNO_TRATAMIENTO = [
+    ("INGRESO", False, "CONTABILIZAR", True),
+    ("INGRESO", False, "REPERCUTIR", False),
+    ("INGRESO", False, "FACTURAR", False),
+    ("INGRESO", True, "CONTABILIZAR", True),
+    ("INGRESO", True, "REPERCUTIR", False),
+    ("INGRESO", True, "FACTURAR", False),
+    ("GASTO", False, "CONTABILIZAR", True),
+    ("GASTO", False, "REPERCUTIR", True),
+    ("GASTO", False, "FACTURAR", True),
+    ("GASTO", True, "CONTABILIZAR", True),
+    ("GASTO", True, "REPERCUTIR", True),
+    ("GASTO", True, "FACTURAR", True),
+]
 
 
 def _inmueble_subdividido_para_distribuir():
@@ -146,6 +169,290 @@ def _crear_inmueble_prueba(**datos) -> Inmueble:
     return Inmueble(**{**propiedad, **datos})
 
 
+@pytest.fixture
+def apunte_con_factura(session, contrato):
+    """Prepara una factura emitida cuyo cobro sigue pendiente."""
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+        "ING_OTROS": CategoriaContable(
+            codigo="ING_OTROS",
+            naturaleza="INGRESO",
+            nombre="Otros ingresos",
+            activa=True,
+            subcategorias=(),
+        ),
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    from contab.models import (
+        ContratoInquilino,
+        Inquilino,
+        RentaContrato,
+    )
+
+    contrato.genera_factura = True
+    contrato.iva_porcentaje = 2100
+    contrato.retencion_porcentaje = 1900
+
+    contrato.titulares.append(
+        ContratoInquilino(
+            orden=1,
+            inquilino=Inquilino(
+                nombre="Ana Pérez",
+                nif="11111111A",
+            ),
+        )
+    )
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=100000,
+        )
+    )
+
+    session.commit()
+
+    # El usuario emite y contabiliza la factura de octubre.
+    factura, apunte, movimiento = emitir_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha_emision=date(2026, 10, 1),
+        categorias=categorias,
+    )
+
+    session.add_all([
+        factura,
+        apunte,
+        movimiento,
+    ])
+    session.commit()
+
+    assert movimiento.estado == "PENDIENTE"
+    assert factura.apunte_contable is apunte
+
+    return factura, apunte, movimiento, categorias
+
+
+def _datos_edicion_apunte(apunte):
+    """Obtiene los valores actuales de un apunte para editarlo."""
+
+    return {
+        "inmueble": apunte.inmueble,
+        "fecha": apunte.fecha,
+        "naturaleza": apunte.naturaleza,
+        "categoria": apunte.categoria,
+        "subcategoria": apunte.subcategoria or "",
+        "concepto": apunte.concepto,
+        "base": apunte.base,
+        "iva_importe": apunte.iva_importe,
+        "retencion_importe": apunte.retencion_importe,
+        "importe_negativo": apunte.importe_negativo,
+        "tercero_nombre": apunte.tercero_nombre,
+        "tercero_nif": apunte.tercero_nif,
+        "referencia_documento": apunte.referencia_documento,
+        "ruta_documento": apunte.ruta_documento,
+        "nombre_documento": apunte.nombre_documento,
+        "notas": apunte.notas or "",
+        "periodo_desde": apunte.periodo_desde,
+        "periodo_hasta": apunte.periodo_hasta,
+        "dia_hasta_incluido": apunte.dia_hasta_incluido,
+        "tratamiento": apunte.tratamiento,
+    }
+
+
+@pytest.fixture
+def apunte_alquiler_sin_factura(session, contrato):
+    """Prepara un alquiler contabilizado sin factura."""
+
+    from contab.models import (
+        ContratoInquilino,
+        Inquilino,
+        RentaContrato,
+    )
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+        "ING_OTROS": CategoriaContable(
+            codigo="ING_OTROS",
+            naturaleza="INGRESO",
+            nombre="Otros ingresos",
+            activa=True,
+            subcategorias=(),
+        ),
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    contrato.genera_factura = False
+    contrato.iva_porcentaje = 0
+    contrato.retencion_porcentaje = 0
+
+    contrato.titulares.append(
+        ContratoInquilino(
+            orden=1,
+            inquilino=Inquilino(
+                nombre="Ana Pérez",
+                nif="11111111A",
+            ),
+        )
+    )
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=contrato.fecha_inicio,
+            importe=80000,
+        )
+    )
+
+    session.commit()
+
+    # El usuario contabiliza el alquiler de octubre.
+    apunte, movimiento = contabilizar_ingreso_sin_factura(
+        contrato=contrato,
+        periodo=date(2026, 10, 1),
+        fecha=date(2026, 10, 1),
+        categorias=categorias,
+    )
+
+    session.add_all([
+        apunte,
+        movimiento,
+    ])
+    session.commit()
+
+    assert movimiento.estado == "PENDIENTE"
+    assert movimiento.contrato is contrato
+    assert movimiento.apunte is apunte
+
+    return apunte, movimiento, categorias
+
+
+@pytest.fixture
+def ingreso_para_reclasificar(session, contrato, categorias):
+    """Prepara un ingreso ordinario con un movimiento previsto."""
+
+    categorias = categorias.copy()
+
+    categorias["ING_OTROS"] = CategoriaContable(
+        codigo="ING_OTROS",
+        naturaleza="INGRESO",
+        nombre="Otros ingresos",
+        activa=True,
+        subcategorias=(),
+    )
+
+    contrato.genera_factura = False
+
+    # El usuario registra un ingreso ordinario
+    # sin identificarlo inicialmente como alquiler.
+    registro = preparar_registro_contable(
+        inmueble=contrato.inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="INGRESO",
+        categoria="ING_OTROS",
+        concepto="Ingreso de octubre",
+        base=80000,
+        periodo_desde=date(2026, 10, 1),
+        periodo_hasta=date(2026, 10, 31),
+        dia_hasta_incluido=True,
+    )
+
+    apunte = registro.apunte
+    movimiento = registro.movimiento_previsto
+
+    session.add_all([apunte, movimiento])
+    session.commit()
+
+    assert movimiento.contrato is None
+    assert movimiento.estado == "PENDIENTE"
+
+    return apunte, movimiento, categorias
+
+
+@pytest.fixture
+def categorias_ingreso_gasto():
+    """Proporciona categorías para probar ambos tipos de apunte."""
+
+    categorias = _categorias_gastos_comunes()
+
+    categorias["ING_OTROS"] = CategoriaContable(
+        codigo="ING_OTROS",
+        naturaleza="INGRESO",
+        nombre="Otros ingresos",
+        activa=True,
+        subcategorias=(),
+    )
+
+    return categorias
+
+
+@pytest.fixture
+def categorias_con_inactivas():
+    """Proporciona clasificaciones activas e históricas."""
+
+    return {
+        "GAS_COMUNIDAD": CategoriaContable(
+            codigo="GAS_COMUNIDAD",
+            naturaleza="GASTO",
+            nombre="Comunidad",
+            activa=True,
+            subcategorias=(),
+        ),
+        "GAS_ANTIGUA": CategoriaContable(
+            codigo="GAS_ANTIGUA",
+            naturaleza="GASTO",
+            nombre="Categoría antigua",
+            activa=False,
+            subcategorias=(),
+        ),
+        "GAS_TRIBUTOS": CategoriaContable(
+            codigo="GAS_TRIBUTOS",
+            naturaleza="GASTO",
+            nombre="Tributos",
+            activa=True,
+            subcategorias=(
+                SubcategoriaContable(
+                    codigo="IBI",
+                    nombre="IBI",
+                    activa=True,
+                ),
+                SubcategoriaContable(
+                    codigo="ANTIGUA",
+                    nombre="Tasa antigua",
+                    activa=False,
+                ),
+            ),
+        ),
+    }
+
+
+
 
 def test_crear_apunte_contable(contrato) -> None:
     categorias = {
@@ -180,7 +487,7 @@ def test_crear_apunte_contable(contrato) -> None:
         periodo_desde=date(2026, 7, 1),
         periodo_hasta=date(2026, 7, 31),
         dia_hasta_incluido=False,
-        tratamiento=" repercutir ",
+        tratamiento=" contabilizar ",
         nombre_documento="  antena-julio-2026.pdf  ",
     )
 
@@ -202,7 +509,7 @@ def test_crear_apunte_contable(contrato) -> None:
     assert apunte.periodo_desde == date(2026, 7, 1)
     assert apunte.periodo_hasta == date(2026, 7, 31)
     assert apunte.dia_hasta_incluido is False
-    assert apunte.tratamiento == "REPERCUTIR"
+    assert apunte.tratamiento == "CONTABILIZAR"
     assert apunte.nombre_documento == "antena-julio-2026.pdf"
 
 
@@ -3828,4 +4135,1397 @@ def test_registro_calcula_imputaciones_sin_persistirlas(
     assert len(pendientes) == 1
     assert pendientes[0].imputacion.importe == 10000
 
+
+@pytest.mark.parametrize(
+    "cambios",
+    [
+        {"fecha": date(2026, 10, 2)},
+        {
+            "naturaleza": "GASTO",
+            "categoria": "GAS_COMUNIDAD",
+        },
+        {"categoria": "ING_OTROS"},
+        {"subcategoria": "LOCAL"},
+        {"periodo_desde": date(2026, 10, 2)},
+        {"periodo_hasta": date(2026, 10, 30)},
+        {"dia_hasta_incluido": False},
+        {"base": 120000},
+        {"iva_importe": 22000},
+        {"retencion_importe": 20000},
+        {
+            "base": 101000,
+            "iva_importe": 20000,
+        },
+        {"importe_negativo": True},
+        {"tercero_nombre": "Otro destinatario"},
+        {"tercero_nif": "22222222B"},
+        {"referencia_documento": "OTRA-FACTURA"},
+    ],
+)
+def test_modificar_apunte_con_factura_rechaza_campos_protegidos(
+    session,
+    apunte_con_factura,
+    cambios,
+) -> None:
+    """Una factura protege los datos contables que ha generado."""
+
+    factura, apunte, movimiento, categorias = (
+        apunte_con_factura
+    )
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    datos = datos_originales.copy()
+    datos.update(cambios)
+
+    # Simular que se ha incorporado una subcategoría
+    # a la configuración después de emitir la factura.
+    if "subcategoria" in cambios:
+        categorias = categorias.copy()
+
+        categorias["ING_ALQUILERES"] = CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(
+                SubcategoriaContable(
+                    codigo="LOCAL",
+                    nombre="Local",
+                    activa=True,
+                ),
+            ),
+        )
+
+    # El usuario intenta modificar un dato protegido
+    # del apunte generado por la factura.
+    with pytest.raises(
+        ContabilidadError,
+        match="factura",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    # Ningún dato del apunte debe haber cambiado.
+    assert _datos_edicion_apunte(apunte) == datos_originales
+
+    assert factura.apunte_contable is apunte
+    assert apunte.base == factura.base
+    assert apunte.iva_importe == factura.iva_importe
+    assert apunte.retencion_importe == factura.retencion_importe
+    assert apunte.total == factura.total
+
+    assert movimiento.apunte is apunte
+    assert movimiento.importe_esperado == factura.total
+    assert movimiento.estado == "PENDIENTE"
+
+
+def test_modificar_apunte_con_factura_rechaza_cambio_inmueble(
+    session,
+    apunte_con_factura,
+) -> None:
+    """El apunte no puede trasladarse a otro inmueble."""
+
+    factura, apunte, movimiento, categorias = (
+        apunte_con_factura
+    )
+
+    inmueble_original = apunte.inmueble
+
+    otro_inmueble = _crear_inmueble_prueba(
+        referencia="OTRO-LOCAL",
+        tipo="L",
+        codigo_facturacion="OL",
+        descripcion="Otro local",
+        direccion="Otra dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    session.add(otro_inmueble)
+    session.commit()
+
+    datos = _datos_edicion_apunte(apunte)
+    datos["inmueble"] = otro_inmueble
+
+    # El usuario intenta trasladar el ingreso
+    # de la factura a otro inmueble.
+    with pytest.raises(
+        ContabilidadError,
+        match="factura",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert apunte.inmueble is inmueble_original
+    assert movimiento.inmueble is inmueble_original
+    assert factura.apunte_contable is apunte
+    assert factura.contrato.inmueble is inmueble_original
+
+
+def test_modificar_apunte_con_factura_permite_datos_descriptivos(
+    session,
+    apunte_con_factura,
+) -> None:
+    """Los datos descriptivos pueden corregirse sin alterar la factura."""
+
+    factura, apunte, movimiento, categorias = (
+        apunte_con_factura
+    )
+
+    datos_antes = _datos_edicion_apunte(apunte)
+
+    lineas_antes = [
+        (linea.concepto, linea.importe)
+        for linea in factura.lineas
+    ]
+
+    cambios = {
+        "concepto": "Alquiler de octubre corregido",
+        "notas": "Nota aclaratoria",
+        "nombre_documento": "Factura octubre.pdf",
+        "ruta_documento": "/facturas/2026",
+    }
+
+    datos = datos_antes.copy()
+    datos.update(cambios)
+
+    # El usuario corrige exclusivamente información descriptiva.
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias,
+        **datos,
+    )
+
+    session.commit()
+
+    assert _datos_edicion_apunte(apunte) == datos
+
+    # El movimiento previsto conserva su coherencia
+    # con el apunte contable.
+    assert movimiento.concepto == cambios["concepto"]
+    assert movimiento.importe_esperado == factura.total
+    assert movimiento.estado == "PENDIENTE"
+
+    # La factura emitida conserva su información histórica.
+    assert factura.apunte_contable is apunte
+
+    assert [
+        (linea.concepto, linea.importe)
+        for linea in factura.lineas
+    ] == lineas_antes
+
+    assert factura.base == apunte.base
+    assert factura.iva_importe == apunte.iva_importe
+    assert factura.retencion_importe == apunte.retencion_importe
+    assert factura.total == apunte.total
+
+
+@pytest.mark.parametrize(
+    "cambios",
+    [
+        {
+            "naturaleza": "GASTO",
+            "categoria": "GAS_COMUNIDAD",
+        },
+        {"categoria": "ING_OTROS"},
+        {"periodo_desde": date(2026, 10, 2)},
+        {"periodo_hasta": date(2026, 10, 30)},
+        {"dia_hasta_incluido": False},
+        {
+            "periodo_desde": date(2026, 11, 1),
+            "periodo_hasta": date(2026, 11, 30),
+        },
+        {
+            "periodo_desde": None,
+            "periodo_hasta": None,
+            "dia_hasta_incluido": None,
+        },
+        {"importe_negativo": True},
+    ],
+)
+def test_modificar_apunte_alquiler_rechaza_cambio_identidad(
+    session,
+    apunte_alquiler_sin_factura,
+    cambios,
+) -> None:
+    """Un alquiler contabilizado conserva su identidad contractual."""
+
+    apunte, movimiento, categorias = (
+        apunte_alquiler_sin_factura
+    )
+
+    contrato_original = movimiento.contrato
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    datos = datos_originales.copy()
+    datos.update(cambios)
+
+    # El usuario intenta modificar la identidad
+    # de un alquiler ya contabilizado.
+    with pytest.raises(
+        ContabilidadError,
+        match="alquiler",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert _datos_edicion_apunte(apunte) == datos_originales
+
+    assert movimiento.apunte is apunte
+    assert movimiento.contrato is contrato_original
+    assert movimiento.inmueble is apunte.inmueble
+    assert movimiento.naturaleza == "INGRESO"
+    assert movimiento.importe_esperado == 80000
+    assert movimiento.estado == "PENDIENTE"
+
+
+def test_modificar_apunte_alquiler_rechaza_cambio_inmueble(
+    session,
+    apunte_alquiler_sin_factura,
+) -> None:
+    """El alquiler no puede trasladarse a otro inmueble."""
+
+    apunte, movimiento, categorias = (
+        apunte_alquiler_sin_factura
+    )
+
+    inmueble_original = apunte.inmueble
+    contrato_original = movimiento.contrato
+
+    otro_inmueble = _crear_inmueble_prueba(
+        referencia="OTRO-LOCAL",
+        tipo="L",
+        codigo_facturacion="OL",
+        descripcion="Otro local",
+        direccion="Otra dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    session.add(otro_inmueble)
+    session.commit()
+
+    datos = _datos_edicion_apunte(apunte)
+    datos["inmueble"] = otro_inmueble
+
+    # El usuario intenta asignar el alquiler
+    # a un inmueble diferente del contratado.
+    with pytest.raises(
+        ContabilidadError,
+        match="alquiler",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert apunte.inmueble is inmueble_original
+    assert movimiento.inmueble is inmueble_original
+    assert movimiento.contrato is contrato_original
+    assert contrato_original.inmueble is inmueble_original
+
+
+def test_modificar_apunte_alquiler_rechaza_fecha_fuera_contrato(
+    session,
+    apunte_alquiler_sin_factura,
+) -> None:
+    """La fecha del alquiler debe ser compatible con su contrato."""
+
+    apunte, movimiento, categorias = (
+        apunte_alquiler_sin_factura
+    )
+
+    contrato_original = movimiento.contrato
+
+    datos = _datos_edicion_apunte(apunte)
+
+    # El usuario intenta asignar al alquiler una fecha
+    # anterior al comienzo del contrato.
+    datos["fecha"] = date(2025, 12, 1)
+
+    with pytest.raises(
+        ContabilidadError,
+        match="contrato",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert apunte.fecha == date(2026, 10, 1)
+    assert movimiento.contrato is contrato_original
+    assert movimiento.fecha_prevista_desde == date(2026, 10, 1)
+    assert movimiento.fecha_prevista_hasta == date(2026, 10, 31)
+
+
+def test_modificar_apunte_alquiler_permite_correcciones(
+    session,
+    apunte_alquiler_sin_factura,
+) -> None:
+    """Permite corregir un alquiler sin alterar su identidad."""
+
+    apunte, movimiento, categorias = (
+        apunte_alquiler_sin_factura
+    )
+
+    contrato_original = movimiento.contrato
+    movimiento_id = movimiento.id
+
+    datos = _datos_edicion_apunte(apunte)
+
+    datos.update({
+        "fecha": date(2026, 10, 3),
+        "base": 85000,
+        "concepto": "Alquiler de octubre corregido",
+        "notas": "Corrección del importe",
+    })
+
+    # El usuario corrige el importe y la descripción
+    # de un alquiler cuyo cobro sigue pendiente.
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias,
+        **datos,
+    )
+
+    session.commit()
+
+    assert _datos_edicion_apunte(apunte) == datos
+
+    assert apunte.total == 85000
+
+    assert movimiento.id == movimiento_id
+    assert movimiento.apunte is apunte
+    assert movimiento.contrato is contrato_original
+
+    assert movimiento.importe_esperado == 85000
+    assert movimiento.concepto == apunte.concepto
+    assert movimiento.estado == "PENDIENTE"
+
+    assert movimiento.fecha_prevista_desde == date(2026, 10, 1)
+    assert movimiento.fecha_prevista_hasta == date(2026, 10, 31)
+
+    # Facturación sigue reconociendo el alquiler
+    # de octubre como ya contabilizado.
+    with pytest.raises(
+        FacturacionError,
+        match="ya está contabilizado",
+    ):
+        contabilizar_ingreso_sin_factura(
+            contrato=contrato_original,
+            periodo=date(2026, 10, 1),
+            fecha=date(2026, 10, 3),
+            categorias=categorias,
+        )
+
+
+def test_reclasificar_apunte_como_alquiler_vincula_contrato(
+    session,
+    contrato,
+    ingreso_para_reclasificar,
+) -> None:
+    """Al reclasificar un ingreso se identifica su contrato."""
+
+    apunte, movimiento, categorias = (
+        ingreso_para_reclasificar
+    )
+
+    movimiento_id = movimiento.id
+
+    datos = _datos_edicion_apunte(apunte)
+
+    datos.update({
+        "categoria": "ING_ALQUILERES",
+        "concepto": "Alquiler de octubre",
+    })
+
+    # El usuario descubre que el ingreso registrado
+    # corresponde realmente al alquiler del inmueble.
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias,
+        **datos,
+    )
+
+    session.commit()
+
+    assert apunte.categoria == "ING_ALQUILERES"
+    assert movimiento.contrato is contrato
+    assert movimiento.apunte is apunte
+    assert movimiento.inmueble is contrato.inmueble
+    assert movimiento.id == movimiento_id
+    assert movimiento.concepto == apunte.concepto
+    assert movimiento.importe_esperado == 80000
+    assert movimiento.estado == "PENDIENTE"
+
+    # No debe haberse creado otro movimiento previsto.
+    assert len(apunte.movimientos_previstos) == 1
+
+    # Facturación reconoce el alquiler como contabilizado.
+    with pytest.raises(
+        FacturacionError,
+        match="ya está contabilizado",
+    ):
+        contabilizar_ingreso_sin_factura(
+            contrato=contrato,
+            periodo=date(2026, 10, 1),
+            fecha=date(2026, 10, 1),
+            categorias=categorias,
+        )
+
+
+def test_reclasificar_apunte_como_alquiler_sin_contrato_vigente(
+    session,
+    contrato,
+    ingreso_para_reclasificar,
+) -> None:
+    """No puede vincularse un alquiler a un contrato no vigente."""
+
+    apunte, movimiento, categorias = (
+        ingreso_para_reclasificar
+    )
+
+    contrato.fecha_fin = date(2026, 9, 30)
+    session.commit()
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    datos = datos_originales.copy()
+    datos["categoria"] = "ING_ALQUILERES"
+
+    # El usuario intenta reclasificar un ingreso de octubre,
+    # pero el contrato terminó en septiembre.
+    with pytest.raises(
+        ContabilidadError,
+        match="contrato",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert _datos_edicion_apunte(apunte) == datos_originales
+
+    assert movimiento.contrato is None
+    assert movimiento.apunte is apunte
+    assert movimiento.importe_esperado == 80000
+    assert movimiento.estado == "PENDIENTE"
+
+
+def test_reclasificar_apunte_como_alquiler_con_varios_contratos(
+    session,
+    contrato,
+    ingreso_para_reclasificar,
+) -> None:
+    """La identificación del contrato no puede ser ambigua."""
+
+    apunte, movimiento, categorias = (
+        ingreso_para_reclasificar
+    )
+
+    otro_contrato = _contrato_para_imputacion(
+        contrato.inmueble,
+        fecha_inicio=date(2026, 9, 1),
+        fecha_fin=None,
+    )
+
+    otro_contrato.genera_factura = False
+
+    session.add(otro_contrato)
+    session.commit()
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    datos = datos_originales.copy()
+    datos["categoria"] = "ING_ALQUILERES"
+
+    # Existen dos contratos vigentes para el inmueble.
+    # Contab no debe elegir arbitrariamente uno de ellos.
+    with pytest.raises(
+        ContabilidadError,
+        match="varios contratos",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert _datos_edicion_apunte(apunte) == datos_originales
+    assert movimiento.contrato is None
+    assert movimiento.estado == "PENDIENTE"
+
+
+@pytest.mark.parametrize(
+    "estado",
+    [
+        "CONCILIADO",
+        "PARCIAL",
+    ],
+)
+def test_reclasificar_apunte_como_alquiler_conciliado_se_rechaza(
+    session,
+    ingreso_para_reclasificar,
+    estado,
+) -> None:
+    """No se cambia la vinculación de un cobro ya conciliado."""
+
+    apunte, movimiento, categorias = (
+        ingreso_para_reclasificar
+    )
+
+    movimiento.estado = estado
+    session.commit()
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    datos = datos_originales.copy()
+    datos["categoria"] = "ING_ALQUILERES"
+
+    # El usuario intenta atribuir a un contrato un ingreso
+    # cuya conciliación ya está total o parcialmente realizada.
+    with pytest.raises(
+        ContabilidadError,
+        match="conciliado",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert _datos_edicion_apunte(apunte) == datos_originales
+
+    assert movimiento.contrato is None
+    assert movimiento.estado == estado
+    assert movimiento.importe_esperado == 80000
+
+
+def test_reclasificar_apunte_como_alquiler_ya_contabilizado(
+    session,
+    ingreso_para_reclasificar,
+    apunte_alquiler_sin_factura,
+) -> None:
+    """La reclasificación no puede duplicar un alquiler mensual."""
+
+    apunte, movimiento, categorias = (
+        ingreso_para_reclasificar
+    )
+
+    alquiler, cobro, _ = apunte_alquiler_sin_factura
+
+    assert apunte.id != alquiler.id
+    assert apunte.inmueble is alquiler.inmueble
+
+    assert apunte.periodo_desde == alquiler.periodo_desde
+    assert apunte.periodo_hasta == alquiler.periodo_hasta
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    datos = datos_originales.copy()
+    datos["categoria"] = "ING_ALQUILERES"
+
+    # El usuario intenta reclasificar otro ingreso
+    # como el alquiler de un mes ya contabilizado.
+    with pytest.raises(
+        ContabilidadError,
+        match="ya está contabilizado",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert _datos_edicion_apunte(apunte) == datos_originales
+
+    assert movimiento.contrato is None
+    assert movimiento.estado == "PENDIENTE"
+
+    # El alquiler original tampoco debe modificarse.
+    assert alquiler.categoria == "ING_ALQUILERES"
+    assert alquiler.total == 80000
+    assert cobro.apunte is alquiler
+    assert cobro.contrato is not None
+    assert cobro.importe_esperado == 80000
+
+
+def test_reclasificar_apunte_como_alquiler_sin_movimiento(
+    session,
+    ingreso_para_reclasificar,
+) -> None:
+    """La reclasificación no genera movimientos no solicitados."""
+
+    apunte, movimiento, categorias = (
+        ingreso_para_reclasificar
+    )
+
+    # Simular un apunte registrado sin movimiento previsto.
+    apunte.movimientos_previstos.remove(movimiento)
+    session.delete(movimiento)
+    session.commit()
+
+    assert not apunte.movimientos_previstos
+
+    datos = _datos_edicion_apunte(apunte)
+    datos["categoria"] = "ING_ALQUILERES"
+
+    # El usuario corrige únicamente la clasificación contable.
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias,
+        **datos,
+    )
+
+    session.commit()
+
+    assert apunte.categoria == "ING_ALQUILERES"
+    assert apunte.total == 80000
+    assert not apunte.movimientos_previstos
+
+
+@pytest.fixture(params=[False, True], ids=["directa", "distribucion"])
+def apunte_gasto_imputado(session, request):
+    """Prepara un gasto con imputación directa o distribuida."""
+
+    categorias = _categorias_gastos_comunes()
+
+    categorias["ING_OTROS"] = CategoriaContable(
+        codigo="ING_OTROS",
+        naturaleza="INGRESO",
+        nombre="Otros ingresos",
+        activa=True,
+        subcategorias=(),
+    )
+
+    categorias["GAS_REPARACIONES"] = CategoriaContable(
+        codigo="GAS_REPARACIONES",
+        naturaleza="GASTO",
+        nombre="Reparaciones",
+        activa=True,
+        subcategorias=(),
+    )
+
+    if request.param:
+        inmueble, local, _ = (
+            _inmueble_subdividido_para_distribuir()
+        )
+    else:
+        inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-1",
+            tipo="L",
+            codigo_facturacion="L1",
+            descripcion="Local",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        local = inmueble
+
+    contrato = _contrato_para_imputacion(
+        local,
+        fecha_inicio=date(2026, 1, 1),
+        fecha_fin=None,
+    )
+
+    # El usuario contabiliza un gasto repercutible.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Gasto de octubre",
+        base=10000,
+        tratamiento="REPERCUTIR",
+    )
+
+    # Se persiste la imputación al contrato, directamente
+    # o a través de una distribución del apunte.
+    if request.param:
+        distribucion = next(
+            distribucion
+            for distribucion in apunte.distribuciones
+            if distribucion.inmueble is local
+        )
+
+        imputacion = ImputacionContrato(
+            distribucion_apunte=distribucion,
+            contrato=contrato,
+            base=distribucion.base,
+            iva_importe=distribucion.iva_importe,
+            retencion_importe=distribucion.retencion_importe,
+            importe=distribucion.total,
+        )
+    else:
+        imputacion = ImputacionContrato(
+            apunte=apunte,
+            contrato=contrato,
+            base=apunte.base,
+            iva_importe=apunte.iva_importe,
+            retencion_importe=apunte.retencion_importe,
+            importe=apunte.total,
+        )
+
+    session.add_all([
+        inmueble,
+        contrato,
+        apunte,
+        imputacion,
+    ])
+    session.commit()
+
+    return apunte, imputacion, categorias
+
+
+def test_modificar_apunte_imputado_rechaza_cambio_naturaleza(
+    session,
+    apunte_gasto_imputado,
+) -> None:
+    """Un gasto ya imputado no puede convertirse en ingreso."""
+
+    apunte, imputacion, categorias = apunte_gasto_imputado
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    importe_imputado = imputacion.importe
+
+    datos = datos_originales.copy()
+
+    datos.update({
+        "naturaleza": "INGRESO",
+        "categoria": "ING_OTROS",
+    })
+
+    # El usuario intenta convertir en ingreso
+    # un gasto que ya ha sido imputado a un contrato.
+    with pytest.raises(
+        ContabilidadError,
+        match="tratamiento",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    # Ni el apunte ni la imputación deben modificarse.
+    assert _datos_edicion_apunte(apunte) == datos_originales
+
+    assert apunte.naturaleza == "GASTO"
+    assert apunte.categoria == "GAS_COMUNIDAD"
+    assert imputacion.importe == importe_imputado
+
+
+def test_modificar_apunte_imputado_permite_cambio_categoria(
+    session,
+    apunte_gasto_imputado,
+) -> None:
+    """Permite reclasificar un gasto sin alterar su imputación."""
+
+    apunte, imputacion, categorias = apunte_gasto_imputado
+
+    imputacion_id = imputacion.id
+    contrato_id = imputacion.contrato_id
+
+    importes_originales = (
+        imputacion.base,
+        imputacion.iva_importe,
+        imputacion.retencion_importe,
+        imputacion.importe,
+    )
+
+    origen_original = (
+        imputacion.apunte_id,
+        imputacion.distribucion_apunte_id,
+    )
+
+    datos = _datos_edicion_apunte(apunte)
+
+    datos["categoria"] = "GAS_REPARACIONES"
+
+    # El usuario descubre que el gasto estaba clasificado
+    # incorrectamente como gasto de comunidad.
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias,
+        **datos,
+    )
+
+    session.commit()
+
+    assert _datos_edicion_apunte(apunte) == datos
+
+    assert apunte.naturaleza == "GASTO"
+    assert apunte.categoria == "GAS_REPARACIONES"
+
+    # La imputación conserva su identidad, contrato,
+    # origen e importes originales.
+    assert imputacion.id == imputacion_id
+    assert imputacion.contrato_id == contrato_id
+
+    assert (
+        imputacion.base,
+        imputacion.iva_importe,
+        imputacion.retencion_importe,
+        imputacion.importe,
+    ) == importes_originales
+
+    assert (
+        imputacion.apunte_id,
+        imputacion.distribucion_apunte_id,
+    ) == origen_original
+
+
+@pytest.mark.parametrize(
+    "naturaleza, importe_negativo, tratamiento, permitido",
+    CASOS_NATURALEZA_SIGNO_TRATAMIENTO,
+)
+def test_crear_apunte_compatibilidad_tratamiento(
+    inmueble,
+    categorias_ingreso_gasto,
+    naturaleza,
+    importe_negativo,
+    tratamiento,
+    permitido,
+) -> None:
+    """Comprueba las combinaciones admitidas al crear un apunte."""
+
+    categoria = (
+        "GAS_COMUNIDAD"
+        if naturaleza == "GASTO"
+        else "ING_OTROS"
+    )
+
+    datos = {
+        "inmueble": inmueble,
+        "categorias": categorias_ingreso_gasto,
+        "fecha": date(2026, 10, 1),
+        "naturaleza": naturaleza,
+        "categoria": categoria,
+        "concepto": "Apunte de prueba",
+        "base": 10000,
+        "importe_negativo": importe_negativo,
+        "tratamiento": tratamiento,
+    }
+
+    if permitido:
+        apunte = crear_apunte_contable(**datos)
+
+        assert apunte.naturaleza == naturaleza
+        assert apunte.categoria == categoria
+        assert apunte.importe_negativo is importe_negativo
+        assert apunte.tratamiento == tratamiento
+        assert apunte.base == 10000
+        assert apunte.total == 10000
+    else:
+        with pytest.raises(
+            ContabilidadError,
+            match="tratamiento",
+        ):
+            crear_apunte_contable(**datos)
+
+
+@pytest.mark.parametrize(
+    "naturaleza, importe_negativo, tratamiento, permitido",
+    CASOS_NATURALEZA_SIGNO_TRATAMIENTO,
+)
+def test_modificar_apunte_compatibilidad_tratamiento(
+    session,
+    inmueble,
+    categorias_ingreso_gasto,
+    naturaleza,
+    importe_negativo,
+    tratamiento,
+    permitido,
+) -> None:
+    """La edición debe respetar las mismas reglas que la creación."""
+
+    # El usuario registra inicialmente un gasto ordinario válido,
+    # sin movimientos previstos ni imputaciones.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias_ingreso_gasto,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Apunte de prueba",
+        base=10000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    datos_originales = _datos_edicion_apunte(apunte)
+
+    categoria = (
+        "GAS_COMUNIDAD"
+        if naturaleza == "GASTO"
+        else "ING_OTROS"
+    )
+
+    datos = datos_originales.copy()
+
+    datos.update({
+        "naturaleza": naturaleza,
+        "categoria": categoria,
+        "importe_negativo": importe_negativo,
+        "tratamiento": tratamiento,
+    })
+
+    # El usuario intenta modificar la naturaleza,
+    # el signo y el tratamiento del apunte.
+    if permitido:
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias_ingreso_gasto,
+            **datos,
+        )
+
+        session.commit()
+
+        assert _datos_edicion_apunte(apunte) == datos
+
+    else:
+        with pytest.raises(
+            ContabilidadError,
+            match="tratamiento",
+        ):
+            modificar_apunte_contable(
+                session,
+                apunte=apunte,
+                categorias=categorias_ingreso_gasto,
+                **datos,
+            )
+
+        # El rechazo no debe modificar el apunte original.
+        assert _datos_edicion_apunte(apunte) == datos_originales
+
+        session.refresh(apunte)
+
+        assert _datos_edicion_apunte(apunte) == datos_originales
+
+
+@pytest.mark.parametrize(
+    "categoria, subcategoria",
+    [
+        ("GAS_ANTIGUA", ""),
+        ("GAS_TRIBUTOS", "ANTIGUA"),
+    ],
+)
+def test_crear_apunte_rechaza_clasificacion_inactiva(
+    inmueble,
+    categorias_con_inactivas,
+    categoria,
+    subcategoria,
+) -> None:
+    """No pueden utilizarse clasificaciones inactivas en nuevos apuntes."""
+
+    # El usuario intenta contabilizar un nuevo gasto
+    # con una clasificación que ya no está activa.
+    with pytest.raises(
+        ContabilidadError,
+        match="inactiva",
+    ):
+        crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=categorias_con_inactivas,
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria=categoria,
+            subcategoria=subcategoria,
+            concepto="Gasto de prueba",
+            base=10000,
+        )
+
+
+@pytest.mark.parametrize(
+    "categoria, subcategoria",
+    [
+        ("GAS_ANTIGUA", ""),
+        ("GAS_TRIBUTOS", "ANTIGUA"),
+    ],
+)
+def test_modificar_apunte_conserva_clasificacion_inactiva(
+    session,
+    inmueble,
+    categorias_con_inactivas,
+    categoria,
+    subcategoria,
+) -> None:
+    """Puede corregirse un apunte con una clasificación histórica."""
+
+    # El apunte se registró cuando su clasificación
+    # todavía estaba activa.
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria=categoria,
+        subcategoria=subcategoria or None,
+        concepto="Concepto original",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    datos = _datos_edicion_apunte(apunte)
+
+    # El usuario corrige el concepto sin cambiar
+    # la clasificación histórica del apunte.
+    datos["concepto"] = "Concepto corregido"
+
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias_con_inactivas,
+        **datos,
+    )
+
+    session.commit()
+    session.refresh(apunte)
+
+    assert apunte.concepto == "Concepto corregido"
+    assert apunte.categoria == categoria
+    assert apunte.subcategoria == (subcategoria or None)
+    assert apunte.total == 10000
+
+
+@pytest.mark.parametrize(
+    "categoria, subcategoria",
+    [
+        ("GAS_ANTIGUA", ""),
+        ("GAS_TRIBUTOS", "ANTIGUA"),
+    ],
+)
+def test_modificar_apunte_rechaza_clasificacion_inactiva(
+    session,
+    inmueble,
+    categorias_con_inactivas,
+    categoria,
+    subcategoria,
+) -> None:
+    """No puede asignarse una clasificación inactiva al editar."""
+
+    # El usuario registra inicialmente un gasto
+    # con una categoría activa.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias_con_inactivas,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    datos = datos_originales.copy()
+
+    # El usuario intenta asignar una clasificación inactiva.
+    datos.update({
+        "categoria": categoria,
+        "subcategoria": subcategoria,
+    })
+
+    with pytest.raises(
+        ContabilidadError,
+        match="inactiva",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias_con_inactivas,
+            **datos,
+        )
+
+    assert _datos_edicion_apunte(apunte) == datos_originales
+
+
+def test_crear_apunte_rechaza_inmueble_inactivo(
+    session,
+    inmueble,
+) -> None:
+    """No pueden registrarse nuevos apuntes en inmuebles inactivos."""
+
+    # El propietario desactiva el inmueble.
+    inmueble.activo = False
+    session.commit()
+
+    # El usuario intenta registrar un nuevo gasto.
+    with pytest.raises(
+        ContabilidadError,
+        match="inactivo",
+    ):
+        crear_apunte_contable(
+            inmueble=inmueble,
+            categorias=_categorias_gastos_comunes(),
+            fecha=date(2026, 10, 1),
+            naturaleza="GASTO",
+            categoria="GAS_COMUNIDAD",
+            concepto="Cuota de comunidad",
+            base=10000,
+        )
+
+
+def test_modificar_apunte_conserva_inmueble_inactivo(
+    session,
+    inmueble,
+) -> None:
+    """Puede corregirse un apunte de un inmueble histórico."""
+
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario contabiliza un gasto mientras
+    # el inmueble permanece activo.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Concepto original",
+        base=10000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    # Posteriormente se desactiva el inmueble.
+    inmueble.activo = False
+    session.commit()
+
+    # El usuario corrige el concepto del apunte histórico.
+    datos = _datos_edicion_apunte(apunte)
+    datos["concepto"] = "Concepto corregido"
+
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias,
+        **datos,
+    )
+
+    session.commit()
+    session.refresh(apunte)
+
+    assert apunte.concepto == "Concepto corregido"
+    assert apunte.inmueble is inmueble
+    assert apunte.inmueble.activo is False
+    assert apunte.total == 10000
+
+
+def test_modificar_apunte_rechaza_otro_inmueble_inactivo(
+    session,
+    inmueble,
+) -> None:
+    """No puede asignarse otro inmueble inactivo al editar."""
+
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario contabiliza un gasto en un inmueble activo.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    # Existe otro inmueble que ha dejado de estar activo.
+    otro_inmueble = _crear_inmueble_prueba(
+        referencia="LOCAL-INACTIVO",
+        tipo="L",
+        codigo_facturacion="Z9",
+        descripcion="Local inactivo",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    otro_inmueble.activo = False
+
+    session.add(otro_inmueble)
+    session.commit()
+
+    datos_originales = _datos_edicion_apunte(apunte)
+    datos = datos_originales.copy()
+
+    # El usuario intenta asignar el gasto al inmueble inactivo.
+    datos["inmueble"] = otro_inmueble
+
+    with pytest.raises(
+        ContabilidadError,
+        match="inactivo",
+    ):
+        modificar_apunte_contable(
+            session,
+            apunte=apunte,
+            categorias=categorias,
+            **datos,
+        )
+
+    assert _datos_edicion_apunte(apunte) == datos_originales
+
+    session.refresh(apunte)
+
+    assert apunte.inmueble is inmueble
+
+
+@pytest.mark.parametrize(
+    "categoria, subcategoria",
+    [
+        ("GAS_ANTIGUA", ""),
+        ("GAS_TRIBUTOS", "ANTIGUA"),
+    ],
+)
+def test_modificar_apunte_sustituye_clasificacion_inactiva(
+    session,
+    inmueble,
+    categorias_con_inactivas,
+    categoria,
+    subcategoria,
+) -> None:
+    """Puede sustituirse una clasificación histórica por una activa."""
+
+    # Existe un apunte con una clasificación que
+    # posteriormente ha dejado de estar activa.
+    apunte = ApunteContable(
+        inmueble=inmueble,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria=categoria,
+        subcategoria=subcategoria or None,
+        concepto="Gasto histórico",
+        base=10000,
+        iva_importe=0,
+        retencion_importe=0,
+        total=10000,
+        tratamiento="CONTABILIZAR",
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    datos = _datos_edicion_apunte(apunte)
+
+    # El usuario corrige la clasificación seleccionando
+    # una categoría actualmente activa.
+    datos.update({
+        "categoria": "GAS_COMUNIDAD",
+        "subcategoria": "",
+    })
+
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias_con_inactivas,
+        **datos,
+    )
+
+    session.commit()
+    session.refresh(apunte)
+
+    assert apunte.categoria == "GAS_COMUNIDAD"
+    assert apunte.subcategoria is None
+    assert apunte.total == 10000
+
+
+def test_modificar_apunte_sustituye_inmueble_inactivo(
+    session,
+    inmueble,
+) -> None:
+    """Puede sustituirse un inmueble histórico por uno activo."""
+
+    categorias = _categorias_gastos_comunes()
+
+    # El usuario registra un gasto en un inmueble activo.
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2026, 10, 1),
+        naturaleza="GASTO",
+        categoria="GAS_COMUNIDAD",
+        concepto="Cuota de comunidad",
+        base=10000,
+    )
+
+    session.add(apunte)
+    session.commit()
+
+    # Posteriormente se desactiva el inmueble original.
+    inmueble.activo = False
+
+    otro_inmueble = _crear_inmueble_prueba(
+        referencia="LOCAL-ACTIVO",
+        tipo="L",
+        codigo_facturacion="Z9",
+        descripcion="Local activo",
+        direccion="Dirección",
+        poblacion="Pontevedra",
+        provincia="Pontevedra",
+    )
+
+    otro_inmueble.activo = True
+
+    session.add(otro_inmueble)
+    session.commit()
+
+    datos = _datos_edicion_apunte(apunte)
+
+    # El usuario corrige la asignación del gasto,
+    # seleccionando un inmueble activo.
+    datos["inmueble"] = otro_inmueble
+
+    modificar_apunte_contable(
+        session,
+        apunte=apunte,
+        categorias=categorias,
+        **datos,
+    )
+
+    session.commit()
+    session.refresh(apunte)
+
+    assert apunte.inmueble is otro_inmueble
+    assert apunte.inmueble.activo is True
+    assert apunte.total == 10000
 

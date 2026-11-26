@@ -637,6 +637,40 @@ movements originate from SolicitudReembolso. Every persisted expected movement
 must reference exactly one of these two origins. This is enforced by a database
 CHECK constraint.
 
+## Accounting entry editing integrity
+
+Accounting entry modification rules are centralized in
+`contabilidad/services.py`.
+
+`preparar_modificacion_apunte_contable()` validates proposed changes
+without modifying persisted objects. Both form validation and
+`modificar_apunte_contable()` use this function.
+
+Restrictions are cumulative and depend on persisted relationships:
+
+- Linked invoices protect the accounting data originating from billing.
+- Linked rents protect their contractual identity and period.
+- Partial or complete reconciliation protects property, nature, total
+  and sign.
+- Persisted imputations protect the data used to calculate allocation.
+
+Reclassification as rent requires contract resolution and duplicate
+checking when an expected movement already exists. Reconciled ordinary
+income cannot be reclassified as rent.
+
+`restricciones_edicion_apunte()` exposes protected attributes and
+restriction messages using the same conditions and field definitions
+as the validators.
+
+The accounting form disables protected controls and filters available
+classifications and treatments. Server-side validation remains mandatory.
+
+Inactive properties and classifications may only be retained when they
+match the original entry. New assignments to inactive elements are
+rejected.
+
+Form presentation is controlled through `contab.css`, using the
+`formulario-apunte` class and its related selectors.
 
 ## Editing entries linked to expected movements
 
@@ -823,6 +857,7 @@ If an entry has persisted contract imputations, directly or through one of its d
 ```text
 inmueble
 fecha
+naturaleza
 base
 iva_importe
 retencion_importe
@@ -907,10 +942,13 @@ The shared helper naturaleza_prevista_apunte() centralizes this rule.
 Changes to the sign of an accounting entry must respect the same
 historical protections as changes to its amount.
 
-The implemented treatments are CONTABILIZAR and REPERCUTIR.
+Income entries only support CONTABILIZAR.
 
-Negative FACTURAR entries and rectifying invoices remain outside
-the implemented scope.
+Expense entries support CONTABILIZAR, REPERCUTIR and FACTURAR,
+regardless of their sign.
+
+The registration of negative FACTURAR expenses is supported.
+Their effective inclusion in invoices remains pending.
 
 
 ## Expense reimbursement workflow

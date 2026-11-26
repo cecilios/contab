@@ -7,6 +7,7 @@ import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from calendar import monthrange
+from dataclasses import replace
 
 from flask import (
     Blueprint,
@@ -32,6 +33,7 @@ from contab.formato import (
 from contab.models import ApunteContable, Inmueble
 
 from contab.config import (
+    CategoriaContable,
     cargar_categorias_contables,
     categorias_contables_activas,
 )
@@ -41,9 +43,12 @@ from contab.contabilidad.services import (
     crear_apunte_contable,
     eliminar_apunte_contable,
     modificar_apunte_contable,
+    preparar_modificacion_apunte_contable,
     preparar_registro_contable,
     proponer_nombre_documento,
-    validar_modificacion_con_movimientos,
+    puede_reclasificarse_como_alquiler,
+    restricciones_edicion_apunte,
+    validar_modificacion_apunte_contable,
 )
 from contab.conciliacion.services import (
     ConciliacionError,
@@ -493,6 +498,186 @@ def _separar_clasificacion(
     )
 
 
+def _campos_bloqueados_formulario(
+    campos_protegidos: set[str],
+) -> set[str]:
+    """Identifica los controles que no admiten ninguna modificación."""
+
+    campos_bloqueados = campos_protegidos.intersection({
+        "fecha",
+        "periodo_desde",
+        "periodo_hasta",
+        "dia_hasta_incluido",
+        "base",
+        "iva_importe",
+        "retencion_importe",
+        "tratamiento",
+        "tercero_nombre",
+        "tercero_nif",
+        "referencia_documento",
+    })
+
+    if "inmueble" in campos_protegidos:
+        campos_bloqueados.add("inmueble_id")
+
+    if {
+        "naturaleza",
+        "categoria",
+        "subcategoria",
+    }.issubset(campos_protegidos):
+        campos_bloqueados.add("clasificacion")
+
+    return campos_bloqueados
+
+
+def _datos_apunte_persistido(
+    apunte: ApunteContable,
+) -> dict:
+    """Convierte los datos persistidos al formato del formulario."""
+
+    clasificacion = apunte.categoria
+
+    if apunte.subcategoria:
+        clasificacion += f".{apunte.subcategoria}"
+
+    periodo_desde, periodo_hasta = _periodo_para_formulario(
+        apunte.periodo_desde,
+        apunte.periodo_hasta,
+    )
+
+    return {
+        "inmueble_id": str(apunte.inmueble_id),
+        "fecha": fecha_a_texto(apunte.fecha),
+        "clasificacion": clasificacion,
+        "concepto": apunte.concepto,
+        "periodo_desde": periodo_desde,
+        "periodo_hasta": periodo_hasta,
+        "dia_hasta_incluido": (
+            ""
+            if apunte.dia_hasta_incluido is None
+            else "1"
+            if apunte.dia_hasta_incluido
+            else "0"
+        ),
+        "tratamiento": apunte.tratamiento,
+        "base": _importe_para_formulario(
+            -apunte.base
+            if apunte.importe_negativo
+            else apunte.base
+        ),
+        "iva_importe": _importe_para_formulario(
+            apunte.iva_importe
+        ),
+        "retencion_importe": _importe_para_formulario(
+            apunte.retencion_importe
+        ),
+        "importe_a_pagar": _importe_para_formulario(
+            -apunte.total
+            if apunte.importe_negativo
+            else apunte.total
+        ),
+        "nombre_documento": apunte.nombre_documento,
+        "tercero_nombre": apunte.tercero_nombre,
+        "tercero_nif": apunte.tercero_nif,
+        "referencia_documento": apunte.referencia_documento,
+    }
+
+
+def _categorias_disponibles_formulario(
+    categorias: dict[str, CategoriaContable],
+    apunte: ApunteContable | None = None,
+) -> tuple[CategoriaContable, ...]:
+    """Obtiene las clasificaciones activas y la histórica del apunte."""
+
+    resultado = []
+
+    for categoria in categorias.values():
+        es_categoria_original = (
+            apunte is not None
+            and categoria.codigo == apunte.categoria
+        )
+
+        if categoria.subcategorias:
+            subcategorias = tuple(
+                subcategoria
+                for subcategoria in categoria.subcategorias
+                if (
+                    categoria.activa
+                    and subcategoria.activa
+                )
+                or (
+                    es_categoria_original
+                    and subcategoria.codigo == apunte.subcategoria
+                )
+            )
+
+            if not subcategorias:
+                continue
+
+            resultado.append(
+                replace(
+                    categoria,
+                    subcategorias=subcategorias,
+                )
+            )
+
+        elif categoria.activa or (
+            es_categoria_original
+            and apunte.subcategoria is None
+        ):
+            resultado.append(categoria)
+
+    return tuple(resultado)
+
+
+def _categorias_para_editar_apunte(
+    categorias: tuple[CategoriaContable, ...],
+    apunte: ApunteContable,
+    campos_protegidos: set[str],
+) -> tuple[CategoriaContable, ...]:
+    """Limita las clasificaciones según las restricciones del apunte."""
+
+    resultado = []
+
+    for categoria in categorias:
+        if (
+            "naturaleza" in campos_protegidos
+            and categoria.naturaleza != apunte.naturaleza
+        ):
+            continue
+
+        if (
+            "categoria" in campos_protegidos
+            and categoria.codigo != apunte.categoria
+        ):
+            continue
+
+        if (
+            categoria.codigo == "ING_ALQUILERES"
+            and not puede_reclasificarse_como_alquiler(apunte)
+        ):
+            continue
+
+        if "subcategoria" in campos_protegidos:
+            subcategorias = tuple(
+                subcategoria
+                for subcategoria in categoria.subcategorias
+                if subcategoria.codigo == apunte.subcategoria
+            )
+
+            if categoria.subcategorias and not subcategorias:
+                continue
+
+            categoria = replace(
+                categoria,
+                subcategorias=subcategorias,
+            )
+
+        resultado.append(categoria)
+
+    return tuple(resultado)
+
+
 def _mostrar_formulario_apunte(
     *,
     titulo: str,
@@ -501,11 +686,14 @@ def _mostrar_formulario_apunte(
     status_code: int = 200,
     permitir_movimiento: bool = False,
     aviso: str | None = None,
+    apunte_id: int | None = None,
 ):
-    """Muestra el formulario con sus opciones."""
+    """Muestra el formulario con sus opciones y restricciones."""
 
-    categorias = categorias_contables_activas(
-        cargar_categorias_contables()
+    categorias_configuradas = cargar_categorias_contables()
+
+    categorias = _categorias_disponibles_formulario(
+        categorias_configuradas
     )
 
     session_factory = get_session_factory()
@@ -517,6 +705,78 @@ def _mostrar_formulario_apunte(
             .order_by(Inmueble.referencia)
         ).all()
 
+        campos_protegidos = set()
+        avisos_restricciones = []
+
+        if apunte_id is not None:
+            apunte = session.get(
+                ApunteContable,
+                apunte_id,
+            )
+
+            if apunte is not None:
+                if not apunte.inmueble.activo:
+                    inmuebles.append(apunte.inmueble)
+                    inmuebles.sort( key=lambda inmueble: inmueble.referencia )
+
+                (
+                    campos_protegidos,
+                    avisos_restricciones,
+                ) = restricciones_edicion_apunte(
+                    session,
+                    apunte,
+                )
+
+                categorias = _categorias_disponibles_formulario(
+                    categorias_configuradas,
+                    apunte,
+                )
+
+                categorias = _categorias_para_editar_apunte(
+                    categorias,
+                    apunte,
+                    campos_protegidos,
+                )
+
+        campos_bloqueados = _campos_bloqueados_formulario(
+            campos_protegidos
+        )
+
+        if (
+            error is not None
+            and apunte_id is not None
+            and apunte is not None
+        ):
+            datos_originales = _datos_apunte_persistido(
+                apunte
+            )
+
+            for campo in campos_bloqueados:
+                datos[campo] = datos_originales[campo]
+
+            if {
+                "base",
+                "iva_importe",
+                "retencion_importe",
+            }.issubset(campos_bloqueados):
+                datos["importe_a_pagar"] = (
+                    datos_originales["importe_a_pagar"]
+                )
+
+        codigo_categoria = datos.get(
+            "clasificacion",
+            "",
+        ).split(".", 1)[0]
+
+        naturaleza_seleccionada = next(
+            (
+                categoria.naturaleza
+                for categoria in categorias
+                if categoria.codigo == codigo_categoria
+            ),
+            None,
+        )
+
         contenido = render_template(
             "contabilidad/formulario.html",
             titulo=titulo,
@@ -527,6 +787,9 @@ def _mostrar_formulario_apunte(
             database_name=get_database_name(),
             permitir_movimiento=permitir_movimiento,
             aviso=aviso,
+            campos_bloqueados=campos_bloqueados,
+            avisos_restricciones=avisos_restricciones,
+            naturaleza_seleccionada=naturaleza_seleccionada,
         )
 
     return contenido, status_code
@@ -1122,21 +1385,6 @@ def editar_apunte(apunte_id: int):
             if apunte is None:
                 return "Apunte contable no encontrado.", 404
 
-            clasificacion = apunte.categoria
-
-            if apunte.subcategoria:
-                clasificacion += (
-                    f".{apunte.subcategoria}"
-                )
-
-            (
-                periodo_desde,
-                periodo_hasta,
-            ) = _periodo_para_formulario(
-                apunte.periodo_desde,
-                apunte.periodo_hasta,
-            )
-
             categorias = cargar_categorias_contables()
 
             concepto_base = _proponer_concepto(
@@ -1178,60 +1426,17 @@ def editar_apunte(apunte_id: int):
                 else ""
             )
 
-            datos = {
-                "inmueble_id": str(apunte.inmueble_id),
-                "fecha": fecha_a_texto(apunte.fecha),
-                "clasificacion": clasificacion,
-                "concepto": apunte.concepto,
-                "periodo_desde": periodo_desde,
-                "periodo_hasta": periodo_hasta,
-                "dia_hasta_incluido": (
-                    ""
-                    if apunte.dia_hasta_incluido is None
-                    else "1"
-                    if apunte.dia_hasta_incluido
-                    else "0"
-                ),
-                "tratamiento": apunte.tratamiento,
-                "base": _importe_para_formulario(
-                    -apunte.base
-                    if apunte.importe_negativo
-                    else apunte.base
-                ),
-                "iva_importe": (
-                    _importe_para_formulario(
-                        apunte.iva_importe
-                    )
-                ),
-                "retencion_importe": (
-                    _importe_para_formulario(
-                        apunte.retencion_importe
-                    )
-                ),
-                "importe_a_pagar": (
-                    _importe_para_formulario(
-                        -apunte.total
-                        if apunte.importe_negativo
-                        else apunte.total
-                    )
-                ),
-                "nombre_documento": (
-                    apunte.nombre_documento
-                ),
-                "tercero_nombre": (
-                    apunte.tercero_nombre
-                ),
-                "tercero_nif": apunte.tercero_nif,
-                "referencia_documento": (
-                    apunte.referencia_documento
-                ),
+            datos = _datos_apunte_persistido(apunte)
+
+            datos.update({
                 "concepto_automatico": concepto_automatico,
                 "nombre_documento_automatico": nombre_automatico,
-            }
+            })
 
         contenido, _ = _mostrar_formulario_apunte(
             titulo="Editar apunte contable",
             datos=datos,
+            apunte_id=apunte_id,
             error=None,
         )
 
@@ -1300,17 +1505,13 @@ def editar_apunte(apunte_id: int):
                     datos_formulario=datos_formulario,
                 )
 
-                apunte_validado = crear_apunte_contable(
-                    inmueble=inmueble,
-                    **valores,
-                )
-
-                validar_modificacion_con_movimientos(
-                    apunte=apunte,
-                    inmueble=apunte_validado.inmueble,
-                    naturaleza=apunte_validado.naturaleza,
-                    total=apunte_validado.total,
-                    importe_negativo=apunte_validado.importe_negativo,
+                datos_validados, _ = (
+                    preparar_modificacion_apunte_contable(
+                        session,
+                        apunte=apunte,
+                        inmueble=inmueble,
+                        **valores,
+                    )
                 )
 
                 aviso = _comprobar_documento_duplicado(
@@ -1340,13 +1541,13 @@ def editar_apunte(apunte_id: int):
                     )
 
                 datos_formulario["nombre_documento"] = (
-                    apunte_validado.nombre_documento
+                    datos_validados["nombre_documento"]
                 )
 
                 total_firmado = (
-                    -apunte_validado.total
-                    if apunte_validado.importe_negativo
-                    else apunte_validado.total
+                    -datos_validados["total"]
+                    if datos_validados["importe_negativo"]
+                    else datos_validados["total"]
                 )
 
                 datos_formulario["importe_a_pagar"] = (
@@ -1366,6 +1567,7 @@ def editar_apunte(apunte_id: int):
                     datos=datos_formulario,
                     error=None,
                     aviso=aviso,
+                    apunte_id=apunte_id,
                 )
 
         with session_factory() as session:
@@ -1434,6 +1636,7 @@ def editar_apunte(apunte_id: int):
             datos=datos_formulario,
             error=str(exc),
             status_code=400,
+            apunte_id=apunte_id,
         )
 
     return redirect(
