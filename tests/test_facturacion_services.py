@@ -1040,6 +1040,7 @@ def test_preparar_registro_contable_factura(
         ),
     }
 
+    contrato.concepto_factura = "Alquiler del local 2B."
     contrato.iva_porcentaje = 2100
     contrato.retencion_porcentaje = 1900
 
@@ -1074,12 +1075,14 @@ def test_preparar_registro_contable_factura(
 
     session.commit()
 
+    # Emitir en noviembre la factura del alquiler de octubre.
     factura = crear_factura(
         contrato=contrato,
         periodo=date(2026, 10, 1),
-        fecha_emision=date(2026, 10, 1),
+        fecha_emision=date(2026, 11, 2),
     )
 
+    # Preparar los efectos contables de la factura.
     apunte, movimiento = preparar_registro_contable_factura(
         factura=factura,
         categorias=categorias,
@@ -1089,10 +1092,14 @@ def test_preparar_registro_contable_factura(
     assert apunte.id is None
 
     assert apunte.inmueble is contrato.inmueble
-    assert apunte.fecha == date(2026, 10, 1)
+    assert apunte.fecha == date(2026, 11, 2)
     assert apunte.naturaleza == "INGRESO"
     assert apunte.categoria == "ING_ALQUILERES"
     assert apunte.subcategoria is None
+
+    assert apunte.concepto == (
+        "Alquiler del local 2B. Octubre de 2026"
+    )
 
     assert apunte.periodo_desde == date(2026, 10, 1)
     assert apunte.periodo_hasta == date(2026, 10, 31)
@@ -1113,6 +1120,7 @@ def test_preparar_registro_contable_factura(
     assert movimiento.contrato is contrato
     assert movimiento.inmueble is contrato.inmueble
 
+    assert movimiento.concepto == apunte.concepto
     assert movimiento.naturaleza == "INGRESO"
     assert movimiento.importe_esperado == 102000
 
@@ -1989,6 +1997,8 @@ def test_contabilizar_ingreso_sin_factura_prepara_operacion_completa(
     )
 
     contrato.genera_factura = False
+    contrato.concepto_factura = "Alquiler del piso 3A"
+
     contrato.rentas.append(
         RentaContrato(
             fecha_desde=contrato.fecha_inicio,
@@ -1998,19 +2008,23 @@ def test_contabilizar_ingreso_sin_factura_prepara_operacion_completa(
 
     session.commit()
 
+    # Contabilizar en noviembre el alquiler de octubre.
     apunte, movimiento = contabilizar_ingreso_sin_factura(
         contrato=contrato,
         periodo=date(2026, 10, 1),
-        fecha=date(2026, 10, 1),
+        fecha=date(2026, 11, 2),
         categorias=categorias,
     )
 
     assert apunte.id is None
     assert apunte.inmueble is contrato.inmueble
-    assert apunte.fecha == date(2026, 10, 1)
+    assert apunte.fecha == date(2026, 11, 2)
     assert apunte.naturaleza == "INGRESO"
     assert apunte.categoria == "ING_ALQUILERES"
-    assert apunte.concepto == contrato.concepto_factura
+
+    assert apunte.concepto == (
+        "Alquiler del piso 3A. Octubre de 2026"
+    )
 
     assert apunte.periodo_desde == date(2026, 10, 1)
     assert apunte.periodo_hasta == date(2026, 10, 31)
@@ -2029,6 +2043,7 @@ def test_contabilizar_ingreso_sin_factura_prepara_operacion_completa(
     assert movimiento.contrato is contrato
     assert movimiento.inmueble is contrato.inmueble
 
+    assert movimiento.concepto == apunte.concepto
     assert movimiento.naturaleza == "INGRESO"
     assert movimiento.importe_esperado == 80000
     assert movimiento.fecha_prevista_desde == date(2026, 10, 1)

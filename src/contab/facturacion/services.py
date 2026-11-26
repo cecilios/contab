@@ -204,6 +204,17 @@ class ReaperturaRevision:
 
 
 
+def _concepto_alquiler_mensual(
+    concepto: str,
+    periodo: date,
+) -> str:
+    """Particulariza el concepto del alquiler con su mes y año."""
+
+    concepto = concepto.rstrip(".")
+
+    return f"{concepto}. {periodo_a_texto_largo(periodo)}"
+
+
 def _ultimo_dia_mes(periodo: date) -> date:
     """Devuelve el último día del mes de un período."""
 
@@ -682,7 +693,10 @@ def preparar_registro_contable_factura(
         fecha=factura.fecha_emision,
         naturaleza="INGRESO",
         categoria="ING_ALQUILERES",
-        concepto=contrato.concepto_factura,
+        concepto=_concepto_alquiler_mensual(
+            contrato.concepto_factura,
+            periodo_desde,
+        ),
         base=factura.base,
         iva_importe=factura.iva_importe,
         retencion_importe=factura.retencion_importe,
@@ -736,7 +750,10 @@ def contabilizar_ingreso_sin_factura(
         fecha=fecha,
         naturaleza="INGRESO",
         categoria="ING_ALQUILERES",
-        concepto=contrato.concepto_factura,
+        concepto=_concepto_alquiler_mensual(
+            contrato.concepto_factura,
+            periodo,
+        ),
         base=importe,
         iva_importe=0,
         retencion_importe=0,
@@ -850,13 +867,11 @@ def preparar_periodo_facturacion(
                     fecha_renta,
                 )
 
-                concepto = contrato.concepto_factura.rstrip(".")
-
                 lineas = [
                     LineaFacturaPreparada(
-                        concepto=(
-                            f"{concepto}. "
-                            f"{periodo_a_texto_largo(periodo)}"
+                        concepto=_concepto_alquiler_mensual(
+                            contrato.concepto_factura,
+                            periodo,
                         ),
                         importe=importe_renta,
                     )

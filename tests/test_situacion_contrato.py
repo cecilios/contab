@@ -120,6 +120,78 @@ def registrar_cobro(
     return bancario
 
 
+def test_exigibles_de_facturas_usan_concepto_del_apunte(
+    session,
+    contrato,
+):
+    """Los exigibles conservan el concepto contable de cada ingreso."""
+
+    # El usuario tiene una factura contabilizada
+    # con el antiguo concepto genérico.
+    factura_septiembre, previsto_septiembre = crear_factura_prueba(
+        session,
+        contrato,
+        numero=1,
+        fecha=date(2026, 9, 1),
+        importe=100000,
+    )
+
+    factura_septiembre.apunte_contable.concepto = (
+        "Alquiler del local 2B"
+    )
+    previsto_septiembre.concepto = (
+        factura_septiembre.apunte_contable.concepto
+    )
+
+    # El usuario contabiliza otra factura
+    # con el nuevo concepto mensual.
+    factura_octubre, previsto_octubre = crear_factura_prueba(
+        session,
+        contrato,
+        numero=2,
+        fecha=date(2026, 10, 1),
+        importe=100000,
+    )
+
+    factura_octubre.apunte_contable.concepto = (
+        "Alquiler del local 2B. Octubre de 2026"
+    )
+    previsto_octubre.concepto = (
+        factura_octubre.apunte_contable.concepto
+    )
+
+    # El usuario modifica posteriormente el concepto del contrato.
+    contrato.concepto_factura = "Nuevo concepto del contrato"
+
+    session.commit()
+
+    # El usuario consulta la situación económica del contrato.
+    situacion = calcular_situacion_contrato(
+        session,
+        contrato.id,
+        fecha_desde=date(2026, 1, 1),
+        fecha_hasta=date(2026, 10, 31),
+    )
+
+    assert len(situacion.exigibles) == 2
+
+    assert situacion.exigibles[0].fecha == date(2026, 9, 1)
+    assert situacion.exigibles[0].concepto == (
+        "Alquiler del local 2B"
+    )
+    assert situacion.exigibles[0].importe == 100000
+
+    assert situacion.exigibles[1].fecha == date(2026, 10, 1)
+    assert situacion.exigibles[1].concepto == (
+        "Alquiler del local 2B. Octubre de 2026"
+    )
+    assert situacion.exigibles[1].importe == 100000
+
+    assert situacion.total_exigible == 200000
+    assert situacion.total_cobrado == 0
+    assert situacion.saldo == 200000
+
+
 def test_factura_y_cobro_parcial_con_diferencia_aceptada(
     session,
     contrato,
@@ -170,6 +242,9 @@ def test_factura_y_cobro_parcial_con_diferencia_aceptada(
     assert len(situacion.cobros) == 1
     assert situacion.cobros[0].importe == 90000
     assert situacion.cobros[0].fecha == date(2026, 10, 5)
+
+    # El cobro conserva la descripción original del banco.
+    assert situacion.cobros[0].concepto == "Cobro OCTUBRE"
 
 
 def test_cobro_conciliado_manualmente(

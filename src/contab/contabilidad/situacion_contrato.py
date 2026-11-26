@@ -84,11 +84,15 @@ def calcular_situacion_contrato(
     ).all()
 
     for factura in facturas:
+        apunte = factura.apunte_contable
+
         obligaciones.append(
             MovimientoEconomico(
                 fecha=factura.fecha_emision,
                 concepto=(
-                    f"Factura {factura.numero_factura}"
+                    apunte.concepto
+                    if apunte is not None
+                    else f"Factura {factura.numero_factura}"
                 ),
                 importe=factura.total,
             )

@@ -519,6 +519,25 @@ facturar
     = later include an expense in an invoice while preserving the original expense
 ```
 
+### Consistent accounting concepts
+
+The accounting entry (`ApunteContable.concepto`) is the source of the descriptive concept of an accounting event.
+
+Accounting reports and contract obligations must reuse the stored concept rather than reconstruct it from current contract data, invoice numbers or reporting dates.
+
+Expected movements inherit the concept of their associated accounting entry and remain synchronized with it.
+
+Monthly rental accounting, with or without an invoice, uses the contract concept followed by the rental period:
+
+`Alquiler del local 2B. Octubre de 2026`
+
+Reuse the same concept-generation logic for ordinary invoice preparation and rental accounting. The rental period, not the invoice or payment date, determines the month and year.
+
+Invoice references and individual invoice line descriptions retain their own purpose.
+
+Actual bank movements retain their original bank descriptions.
+
+
 ## Accounting form validation
 
 The accounting form follows:
