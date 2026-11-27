@@ -1,6 +1,7 @@
 """Pruebas de las rutas web del módulo de contratos."""
 
 import pytest
+import re
 
 from datetime import date
 from sqlalchemy import select
@@ -9,13 +10,20 @@ from werkzeug.datastructures import MultiDict
 from contab.app import create_app
 from contab.database import Base
 from contab.contratos.routes import _titulares_formulario, _resolver_titulares
+from contab.config import CategoriaContable
 
+from contab.facturacion.services import (
+    contabilizar_ingreso_sin_factura,
+    crear_factura,
+)
 from contab.models import (
+    AjusteRenta,
     Contrato,
     Inmueble,
     Inquilino,
     RentaContrato,
     RevisionRenta,
+    SolicitudReembolso,
 )
 from contab.contratos.services import (
     ContratoError,
@@ -190,6 +198,40 @@ def _datos_titulares(
         datos[f"titular_{posicion}_nif"] = nif
 
     return datos
+
+
+def _etiqueta_control(html: str, identificador: str) -> str:
+    """Obtiene la etiqueta HTML de apertura de un control."""
+
+    resultado = re.search(
+        rf'<(?:input|select)\b[^>]*'
+        rf'\bid="{re.escape(identificador)}"[^>]*>',
+        html,
+    )
+
+    assert resultado is not None, (
+        f"No se encuentra el control {identificador}"
+    )
+
+    return resultado.group(0)
+
+
+def _texto_label(html: str, identificador: str) -> str:
+    """Obtiene el contenido de la etiqueta de un campo."""
+
+    resultado = re.search(
+        rf'<label\b[^>]*'
+        rf'\bfor="{re.escape(identificador)}"[^>]*>'
+        rf'(.*?)</label>',
+        html,
+        re.DOTALL,
+    )
+
+    assert resultado is not None, (
+        f"No se encuentra la etiqueta {identificador}"
+    )
+
+    return resultado.group(1)
 
 
 def crear_app_test():
@@ -535,7 +577,7 @@ def test_crear_contrato_rechaza_error_metodo_actualizacion() -> None:
 
     assert response.status_code == 400
     assert (
-        "El método de revisión indicado no es válido."
+        "La revisión debe indicar un método de actualización."
         in response.text
     )
 
@@ -2451,7 +2493,10 @@ def test_formulario_nuevo_contrato_marca_genera_factura_por_defecto() -> None:
 
     assert response.status_code == 200
     assert 'name="genera_factura"' in response.text
-    assert "checked" in response.text
+    assert "checked" in _etiqueta_control(
+        response.text,
+        "genera_factura",
+    )
 
 
 def test_editar_contrato_que_genera_factura_lo_muestra_en_on() -> None:
@@ -2471,7 +2516,10 @@ def test_editar_contrato_que_genera_factura_lo_muestra_en_on() -> None:
 
     assert response.status_code == 200
     assert 'name="genera_factura"' in response.text
-    assert "checked" in response.text
+    assert "checked" in _etiqueta_control(
+        response.text,
+        "genera_factura",
+    )
 
 
 def test_editar_contrato_que_no_genera_factura_lo_muestra_en_off() -> None:
@@ -2494,7 +2542,10 @@ def test_editar_contrato_que_no_genera_factura_lo_muestra_en_off() -> None:
 
     assert response.status_code == 200
     assert 'name="genera_factura"' in response.text
-    assert "checked" not in response.text
+    assert "checked" not in _etiqueta_control(
+        response.text,
+        "genera_factura",
+    )
 
 
 def test_editar_contrato_permite_desactivar_genera_factura() -> None:
@@ -2970,7 +3021,7 @@ def test_nuevo_contrato_rechaza_metodo_revision_vacio() -> None:
 
     assert response.status_code == 400
     assert (
-        "El método de revisión indicado no es válido."
+        "La revisión debe indicar un método de actualización."
         in response.text
     )
     assert 'name="metodo_revision"' in response.text
@@ -3379,4 +3430,2143 @@ def test_anexo_rechaza_numero_duplicado() -> None:
             2036, 9, 14
         )
 
+
+@pytest.mark.parametrize(
+    "genera_factura, fecha_revision, metodo, numero_revisiones",
+    [
+        pytest.param(
+            True, "01/10/2027", "IPC_NACIONAL", 1,
+            id="con-factura-y-revision",
+        ),
+        pytest.param(
+            True, "", "", None,
+            id="con-factura-sin-revision",
+        ),
+        pytest.param(
+            False, "", "", 0,
+            id="sin-factura-sin-revision",
+        ),
+        pytest.param(
+            False, "01/10/2027", "IPC_NACIONAL", 1,
+            id="sin-factura-con-revision",
+        ),
+        pytest.param(
+            False, "01/10/2027", "", None,
+            id="solo-fecha",
+        ),
+        pytest.param(
+            False, "", "IPC_NACIONAL", None,
+            id="solo-metodo",
+        ),
+    ],
+)
+def test_alta_contrato_opcionalidad_primera_revision(
+    genera_factura,
+    fecha_revision,
+    metodo,
+    numero_revisiones,
+) -> None:
+    """Comprueba la opcionalidad de la revisión desde el formulario."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    if not genera_factura:
+        datos.pop("genera_factura")
+
+    datos["fecha_primera_revision"] = fecha_revision
+    datos["metodo_revision"] = metodo
+
+    # El usuario cumplimenta el formulario de alta
+    # e intenta guardar el nuevo contrato.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    if numero_revisiones is None:
+        assert response.status_code == 400
+
+        # Un alta rechazada no debe dejar registros
+        # contractuales parcialmente creados.
+        with session_factory() as session:
+            assert session.scalar(select(Contrato)) is None
+            assert session.scalar(select(RentaContrato)) is None
+            assert session.scalar(select(RevisionRenta)) is None
+
+        return
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        assert contrato is not None
+        assert contrato.genera_factura is genera_factura
+
+        # El contrato conserva su renta inicial.
+        assert len(contrato.rentas) == 1
+        assert contrato.rentas[0].importe == 150000
+
+        # La primera revisión es opcional cuando
+        # el contrato no genera factura.
+        assert (
+            len(contrato.revisiones_renta)
+            == numero_revisiones
+        )
+
+        if numero_revisiones == 1:
+            revision = contrato.revisiones_renta[0]
+
+            assert revision.fecha_prevista == date(2027, 10, 1)
+            assert revision.metodo == metodo
+            assert revision.estado == "PENDIENTE"
+
+
+@pytest.mark.parametrize(
+    (
+        "revision_existente, genera_factura, "
+        "fecha_revision, metodo, resultado"
+    ),
+    [
+        pytest.param(
+            False, False, "", "", 302,
+            id="conservar-sin-revision",
+        ),
+        pytest.param(
+            False, False, "01/11/2027", "IPC_NACIONAL", 302,
+            id="anadir-primera-revision",
+        ),
+        pytest.param(
+            False, True, "", "", 400,
+            id="activar-factura-sin-revision",
+        ),
+        pytest.param(
+            False, True, "01/11/2027", "IPC_NACIONAL", 302,
+            id="activar-factura-con-revision",
+        ),
+        pytest.param(
+            True, False, "01/11/2027", "IPC_NACIONAL", 302,
+            id="modificar-revision-existente",
+        ),
+        pytest.param(
+            True, False, "", "", 400,
+            id="no-eliminar-revision-existente",
+        ),
+        pytest.param(
+            False, False, "01/11/2027", "", 400,
+            id="solo-fecha",
+        ),
+        pytest.param(
+            False, False, "", "IPC_NACIONAL", 400,
+            id="solo-metodo",
+        ),
+    ],
+)
+def test_editar_contrato_opcionalidad_primera_revision(
+    revision_existente,
+    genera_factura,
+    fecha_revision,
+    metodo,
+    resultado,
+) -> None:
+    """Permite editar contratos con o sin primera revisión."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+    datos.pop("genera_factura")
+
+    if not revision_existente:
+        datos["fecha_primera_revision"] = ""
+        datos["metodo_revision"] = ""
+
+    # El usuario crea inicialmente un contrato sin factura,
+    # con o sin primera revisión de renta.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        contrato_id = contrato.id
+
+        revision_id = (
+            contrato.revisiones_renta[0].id
+            if revision_existente
+            else None
+        )
+
+    url_editar = f"/contratos/{contrato_id}/editar"
+
+    # El usuario abre el formulario de edición.
+    response = client.get(url_editar)
+
+    assert response.status_code == 200
+
+    # Modifica la fianza y los datos de revisión.
+    datos["fianza"] = "1600,00"
+    datos["fecha_primera_revision"] = fecha_revision
+    datos["metodo_revision"] = metodo
+
+    if genera_factura:
+        datos["genera_factura"] = "on"
+
+    # El usuario intenta guardar las modificaciones.
+    response = client.post(
+        url_editar,
+        data=datos,
+    )
+
+    assert response.status_code == resultado
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        if resultado == 400:
+            # Una modificación rechazada no debe alterar
+            # ningún dato del contrato ni de sus revisiones.
+            assert contrato.genera_factura is False
+            assert contrato.fianza == 150000
+
+            assert len(contrato.revisiones_renta) == (
+                1 if revision_existente else 0
+            )
+
+            if revision_existente:
+                revision = contrato.revisiones_renta[0]
+
+                assert revision.id == revision_id
+                assert revision.fecha_prevista == date(
+                    2027, 10, 1
+                )
+                assert revision.metodo == "IPC_NACIONAL"
+
+            return
+
+        # Las modificaciones válidas quedan guardadas.
+        assert contrato.genera_factura is genera_factura
+        assert contrato.fianza == 160000
+
+        assert len(contrato.revisiones_renta) == (
+            1 if fecha_revision else 0
+        )
+
+        if fecha_revision:
+            revision = contrato.revisiones_renta[0]
+
+            assert revision.fecha_prevista == date(
+                2027, 11, 1
+            )
+            assert revision.metodo == metodo
+            assert revision.estado == "PENDIENTE"
+
+            # Modificar una revisión existente no supone
+            # eliminarla y crear otra distinta.
+            if revision_existente:
+                assert revision.id == revision_id
+
+
+@pytest.mark.parametrize(
+    "con_historico",
+    [
+        pytest.param(False, id="sin-historico"),
+        pytest.param(True, id="con-historico"),
+    ],
+)
+@pytest.mark.parametrize(
+    "modificacion",
+    [
+        "inmueble",
+        "sustituir-titular",
+        "anadir-titular",
+        "eliminar-titular",
+        "reordenar-titulares",
+        "conservar-identidad",
+    ],
+)
+def test_editar_contrato_protege_identidad(
+    con_historico,
+    modificacion,
+) -> None:
+    """Protege la identidad contractual desde la edición."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    datos.update(
+        _datos_titulares(
+            ("Ana Pérez", "11111111A"),
+            ("Luis García", "22222222B"),
+        )
+    )
+
+    # El usuario crea un contrato con dos titulares.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        # Se prepara otro inmueble al que podría
+        # trasladarse el contrato.
+        otro_inmueble = _crear_inmueble_prueba(
+            referencia="LOCAL-2",
+            tipo="L",
+            codigo_facturacion="A2",
+            descripcion="Otro local",
+            direccion="Otra dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+        )
+
+        session.add(otro_inmueble)
+
+        if con_historico:
+            # El usuario formaliza una prórroga
+            # del contrato mediante un anexo.
+            anexo = crear_anexo_prorroga(
+                contrato=contrato,
+                numero=1,
+                fecha=date(2030, 6, 1),
+                nueva_fecha_vencimiento=date(2036, 9, 14),
+                descripcion="Prórroga",
+            )
+
+            session.add(anexo)
+
+            datos["fecha_vencimiento"] = "14/09/2036"
+
+        session.commit()
+
+        contrato_id = contrato.id
+        otro_inmueble_id = otro_inmueble.id
+
+    titulares_esperados = [
+        "11111111A",
+        "22222222B",
+    ]
+
+    inmueble_esperado = inmueble_id
+
+    # El usuario modifica la identidad del contrato.
+    if modificacion == "inmueble":
+        datos["inmueble_id"] = str(otro_inmueble_id)
+        inmueble_esperado = otro_inmueble_id
+
+    elif modificacion == "sustituir-titular":
+        datos.update(
+            _datos_titulares(
+                ("Ana Pérez", "11111111A"),
+                ("María López", "33333333C"),
+            )
+        )
+
+        titulares_esperados = [
+            "11111111A",
+            "33333333C",
+        ]
+
+    elif modificacion == "anadir-titular":
+        datos.update(
+            _datos_titulares(
+                ("Ana Pérez", "11111111A"),
+                ("Luis García", "22222222B"),
+                ("María López", "33333333C"),
+            )
+        )
+
+        titulares_esperados = [
+            "11111111A",
+            "22222222B",
+            "33333333C",
+        ]
+
+    elif modificacion == "eliminar-titular":
+        datos.update(
+            _datos_titulares(
+                ("Ana Pérez", "11111111A"),
+            )
+        )
+
+        titulares_esperados = ["11111111A"]
+
+    elif modificacion == "reordenar-titulares":
+        datos.update(
+            _datos_titulares(
+                ("Luis García", "22222222B"),
+                ("Ana Pérez", "11111111A"),
+            )
+        )
+
+        titulares_esperados = [
+            "22222222B",
+            "11111111A",
+        ]
+
+    # Aprovecha también para corregir la fianza.
+    datos["fianza"] = "1600,00"
+
+    debe_rechazarse = (
+        con_historico
+        and modificacion not in (
+            "reordenar-titulares",
+            "conservar-identidad",
+        )
+    )
+
+    # El usuario intenta guardar las modificaciones.
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    if debe_rechazarse:
+        assert response.status_code == 400
+
+        if modificacion == "inmueble":
+            assert (
+                "No puede modificarse el inmueble"
+                in response.text
+            )
+        else:
+            assert (
+                "No pueden modificarse los titulares"
+                in response.text
+            )
+
+    else:
+        assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        titulares = sorted(
+            contrato.titulares,
+            key=lambda titular: titular.orden,
+        )
+
+        nifs = [
+            titular.inquilino.nif
+            for titular in titulares
+        ]
+
+        if debe_rechazarse:
+            # La operación rechazada no modifica
+            # el inmueble, los titulares ni la fianza.
+            assert contrato.inmueble_id == inmueble_id
+
+            assert nifs == [
+                "11111111A",
+                "22222222B",
+            ]
+
+            assert contrato.fianza == 150000
+
+            # Tampoco deja un nuevo inquilino creado
+            # como consecuencia del intento rechazado.
+            assert session.scalar(
+                select(Inquilino).where(
+                    Inquilino.nif == "33333333C"
+                )
+            ) is None
+
+        else:
+            # Las modificaciones permitidas
+            # quedan correctamente persistidas.
+            assert contrato.inmueble_id == inmueble_esperado
+            assert nifs == titulares_esperados
+            assert contrato.fianza == 160000
+
+        # El histórico contractual permanece intacto.
+        assert len(contrato.anexos) == (
+            1 if con_historico else 0
+        )
+
+        if con_historico:
+            assert contrato.anexos[0].tipo == "PRORROGA"
+
+            assert (
+                contrato.fecha_vencimiento
+                == date(2036, 9, 14)
+            )
+
+
+@pytest.mark.parametrize(
+    "historico",
+    [
+        "sin-historico",
+        "renta-posterior",
+        "revision-posterior",
+        "revision-aplicada",
+        "revision-no-aplicada",
+        "ajuste",
+        "anexo",
+    ],
+)
+@pytest.mark.parametrize(
+    "modificar_inicio",
+    [
+        pytest.param(False, id="conservar-inicio"),
+        pytest.param(True, id="modificar-inicio"),
+    ],
+)
+def test_editar_contrato_protege_fecha_inicio(
+    historico,
+    modificar_inicio,
+) -> None:
+    """Impide modificar el inicio cuando existe histórico."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    # El usuario crea un contrato con renta inicial
+    # y primera revisión pendiente.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        # Se prepara el histórico correspondiente
+        # al caso de prueba.
+        if historico == "renta-posterior":
+            contrato.rentas.append(
+                RentaContrato(
+                    fecha_desde=date(2028, 6, 1),
+                    importe=175000,
+                )
+            )
+
+        elif historico == "revision-posterior":
+            contrato.revisiones_renta.append(
+                RevisionRenta(
+                    fecha_prevista=date(2028, 10, 1),
+                    metodo="IPC_NACIONAL",
+                    estado="PENDIENTE",
+                )
+            )
+
+        elif historico == "revision-aplicada":
+            revision = contrato.revisiones_renta[0]
+            revision.estado = "APLICADA"
+            revision.fecha_resolucion = date(2027, 10, 1)
+            revision.porcentaje_aplicado = 0
+
+        elif historico == "revision-no-aplicada":
+            revision = contrato.revisiones_renta[0]
+            revision.estado = "NO_APLICADA"
+            revision.fecha_resolucion = date(2027, 10, 1)
+
+        elif historico == "ajuste":
+            contrato.ajustes_renta.append(
+                AjusteRenta(
+                    fecha_desde=date(2028, 6, 1),
+                    fecha_hasta=date(2028, 8, 31),
+                    tipo="IMPORTE_FIJO",
+                    valor=120000,
+                )
+            )
+
+        elif historico == "anexo":
+            anexo = crear_anexo_prorroga(
+                contrato=contrato,
+                numero=1,
+                fecha=date(2030, 6, 1),
+                nueva_fecha_vencimiento=date(2036, 9, 14),
+                descripcion="Prórroga",
+            )
+
+            session.add(anexo)
+
+            datos["fecha_vencimiento"] = "14/09/2036"
+
+        session.commit()
+        contrato_id = contrato.id
+
+    # El usuario intenta adelantar la fecha de inicio.
+    # La nueva fecha no contradice cronológicamente
+    # ninguno de los registros históricos.
+    if modificar_inicio:
+        datos["fecha_inicio"] = "01/09/2026"
+
+    # También intenta corregir la fianza.
+    datos["fianza"] = "1600,00"
+
+    debe_rechazarse = (
+        modificar_inicio
+        and historico != "sin-historico"
+    )
+
+    # El usuario guarda el formulario de edición.
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    if debe_rechazarse:
+        assert response.status_code == 400
+        assert (
+            "No puede modificarse la fecha de inicio"
+            in response.text
+        )
+
+    else:
+        assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        renta_inicial = min(
+            contrato.rentas,
+            key=lambda renta: renta.fecha_desde,
+        )
+
+        if debe_rechazarse:
+            # La operación rechazada no modifica
+            # el contrato ni su renta inicial.
+            assert contrato.fecha_inicio == date(
+                2026, 9, 15
+            )
+            assert renta_inicial.fecha_desde == date(
+                2026, 9, 15
+            )
+            assert contrato.fianza == 150000
+
+        else:
+            fecha_esperada = (
+                date(2026, 9, 1)
+                if modificar_inicio
+                else date(2026, 9, 15)
+            )
+
+            assert contrato.fecha_inicio == fecha_esperada
+            assert renta_inicial.fecha_desde == fecha_esperada
+            assert contrato.fianza == 160000
+
+
+@pytest.mark.parametrize(
+    "operacion",
+    [
+        "editar",
+        "finalizar",
+    ],
+)
+@pytest.mark.parametrize(
+    "historico, debe_rechazarse",
+    [
+        pytest.param(
+            "sin-historico", False,
+            id="sin-historico",
+        ),
+        pytest.param(
+            "renta-posterior", True,
+            id="renta-posterior",
+        ),
+        pytest.param(
+            "revision-pendiente", False,
+            id="revision-pendiente",
+        ),
+        pytest.param(
+            "revision-aplicada", True,
+            id="revision-aplicada",
+        ),
+        pytest.param(
+            "revision-no-aplicada", True,
+            id="revision-no-aplicada",
+        ),
+        pytest.param(
+            "ajuste-posterior", True,
+            id="ajuste-posterior",
+        ),
+        pytest.param(
+            "ajuste-en-limite", False,
+            id="ajuste-en-limite",
+        ),
+        pytest.param(
+            "anexo-posterior", True,
+            id="anexo-posterior",
+        ),
+        pytest.param(
+            "prorroga-anterior", False,
+            id="prorroga-anterior",
+        ),
+    ],
+)
+def test_fecha_fin_respeta_historico_contractual(
+    operacion,
+    historico,
+    debe_rechazarse,
+) -> None:
+    """Aplica las mismas restricciones al editar y finalizar."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    # El usuario crea un contrato con renta inicial
+    # y primera revisión pendiente.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        # Se prepara el histórico contractual
+        # correspondiente a cada caso de prueba.
+        if historico == "renta-posterior":
+            contrato.rentas.append(
+                RentaContrato(
+                    fecha_desde=date(2028, 10, 1),
+                    importe=175000,
+                )
+            )
+
+        elif historico in (
+            "revision-pendiente",
+            "revision-aplicada",
+            "revision-no-aplicada",
+        ):
+            revision = RevisionRenta(
+                fecha_prevista=date(2028, 10, 1),
+                metodo="IPC_NACIONAL",
+                estado="PENDIENTE",
+            )
+
+            if historico == "revision-aplicada":
+                revision.estado = "APLICADA"
+                revision.fecha_resolucion = date(
+                    2028, 10, 1
+                )
+                revision.porcentaje_aplicado = 0
+
+            elif historico == "revision-no-aplicada":
+                revision.estado = "NO_APLICADA"
+                revision.fecha_resolucion = date(
+                    2028, 10, 1
+                )
+
+            contrato.revisiones_renta.append(revision)
+
+        elif historico in (
+            "ajuste-posterior",
+            "ajuste-en-limite",
+        ):
+            fecha_hasta = (
+                date(2028, 10, 31)
+                if historico == "ajuste-posterior"
+                else date(2028, 8, 31)
+            )
+
+            contrato.ajustes_renta.append(
+                AjusteRenta(
+                    fecha_desde=date(2028, 6, 1),
+                    fecha_hasta=fecha_hasta,
+                    tipo="IMPORTE_FIJO",
+                    valor=120000,
+                )
+            )
+
+        elif historico in (
+            "anexo-posterior",
+            "prorroga-anterior",
+        ):
+            fecha_anexo = (
+                date(2028, 10, 1)
+                if historico == "anexo-posterior"
+                else date(2028, 6, 1)
+            )
+
+            anexo = crear_anexo_prorroga(
+                contrato=contrato,
+                numero=1,
+                fecha=fecha_anexo,
+                nueva_fecha_vencimiento=date(
+                    2036, 9, 14
+                ),
+                descripcion="Prórroga",
+            )
+
+            session.add(anexo)
+
+            datos["fecha_vencimiento"] = "14/09/2036"
+
+        session.commit()
+        contrato_id = contrato.id
+
+    # El usuario intenta establecer como fecha
+    # de finalización el 31 de agosto de 2028.
+    fecha_fin = "31/08/2028"
+
+    if operacion == "editar":
+        datos["fecha_fin"] = fecha_fin
+
+        response = client.post(
+            f"/contratos/{contrato_id}/editar",
+            data=datos,
+        )
+
+    else:
+        response = client.post(
+            f"/contratos/{contrato_id}/finalizar",
+            data={
+                "fecha_fin": fecha_fin,
+            },
+        )
+
+    if debe_rechazarse:
+        assert response.status_code == 400
+    else:
+        assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        # Una finalización rechazada no debe
+        # modificar la fecha de fin del contrato.
+        if debe_rechazarse:
+            assert contrato.fecha_fin is None
+        else:
+            assert contrato.fecha_fin == date(
+                2028, 8, 31
+            )
+
+
+@pytest.mark.parametrize(
+    "operacion",
+    [
+        "editar",
+        "finalizar",
+    ],
+)
+@pytest.mark.parametrize(
+    "fecha_fin, resultado",
+    [
+        pytest.param(
+            "30/09/2026", 400,
+            id="antes-del-periodo",
+        ),
+        pytest.param(
+            "01/10/2026", 302,
+            id="inicio-del-periodo",
+        ),
+        pytest.param(
+            "15/10/2026", 302,
+            id="durante-el-periodo",
+        ),
+        pytest.param(
+            "31/10/2026", 302,
+            id="fin-del-periodo",
+        ),
+        pytest.param(
+            "15/11/2026", 302,
+            id="despues-del-periodo",
+        ),
+    ],
+)
+def test_fecha_fin_respeta_alquiler_sin_factura(
+    operacion,
+    fecha_fin,
+    resultado,
+) -> None:
+    """La finalización debe respetar los alquileres contabilizados."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+    datos.pop("genera_factura")
+
+    # El usuario crea un contrato sin factura.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    categorias = {
+        "ING_ALQUILERES": CategoriaContable(
+            codigo="ING_ALQUILERES",
+            naturaleza="INGRESO",
+            nombre="Alquileres",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        # El usuario contabiliza el 2 de noviembre
+        # el alquiler correspondiente a octubre.
+        apunte, movimiento = (
+            contabilizar_ingreso_sin_factura(
+                contrato=contrato,
+                periodo=date(2026, 10, 1),
+                fecha=date(2026, 11, 2),
+                categorias=categorias,
+            )
+        )
+
+        session.add_all([apunte, movimiento])
+        session.commit()
+
+        contrato_id = contrato.id
+        apunte_id = apunte.id
+        movimiento_id = movimiento.id
+
+    # El usuario intenta establecer la fecha
+    # de finalización desde una de las dos operaciones.
+    if operacion == "editar":
+        datos["fecha_fin"] = fecha_fin
+
+        response = client.post(
+            f"/contratos/{contrato_id}/editar",
+            data=datos,
+        )
+
+    else:
+        response = client.post(
+            f"/contratos/{contrato_id}/finalizar",
+            data={
+                "fecha_fin": fecha_fin,
+            },
+        )
+
+    assert response.status_code == resultado
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        if resultado == 400:
+            assert contrato.fecha_fin is None
+        else:
+            dia, mes, anio = map(
+                int,
+                fecha_fin.split("/"),
+            )
+
+            assert contrato.fecha_fin == date(
+                anio, mes, dia
+            )
+
+        # La operación no modifica el alquiler
+        # previamente contabilizado.
+        assert len(contrato.movimientos_previstos) == 1
+
+        movimiento = contrato.movimientos_previstos[0]
+
+        assert movimiento.id == movimiento_id
+        assert movimiento.apunte.id == apunte_id
+
+        assert movimiento.apunte.periodo_desde == date(
+            2026, 10, 1
+        )
+        assert movimiento.apunte.periodo_hasta == date(
+            2026, 10, 31
+        )
+        assert movimiento.apunte.fecha == date(
+            2026, 11, 2
+        )
+        assert movimiento.apunte.total == 150000
+
+
+@pytest.mark.parametrize(
+    "historico",
+    [
+        "sin-historico",
+        "anexo",
+        "revision-resuelta",
+        "factura",
+        "alquiler-sin-factura",
+    ],
+)
+@pytest.mark.parametrize(
+    "modificar_inicio_facturacion",
+    [
+        pytest.param(False, id="conservar-inicio"),
+        pytest.param(True, id="modificar-inicio"),
+    ],
+)
+def test_editar_contrato_protege_inicio_facturacion(
+    historico,
+    modificar_inicio_facturacion,
+) -> None:
+    """Protege el inicio de facturación si hay alquileres registrados."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    if historico == "alquiler-sin-factura":
+        datos.pop("genera_factura")
+
+    # El usuario crea un contrato.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        # Se prepara el histórico correspondiente
+        # al caso de prueba.
+        if historico == "anexo":
+            anexo = crear_anexo_prorroga(
+                contrato=contrato,
+                numero=1,
+                fecha=date(2030, 6, 1),
+                nueva_fecha_vencimiento=date(
+                    2036, 9, 14
+                ),
+                descripcion="Prórroga",
+            )
+
+            session.add(anexo)
+
+            datos["fecha_vencimiento"] = "14/09/2036"
+
+        elif historico == "revision-resuelta":
+            revision = contrato.revisiones_renta[0]
+            revision.estado = "NO_APLICADA"
+            revision.fecha_resolucion = date(
+                2027, 10, 1
+            )
+
+        elif historico == "factura":
+            # El usuario registra la factura
+            # correspondiente a diciembre.
+            factura = crear_factura(
+                contrato=contrato,
+                periodo=date(2026, 12, 1),
+                fecha_emision=date(2026, 12, 1),
+            )
+
+            session.add(factura)
+
+        elif historico == "alquiler-sin-factura":
+            categorias = {
+                "ING_ALQUILERES": CategoriaContable(
+                    codigo="ING_ALQUILERES",
+                    naturaleza="INGRESO",
+                    nombre="Alquileres",
+                    activa=True,
+                    subcategorias=(),
+                ),
+            }
+
+            # El usuario contabiliza el alquiler
+            # de diciembre sin emitir factura.
+            apunte, movimiento = (
+                contabilizar_ingreso_sin_factura(
+                    contrato=contrato,
+                    periodo=date(2026, 12, 1),
+                    fecha=date(2026, 12, 1),
+                    categorias=categorias,
+                )
+            )
+
+            session.add_all([apunte, movimiento])
+
+        session.commit()
+        contrato_id = contrato.id
+
+    # El usuario intenta retrasar el inicio
+    # de facturación de octubre a noviembre.
+    if modificar_inicio_facturacion:
+        datos["fecha_inicio_facturacion"] = "01/11/2026"
+
+    # También corrige la fianza.
+    datos["fianza"] = "1600,00"
+
+    debe_rechazarse = (
+        modificar_inicio_facturacion
+        and historico in (
+            "factura",
+            "alquiler-sin-factura",
+        )
+    )
+
+    # El usuario guarda las modificaciones.
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    if debe_rechazarse:
+        assert response.status_code == 400
+        assert (
+            "No puede modificarse la fecha de inicio de facturación"
+            in response.text
+        )
+
+    else:
+        assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        if debe_rechazarse:
+            # Una modificación rechazada no altera
+            # los datos originales del contrato.
+            assert (
+                contrato.fecha_inicio_facturacion
+                == date(2026, 10, 1)
+            )
+            assert contrato.fianza == 150000
+
+        else:
+            fecha_esperada = (
+                date(2026, 11, 1)
+                if modificar_inicio_facturacion
+                else date(2026, 10, 1)
+            )
+
+            assert (
+                contrato.fecha_inicio_facturacion
+                == fecha_esperada
+            )
+            assert contrato.fianza == 160000
+
+
+@pytest.mark.parametrize(
+    "historico, renta_protegida",
+    [
+        ("sin-historico", False),
+        ("prorroga", False),
+        ("renta-posterior", True),
+        ("revision-aplicada", True),
+        ("revision-no-aplicada", True),
+        ("cambio-renta-temporal", True),
+        ("factura", True),
+        ("alquiler-sin-factura", True),
+    ],
+)
+@pytest.mark.parametrize(
+    "modificar_renta",
+    [
+        pytest.param(False, id="conservar-renta"),
+        pytest.param(True, id="modificar-renta"),
+    ],
+)
+def test_editar_contrato_protege_renta_inicial(
+    historico,
+    renta_protegida,
+    modificar_renta,
+) -> None:
+    """Protege la renta inicial cuando existe histórico relevante."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    if historico == "alquiler-sin-factura":
+        datos.pop("genera_factura")
+
+    # El usuario crea un contrato con una renta inicial
+    # de 1500 euros y una primera revisión pendiente.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        # Se prepara el histórico correspondiente
+        # al caso de prueba.
+        if historico == "prorroga":
+            anexo = crear_anexo_prorroga(
+                contrato=contrato,
+                numero=1,
+                fecha=date(2030, 6, 1),
+                nueva_fecha_vencimiento=date(
+                    2036, 9, 14
+                ),
+                descripcion="Prórroga",
+            )
+
+            session.add(anexo)
+
+            datos["fecha_vencimiento"] = "14/09/2036"
+
+        elif historico == "renta-posterior":
+            contrato.rentas.append(
+                RentaContrato(
+                    fecha_desde=date(2028, 6, 1),
+                    importe=175000,
+                )
+            )
+
+        elif historico == "revision-aplicada":
+            revision = contrato.revisiones_renta[0]
+            revision.estado = "APLICADA"
+            revision.fecha_resolucion = date(
+                2027, 10, 1
+            )
+            revision.porcentaje_aplicado = 0
+
+        elif historico == "revision-no-aplicada":
+            revision = contrato.revisiones_renta[0]
+            revision.estado = "NO_APLICADA"
+            revision.fecha_resolucion = date(
+                2027, 10, 1
+            )
+
+        elif historico == "cambio-renta-temporal":
+            anexo, ajuste = crear_anexo_renta_temporal(
+                contrato=contrato,
+                numero=1,
+                fecha=date(2028, 5, 20),
+                fecha_desde=date(2028, 6, 1),
+                fecha_hasta=date(2028, 8, 31),
+                tipo="IMPORTE_FIJO",
+                valor=120000,
+                descripcion="Reducción temporal",
+            )
+
+            session.add_all([anexo, ajuste])
+
+        elif historico == "factura":
+            # El usuario registra una factura de alquiler.
+            factura = crear_factura(
+                contrato=contrato,
+                periodo=date(2026, 12, 1),
+                fecha_emision=date(2026, 12, 1),
+            )
+
+            session.add(factura)
+
+        elif historico == "alquiler-sin-factura":
+            categorias = {
+                "ING_ALQUILERES": CategoriaContable(
+                    codigo="ING_ALQUILERES",
+                    naturaleza="INGRESO",
+                    nombre="Alquileres",
+                    activa=True,
+                    subcategorias=(),
+                ),
+            }
+
+            # El usuario contabiliza un alquiler sin factura.
+            apunte, movimiento = (
+                contabilizar_ingreso_sin_factura(
+                    contrato=contrato,
+                    periodo=date(2026, 12, 1),
+                    fecha=date(2026, 12, 1),
+                    categorias=categorias,
+                )
+            )
+
+            session.add_all([apunte, movimiento])
+
+        session.commit()
+        contrato_id = contrato.id
+
+    # El usuario intenta corregir la renta inicial.
+    if modificar_renta:
+        datos["renta_inicial"] = "1600,00"
+
+    # También modifica otro campo del contrato.
+    datos["fianza"] = "1700,00"
+
+    debe_rechazarse = (
+        renta_protegida and modificar_renta
+    )
+
+    # El usuario guarda el formulario de edición.
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    if debe_rechazarse:
+        assert response.status_code == 400
+        assert (
+            "No puede modificarse la renta inicial"
+            in response.text
+        )
+
+    else:
+        assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        renta_inicial = min(
+            contrato.rentas,
+            key=lambda renta: renta.fecha_desde,
+        )
+
+        if debe_rechazarse:
+            # La modificación rechazada no altera
+            # la renta inicial ni la fianza.
+            assert renta_inicial.importe == 150000
+            assert contrato.fianza == 150000
+
+        else:
+            importe_esperado = (
+                160000 if modificar_renta else 150000
+            )
+
+            assert renta_inicial.importe == importe_esperado
+            assert contrato.fianza == 170000
+
+        # Las rentas posteriores permanecen intactas.
+        if historico == "renta-posterior":
+            assert len(contrato.rentas) == 2
+
+            renta_posterior = max(
+                contrato.rentas,
+                key=lambda renta: renta.fecha_desde,
+            )
+
+            assert renta_posterior.importe == 175000
+
+        # Los alquileres ya registrados no se modifican.
+        if historico == "factura":
+            assert contrato.facturas[0].base == 150000
+
+        elif historico == "alquiler-sin-factura":
+            movimiento = contrato.movimientos_previstos[0]
+
+            assert movimiento.apunte.total == 150000
+
+
+@pytest.mark.parametrize(
+    "historico, revision_protegida",
+    [
+        ("pendiente", False),
+        ("revision-posterior", True),
+        ("revision-aplicada", True),
+        ("revision-no-aplicada", True),
+    ],
+)
+@pytest.mark.parametrize(
+    "modificacion",
+    [
+        "conservar",
+        "fecha",
+        "metodo",
+        "fecha-y-metodo",
+    ],
+)
+def test_editar_contrato_protege_primera_revision(
+    historico,
+    revision_protegida,
+    modificacion,
+) -> None:
+    """Protege los datos iniciales de revisión cuando existe histórico."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    # El usuario crea un contrato con una primera
+    # revisión pendiente.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+        revision = contrato.revisiones_renta[0]
+
+        # Se prepara el histórico correspondiente.
+        if historico == "revision-posterior":
+            contrato.revisiones_renta.append(
+                RevisionRenta(
+                    fecha_prevista=date(2028, 10, 1),
+                    metodo="IPC_NACIONAL",
+                    estado="PENDIENTE",
+                )
+            )
+
+        elif historico == "revision-aplicada":
+            revision.estado = "APLICADA"
+            revision.fecha_resolucion = date(
+                2027, 10, 1
+            )
+            revision.porcentaje_aplicado = 0
+
+        elif historico == "revision-no-aplicada":
+            revision.estado = "NO_APLICADA"
+            revision.fecha_resolucion = date(
+                2027, 10, 1
+            )
+
+        session.commit()
+
+        contrato_id = contrato.id
+        revision_id = revision.id
+        estado_original = revision.estado
+        fecha_resolucion_original = revision.fecha_resolucion
+
+    # El usuario intenta modificar la primera revisión.
+    if modificacion in ("fecha", "fecha-y-metodo"):
+        datos["fecha_primera_revision"] = "01/11/2027"
+
+    if modificacion in ("metodo", "fecha-y-metodo"):
+        datos["metodo_revision"] = "IRAV"
+
+    # También intenta corregir la fianza.
+    datos["fianza"] = "1600,00"
+
+    debe_rechazarse = (
+        revision_protegida
+        and modificacion != "conservar"
+    )
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    if debe_rechazarse:
+        assert response.status_code == 400
+        assert (
+            "No pueden modificarse los datos de la primera revisión"
+            in response.text
+        )
+
+    else:
+        assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+        revision = session.get(RevisionRenta, revision_id)
+
+        assert revision is not None
+
+        if debe_rechazarse:
+            # Una modificación rechazada no altera
+            # la revisión ni otros datos del contrato.
+            assert revision.fecha_prevista == date(
+                2027, 10, 1
+            )
+            assert revision.metodo == "IPC_NACIONAL"
+            assert contrato.fianza == 150000
+
+        else:
+            fecha_esperada = (
+                date(2027, 11, 1)
+                if modificacion in (
+                    "fecha", "fecha-y-metodo"
+                )
+                else date(2027, 10, 1)
+            )
+
+            metodo_esperado = (
+                "IRAV"
+                if modificacion in (
+                    "metodo", "fecha-y-metodo"
+                )
+                else "IPC_NACIONAL"
+            )
+
+            assert revision.fecha_prevista == fecha_esperada
+            assert revision.metodo == metodo_esperado
+            assert contrato.fianza == 160000
+
+        # No se altera el estado de la revisión
+        # ni su fecha de resolución.
+        assert revision.estado == estado_original
+
+        assert (
+            revision.fecha_resolucion
+            == fecha_resolucion_original
+        )
+
+        assert len(contrato.revisiones_renta) == (
+            2 if historico == "revision-posterior" else 1
+        )
+
+        if historico == "revision-posterior":
+            posterior = max(
+                contrato.revisiones_renta,
+                key=lambda revision: revision.fecha_prevista,
+            )
+
+            assert posterior.fecha_prevista == date(
+                2028, 10, 1
+            )
+            assert posterior.metodo == "IPC_NACIONAL"
+            assert posterior.estado == "PENDIENTE"
+
+
+@pytest.mark.parametrize(
+    "historico, genera_factura_original",
+    [
+        ("sin-historico", True),
+        ("sin-historico", False),
+        ("factura", True),
+        ("alquiler-sin-factura", False),
+    ],
+)
+@pytest.mark.parametrize(
+    "modificar_genera_factura",
+    [
+        pytest.param(False, id="conservar"),
+        pytest.param(True, id="modificar"),
+    ],
+)
+def test_editar_contrato_protege_genera_factura(
+    historico,
+    genera_factura_original,
+    modificar_genera_factura,
+) -> None:
+    """Impide cambiar el régimen de facturación con alquileres registrados."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    if not genera_factura_original:
+        datos.pop("genera_factura")
+
+    # El usuario crea un contrato con el régimen
+    # de facturación correspondiente.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        if historico == "factura":
+            # El usuario registra una factura de alquiler.
+            factura = crear_factura(
+                contrato=contrato,
+                periodo=date(2026, 12, 1),
+                fecha_emision=date(2026, 12, 1),
+            )
+
+            session.add(factura)
+
+        elif historico == "alquiler-sin-factura":
+            categorias = {
+                "ING_ALQUILERES": CategoriaContable(
+                    codigo="ING_ALQUILERES",
+                    naturaleza="INGRESO",
+                    nombre="Alquileres",
+                    activa=True,
+                    subcategorias=(),
+                ),
+            }
+
+            # El usuario contabiliza un alquiler sin factura.
+            apunte, movimiento = (
+                contabilizar_ingreso_sin_factura(
+                    contrato=contrato,
+                    periodo=date(2026, 12, 1),
+                    fecha=date(2026, 12, 1),
+                    categorias=categorias,
+                )
+            )
+
+            session.add_all([apunte, movimiento])
+
+        session.commit()
+        contrato_id = contrato.id
+
+    genera_factura_propuesto = (
+        not genera_factura_original
+        if modificar_genera_factura
+        else genera_factura_original
+    )
+
+    # El usuario activa o desactiva la opción
+    # de generar factura.
+    if genera_factura_propuesto:
+        datos["genera_factura"] = "on"
+    else:
+        datos.pop("genera_factura", None)
+
+    datos["fianza"] = "1600,00"
+
+    debe_rechazarse = (
+        modificar_genera_factura
+        and historico != "sin-historico"
+    )
+
+    # El usuario intenta guardar los cambios.
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    if debe_rechazarse:
+        assert response.status_code == 400
+        assert (
+            "No puede modificarse la opción de generar factura"
+            in response.text
+        )
+
+    else:
+        assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        if debe_rechazarse:
+            # La modificación rechazada conserva
+            # el régimen original y la fianza.
+            assert (
+                contrato.genera_factura
+                is genera_factura_original
+            )
+            assert contrato.fianza == 150000
+
+        else:
+            assert (
+                contrato.genera_factura
+                is genera_factura_propuesto
+            )
+            assert contrato.fianza == 160000
+
+        # Los alquileres históricos no se modifican.
+        if historico == "factura":
+            assert len(contrato.facturas) == 1
+            assert contrato.facturas[0].base == 150000
+
+        elif historico == "alquiler-sin-factura":
+            assert len(contrato.movimientos_previstos) == 1
+
+            movimiento = contrato.movimientos_previstos[0]
+
+            assert movimiento.apunte.total == 150000
+
+
+def test_editar_contrato_permite_corregir_datos_facturacion(
+) -> None:
+    """Permite modificar datos futuros sin alterar facturas históricas."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    # El usuario crea un contrato que genera facturas.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        # El usuario registra una factura con los
+        # datos fiscales y de facturación originales.
+        factura = crear_factura(
+            contrato=contrato,
+            periodo=date(2026, 12, 1),
+            fecha_emision=date(2026, 12, 1),
+        )
+
+        session.add(factura)
+        session.commit()
+
+        contrato_id = contrato.id
+        factura_id = factura.id
+
+    # El usuario corrige los datos del contrato
+    # que se utilizarán en las facturas futuras.
+    datos.update(
+        {
+            "fianza": "1700,00",
+            "iva_porcentaje": "10,00",
+            "retencion_porcentaje": "15,00",
+            "direccion_facturacion": "Nueva dirección",
+            "codigo_postal_facturacion": "36002",
+            "poblacion_facturacion": "Vigo",
+            "provincia_facturacion": "Pontevedra",
+            "concepto_factura": "Nuevo concepto",
+        }
+    )
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        # Los nuevos datos quedan guardados.
+        assert contrato.fianza == 170000
+        assert contrato.iva_porcentaje == 1000
+        assert contrato.retencion_porcentaje == 1500
+
+        assert (
+            contrato.direccion_facturacion
+            == "Nueva dirección"
+        )
+        assert contrato.codigo_postal_facturacion == "36002"
+        assert contrato.poblacion_facturacion == "Vigo"
+        assert contrato.provincia_facturacion == "Pontevedra"
+        assert contrato.concepto_factura == "Nuevo concepto"
+
+        # La factura histórica conserva sus datos.
+        assert len(contrato.facturas) == 1
+
+        factura = contrato.facturas[0]
+
+        assert factura.id == factura_id
+        assert factura.iva_porcentaje == 2100
+        assert factura.retencion_porcentaje == 1900
+        assert factura.direccion_facturacion == "Dirección"
+        assert factura.codigo_postal_facturacion == "36001"
+        assert factura.poblacion_facturacion == "Pontevedra"
+        assert factura.provincia_facturacion == "Pontevedra"
+        assert factura.lineas[0].concepto == "Alquiler local"
+        assert factura.base == 150000
+        assert factura.iva_importe == 31500
+        assert factura.retencion_importe == 28500
+        assert factura.total == 153000
+
+
+@pytest.mark.parametrize(
+    "con_historico",
+    [
+        pytest.param(False, id="sin-historico"),
+        pytest.param(True, id="con-historico"),
+    ],
+)
+def test_formulario_editar_contrato_protege_campos(
+    con_historico,
+) -> None:
+    """El formulario refleja las restricciones del contrato."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    # El usuario crea un contrato.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        if con_historico:
+            # Registra una factura de alquiler.
+            factura = crear_factura(
+                contrato=contrato,
+                periodo=date(2026, 12, 1),
+                fecha_emision=date(2026, 12, 1),
+            )
+
+            session.add(factura)
+
+            # Posteriormente resuelve una revisión.
+            revision = contrato.revisiones_renta[0]
+            revision.estado = "NO_APLICADA"
+            revision.fecha_resolucion = date(
+                2027, 10, 1
+            )
+
+        session.commit()
+        contrato_id = contrato.id
+
+    # El usuario abre el formulario de edición.
+    response = client.get(
+        f"/contratos/{contrato_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    html = response.text
+
+    # Los controles de texto protegidos son de solo lectura.
+    for campo in (
+        "fecha_inicio",
+        "fecha_inicio_facturacion",
+        "renta_inicial",
+        "fecha_primera_revision",
+    ):
+        control = _etiqueta_control(html, campo)
+
+        assert (
+            "readonly" in control
+        ) is con_historico
+
+    # Los selectores y checkbox protegidos se deshabilitan.
+    for campo in (
+        "inmueble_id",
+        "metodo_revision",
+        "genera_factura",
+    ):
+        control = _etiqueta_control(html, campo)
+
+        assert (
+            "disabled" in control
+        ) is con_historico
+
+    # Estos campos permanecen siempre editables.
+    for campo in (
+        "fecha_vencimiento",
+        "fianza",
+        "iva_porcentaje",
+        "retencion_porcentaje",
+        "direccion_facturacion",
+        "codigo_postal_facturacion",
+        "poblacion_facturacion",
+        "provincia_facturacion",
+        "concepto_factura",
+    ):
+        control = _etiqueta_control(html, campo)
+
+        assert "readonly" not in control
+        assert "disabled" not in control
+
+    # Los titulares pueden reordenarse.
+    assert "readonly" not in _etiqueta_control(
+        html, "titular_1_nombre"
+    )
+
+    assert "readonly" not in _etiqueta_control(
+        html, "titular_1_nif"
+    )
+
+    if con_historico:
+        assert (
+            "Solo se permite reordenar los titulares existentes"
+            in html
+        )
+
+        # Los controles deshabilitados deben conservar
+        # sus valores al enviar el formulario.
+        for campo, valor in (
+            ("inmueble_id", str(inmueble_id)),
+            ("metodo_revision", "IPC_NACIONAL"),
+            ("genera_factura", "on"),
+        ):
+            assert re.search(
+                rf'<input\b'
+                rf'(?=[^>]*\btype="hidden")'
+                rf'(?=[^>]*\bname="{campo}")'
+                rf'(?=[^>]*\bvalue="{re.escape(valor)}")'
+                rf'[^>]*>',
+                html,
+            )
+
+
+@pytest.mark.parametrize(
+    "genera_factura",
+    [
+        pytest.param(False, id="sin-factura"),
+        pytest.param(True, id="con-factura"),
+    ],
+)
+def test_formulario_contrato_indica_campos_obligatorios(
+    genera_factura,
+) -> None:
+    """Los asteriscos reflejan los requisitos del contrato."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(
+            session,
+            genera_factura=genera_factura,
+        )
+
+        contrato_id = contrato.id
+
+    # El usuario abre el formulario de edición.
+    response = client.get(
+        f"/contratos/{contrato_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    html = response.text
+
+    # Los campos generales son siempre obligatorios.
+    for campo in (
+        "inmueble_id",
+        "fecha_inicio",
+        "fecha_vencimiento",
+        "fecha_inicio_facturacion",
+        "fianza",
+        "renta_inicial",
+    ):
+        assert "(*)" in _texto_label(html, campo)
+
+    # Estos campos solo son obligatorios cuando
+    # el contrato genera factura.
+    for campo in (
+        "iva_porcentaje",
+        "retencion_porcentaje",
+        "direccion_facturacion",
+        "poblacion_facturacion",
+        "provincia_facturacion",
+        "concepto_factura",
+        "fecha_primera_revision",
+        "metodo_revision",
+    ):
+        etiqueta = _texto_label(html, campo)
+
+        assert (
+            "(*)" in etiqueta
+        ) is genera_factura
+
+    # El código postal es siempre opcional.
+    assert "(*)" not in _texto_label(
+        html, "codigo_postal_facturacion"
+    )
+
+
+@pytest.mark.parametrize(
+    "operacion",
+    [
+        "nuevo",
+        "editar",
+    ],
+)
+def test_formulario_contrato_muestra_nota_titulares_y_clases(
+    operacion,
+) -> None:
+    """Incluye información para el usuario y clases de presentación."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    if operacion == "nuevo":
+        url = "/contratos/nuevo"
+
+    else:
+        session_factory = app.extensions[
+            "contab_databases"
+        ]["test"]
+
+        with session_factory() as session:
+            contrato = _crear_contrato_para_test(session)
+            contrato_id = contrato.id
+
+        url = f"/contratos/{contrato_id}/editar"
+
+    # El usuario abre el formulario.
+    response = client.get(url)
+
+    assert response.status_code == 200
+
+    html = response.text
+
+    assert (
+        "Para corregir el nombre o NIF de un titular existente"
+        in html
+    )
+
+    # El formulario dispone de clases específicas
+    # para controlar su presentación desde CSS.
+    for clase in (
+        "formulario-contrato",
+        "formulario-contrato__inmueble",
+        "formulario-contrato__titulares",
+        "formulario-contrato__titular",
+        "formulario-contrato__nota-titulares",
+        "formulario-contrato__fecha-inicio",
+        "formulario-contrato__fecha-vencimiento",
+        "formulario-contrato__genera-factura",
+        "formulario-contrato__facturacion",
+        "formulario-contrato__renta",
+        "formulario-contrato__revision",
+        "formulario-contrato__obligatorio",
+        "formulario-contrato__acciones",
+    ):
+        assert re.search(
+            rf'class="[^"]*\b{re.escape(clase)}\b[^"]*"',
+            html,
+        )
+
+
+def test_editar_contrato_conserva_inmueble_inactivo() -> None:
+    """Permite editar un contrato cuyo inmueble ya está inactivo."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    # El usuario crea un contrato.
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        # Posteriormente se desactiva el inmueble.
+        contrato.inmueble.activo = False
+
+        session.commit()
+        contrato_id = contrato.id
+
+    # El usuario abre el contrato para corregir otro dato.
+    response = client.get(
+        f"/contratos/{contrato_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    # El inmueble original debe aparecer seleccionado,
+    # aunque ya no esté activo.
+    assert re.search(
+        rf'<option\b'
+        rf'(?=[^>]*\bvalue="{inmueble_id}")'
+        rf'(?=[^>]*\bselected\b)'
+        rf'[^>]*>',
+        response.text,
+    )
+
+    datos["fianza"] = "1600,00"
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        assert contrato.inmueble_id == inmueble_id
+        assert contrato.inmueble.activo is False
+        assert contrato.fianza == 160000
+
+
+@pytest.mark.parametrize(
+    "operacion",
+    [
+        "editar",
+        "finalizar",
+    ],
+)
+@pytest.mark.parametrize(
+    "con_reembolso",
+    [
+        False,
+        True,
+    ],
+)
+def test_formulario_contrato_advierte_sobre_gastos(
+    operacion,
+    con_reembolso,
+) -> None:
+    """Advierte de las posibles consecuencias sobre gastos históricos."""
+
+    app = crear_app_test()
+    client = app.test_client()
+    seleccionar_base(client)
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        contrato = _crear_contrato_para_test(session)
+
+        if con_reembolso:
+            session.add(
+                SolicitudReembolso(
+                    contrato=contrato,
+                    fecha_envio=date(2028, 6, 1),
+                )
+            )
+
+        session.commit()
+        contrato_id = contrato.id
+
+    # El usuario abre el formulario correspondiente.
+    response = client.get(
+        f"/contratos/{contrato_id}/{operacion}"
+    )
+
+    assert response.status_code == 200
+
+    mensaje = (
+        "La modificación de la fecha de finalización "
+        "puede afectar a la coherencia del reparto "
+        "de gastos"
+    )
+
+    # Normalizamos los espacios para no depender
+    # de la indentación de la plantilla.
+    html = " ".join(response.text.split())
+
+    assert (mensaje in html) is con_reembolso
 

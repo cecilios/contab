@@ -56,6 +56,15 @@ commit
 
 TDD-style development is preferred when practical, but strict test-first work is not required.
 
+Group related changes into meaningful functional blocks.
+
+For each block, prepare all focused tests together, verify
+the expected failures, implement the production changes,
+and run the focused tests again.
+
+Run the full pytest suite once at the end of each functional
+block rather than after every small intermediate change.
+
 Long integration tests should contain short comments explaining the user actions being simulated.
 
 Automated pytest/integration tests are preferred over time-consuming artificial browser setup.
@@ -449,6 +458,103 @@ RentaContrato = 0
 or as an `AjusteRenta`.
 
 Its meaning is that no ordinary invoice should be prepared during the covered period.
+
+## Contract editing integrity
+
+Contract creation and editing share domain validation in:
+
+`src/contab/contratos/services.py`
+
+Main validation functions:
+
+- `validar_datos_contrato()`
+- `validar_datos_primera_revision()`
+- `validar_identidad_contrato()`
+- `validar_coherencia_historica_edicion()`
+- `validar_fecha_fin_contrato()`
+- `validar_condiciones_economicas_edicion()`
+
+Routes own transactions, form parsing and error presentation.
+
+### Historical protection
+
+Protection predicates are shared by backend validation and form rendering:
+
+- `identidad_contrato_protegida()`: invoices, expected movements, imputations, reimbursement requests or annexes.
+- `fecha_inicio_contrato_protegida()`: identity protection, subsequent rents or revisions, resolved revisions or rent adjustments.
+- `contrato_tiene_alquileres_registrados()`: persisted invoices or expected movements linked to accounting entries classified as `INGRESO / ING_ALQUILERES`.
+- `renta_inicial_protegida()`: registered rents, subsequent rent records, resolved revisions or `CAMBIO_RENTA` annexes.
+- `primera_revision_protegida()`: subsequent or resolved revisions.
+
+Protected tenant identities are compared as sets of tenant IDs. Reordering remains allowed.
+
+Billing start date and `genera_factura` are protected once rental income has been registered.
+
+Deposits remain editable because there is no dedicated deposit accounting workflow.
+
+Tax percentages and billing details remain editable. Existing invoice snapshots are never modified.
+
+### Optional first revision
+
+For non-invoiced contracts, both initial revision fields may be empty.
+
+For invoiced contracts, both fields are mandatory.
+
+Partial revision data is invalid in either case.
+
+Absence of a revision is represented by the absence of a `RevisionRenta` record. `primera_revision()` returns `None`.
+
+Editing may create the first revision when none exists, but must not delete an existing revision.
+
+### Contract termination
+
+Editing and termination share `validar_fecha_fin_contrato()`.
+
+Termination must respect subsequent rents, resolved revisions, adjustments, annexes and registered rental periods.
+
+Pending revisions do not prevent termination.
+
+Monthly rental periods are checked using their first day, not the accounting date or expected collection date.
+
+Changing the termination date is exceptional. Expense allocation consistency is deliberately handled through a user warning when persisted imputations or reimbursement requests exist.
+
+Do not introduce allocation simulations, interval comparisons or historical redistribution for this exceptional correction.
+
+### Form implementation
+
+Routes:
+
+`src/contab/contratos/routes.py`
+
+Templates:
+
+- `contratos/formulario.html`
+- `contratos/finalizar.html`
+
+`_render_formulario_contrato()` derives restrictions from the persisted contract, including after rejected submissions.
+
+Protected text inputs use `readonly`. Protected selectors and checkboxes use `disabled` with hidden values where required for submission.
+
+Tenant fields remain editable to allow reordering; backend validation protects their identities.
+
+The current property remains selectable when inactive, but switching to another inactive property is rejected.
+
+Conditional mandatory-field indicators are updated by JavaScript in the contract form.
+
+Presentation uses dedicated `formulario-contrato__*` and `finalizar-contrato__*` CSS classes without inline styles.
+
+### Tests and schema
+
+Relevant tests:
+
+- `tests/test_contrato_services.py`
+- `tests/test_contratos_routes.py`
+
+Tests cover domain restrictions, persisted historical records, rejected modifications, transaction rollback, permitted corrections and form rendering.
+
+Contract expiration date remains mandatory. Making it optional is postponed because it requires a schema migration.
+
+No database schema changes are required for the implemented contract integrity protections.
 
 ## Accounting scope
 

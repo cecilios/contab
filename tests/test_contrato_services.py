@@ -6,14 +6,17 @@ import pytest
 
 from contab.models import (
     AjusteRenta,
+    AnexoContrato,
     Contrato,
     ContratoInquilino,
+    Factura,
+    ImputacionContrato,
     Inquilino,
+    MovimientoPrevisto,
     RentaContrato,
     RevisionRenta,
+    SolicitudReembolso,
 )
-
-
 from contab.contratos.services import (
     AjusteRentaError,
     ContratoError,
@@ -1141,4 +1144,252 @@ def test_crear_revision_renta_rechaza_metodo_desconocido(
             metodo="OTRO",
         )
 
+
+@pytest.mark.parametrize(
+    "genera_factura, fecha_revision, metodo, numero_revisiones",
+    [
+        pytest.param(
+            True, date(2027, 6, 1), "IPC_NACIONAL", 1,
+            id="con-factura-y-revision",
+        ),
+        pytest.param(
+            True, None, "", None,
+            id="con-factura-sin-revision",
+        ),
+        pytest.param(
+            False, None, "", 0,
+            id="sin-factura-sin-revision",
+        ),
+        pytest.param(
+            False, date(2027, 6, 1), "IPC_NACIONAL", 1,
+            id="sin-factura-con-revision",
+        ),
+        pytest.param(
+            False, date(2027, 6, 1), "", None,
+            id="solo-fecha",
+        ),
+        pytest.param(
+            False, None, "IPC_NACIONAL", None,
+            id="solo-metodo",
+        ),
+    ],
+)
+def test_crear_contrato_opcionalidad_primera_revision(
+    inmueble,
+    genera_factura,
+    fecha_revision,
+    metodo,
+    numero_revisiones,
+) -> None:
+    """Comprueba cuándo es necesaria la revisión inicial."""
+
+    titular = Inquilino(
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+
+    datos = {
+        "inmueble": inmueble,
+        "titulares": [titular],
+        "fecha_inicio": date(2026, 6, 15),
+        "fecha_vencimiento": date(2031, 6, 14),
+        "genera_factura": genera_factura,
+        "fecha_inicio_facturacion": date(2026, 9, 1),
+        "fianza": 200000,
+        "iva_porcentaje": 2100,
+        "retencion_porcentaje": 1900,
+        "direccion_facturacion": "Dirección",
+        "codigo_postal_facturacion": "36001",
+        "poblacion_facturacion": "Pontevedra",
+        "provincia_facturacion": "Pontevedra",
+        "concepto_factura": "Alquiler",
+        "renta_inicial": 100000,
+        "fecha_primera_revision": fecha_revision,
+        "metodo_revision": metodo,
+    }
+
+    # El usuario intenta crear un contrato con datos
+    # de revisión completos, incompletos o ausentes.
+    if numero_revisiones is None:
+        with pytest.raises(ContratoError):
+            crear_contrato(**datos)
+
+        return
+
+    contrato = crear_contrato(**datos)
+
+    assert contrato.genera_factura is genera_factura
+
+    # La renta inicial se crea siempre.
+    assert len(contrato.rentas) == 1
+    assert contrato.rentas[0].importe == 100000
+
+    # La revisión solo se crea cuando se ha especificado.
+    assert (
+        len(contrato.revisiones_renta)
+        == numero_revisiones
+    )
+
+    if numero_revisiones == 1:
+        revision = contrato.revisiones_renta[0]
+
+        assert revision.fecha_prevista == fecha_revision
+        assert revision.metodo == metodo
+        assert revision.estado == "PENDIENTE"
+
+
+@pytest.mark.parametrize(
+    "relacion, modelo",
+    [
+        pytest.param(
+            "facturas", Factura,
+            id="factura",
+        ),
+        pytest.param(
+            "movimientos_previstos", MovimientoPrevisto,
+            id="movimiento-previsto",
+        ),
+        pytest.param(
+            "imputaciones", ImputacionContrato,
+            id="imputacion",
+        ),
+        pytest.param(
+            "solicitudes_reembolso", SolicitudReembolso,
+            id="solicitud-reembolso",
+        ),
+        pytest.param(
+            "anexos", AnexoContrato,
+            id="anexo",
+        ),
+        pytest.param(
+            None, None,
+            id="sin-historico",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "modificacion",
+    [
+        "inmueble",
+        "sustituir-titular",
+        "anadir-titular",
+        "eliminar-titular",
+        "reordenar-titulares",
+        "sin-cambios",
+    ],
+)
+def test_validar_identidad_contrato(
+    relacion,
+    modelo,
+    modificacion,
+) -> None:
+    """Protege la identidad del contrato cuando existe histórico."""
+
+    from contab.contratos.services import (
+        contrato_tiene_alquileres_registrados,
+        fecha_inicio_contrato_protegida,
+        validar_identidad_contrato,
+    )
+
+    # Se prepara un contrato con dos titulares,
+    # renta inicial y primera revisión pendiente.
+    contrato = Contrato(
+        inmueble_id=1,
+    )
+
+    contrato.titulares.extend(
+        [
+            ContratoInquilino(
+                inquilino_id=10,
+                orden=1,
+            ),
+            ContratoInquilino(
+                inquilino_id=20,
+                orden=2,
+            ),
+        ]
+    )
+
+    contrato.rentas.append(
+        RentaContrato(
+            fecha_desde=date(2026, 1, 1),
+            importe=100000,
+        )
+    )
+
+    contrato.revisiones_renta.append(
+        RevisionRenta(
+            fecha_prevista=date(2027, 1, 1),
+            metodo="IPC_NACIONAL",
+            estado="PENDIENTE",
+        )
+    )
+
+    # Se simula la existencia del tipo de histórico
+    # correspondiente al caso de prueba.
+    if relacion is not None:
+        getattr(contrato, relacion).append(modelo())
+
+    # El mismo histórico que protege la identidad
+    # contractual debe proteger también su fecha de inicio.
+    assert fecha_inicio_contrato_protegida(
+        contrato
+    ) is (relacion is not None)
+
+    # El histórico contractual o de gastos no implica
+    # necesariamente que se hayan registrado alquileres.
+    assert contrato_tiene_alquileres_registrados(
+        contrato
+    ) is (relacion == "facturas")
+
+    inmueble_id = 1
+    inquilinos_ids = [10, 20]
+
+    # El usuario modifica el inmueble o los titulares.
+    if modificacion == "inmueble":
+        inmueble_id = 2
+
+    elif modificacion == "sustituir-titular":
+        inquilinos_ids = [10, 30]
+
+    elif modificacion == "anadir-titular":
+        inquilinos_ids = [10, 20, 30]
+
+    elif modificacion == "eliminar-titular":
+        inquilinos_ids = [10]
+
+    elif modificacion == "reordenar-titulares":
+        inquilinos_ids = [20, 10]
+
+    debe_rechazarse = (
+        relacion is not None
+        and modificacion not in (
+            "reordenar-titulares",
+            "sin-cambios",
+        )
+    )
+
+    if debe_rechazarse:
+        with pytest.raises(ContratoError):
+            validar_identidad_contrato(
+                contrato=contrato,
+                inmueble_id=inmueble_id,
+                inquilinos_ids=inquilinos_ids,
+            )
+
+    else:
+        validar_identidad_contrato(
+            contrato=contrato,
+            inmueble_id=inmueble_id,
+            inquilinos_ids=inquilinos_ids,
+        )
+
+    # La validación no debe modificar el contrato,
+    # tanto si acepta como si rechaza los cambios.
+    assert contrato.inmueble_id == 1
+
+    assert [
+        titular.inquilino_id
+        for titular in contrato.titulares
+    ] == [10, 20]
 

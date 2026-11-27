@@ -365,30 +365,398 @@ def resolver_revision_renta(
     return nueva_renta, siguiente_revision
 
 
-def crear_contrato(
-    inmueble,
-    titulares: list[Inquilino],
+def renta_inicial(contrato: Contrato) -> RentaContrato:
+    """Devuelve la primera renta registrada para un contrato."""
+    if not contrato.rentas:
+        raise ContratoError(
+            "El contrato no tiene una renta inicial registrada."
+        )
+
+    return min(
+        contrato.rentas,
+        key=lambda renta: renta.fecha_desde,
+    )
+
+
+def primera_revision(
+    contrato: Contrato,
+) -> RevisionRenta | None:
+    """Devuelve la primera revisión del contrato, si existe."""
+
+    return min(
+        contrato.revisiones_renta,
+        key=lambda revision: revision.fecha_prevista,
+        default=None,
+    )
+
+
+def identidad_contrato_protegida(
+    contrato: Contrato,
+) -> bool:
+    """Indica si el histórico impide modificar la identidad contractual."""
+
+    return any(
+        (
+            contrato.facturas,
+            contrato.movimientos_previstos,
+            contrato.imputaciones,
+            contrato.solicitudes_reembolso,
+            contrato.anexos,
+        )
+    )
+
+
+def contrato_tiene_alquileres_registrados(
+    contrato: Contrato,
+) -> bool:
+    """Indica si el contrato tiene alquileres facturados o contabilizados."""
+
+    if contrato.facturas:
+        return True
+
+    return any(
+        movimiento.apunte is not None
+        and movimiento.apunte.naturaleza == "INGRESO"
+        and movimiento.apunte.categoria == "ING_ALQUILERES"
+        for movimiento in contrato.movimientos_previstos
+    )
+
+
+def primera_revision_protegida(
+    contrato: Contrato,
+) -> bool:
+    """Indica si el histórico impide modificar la primera revisión."""
+
+    return (
+        len(contrato.revisiones_renta) > 1
+        or any(
+            revision.estado != "PENDIENTE"
+            for revision in contrato.revisiones_renta
+        )
+    )
+
+
+def renta_inicial_protegida(
+    contrato: Contrato,
+) -> bool:
+    """Indica si el histórico impide modificar la renta inicial."""
+
+    return (
+        contrato_tiene_alquileres_registrados(contrato)
+        or len(contrato.rentas) > 1
+        or any(
+            revision.estado != "PENDIENTE"
+            for revision in contrato.revisiones_renta
+        )
+        or any(
+            anexo.tipo == "CAMBIO_RENTA"
+            for anexo in contrato.anexos
+        )
+    )
+
+
+def fecha_inicio_contrato_protegida(
+    contrato: Contrato,
+) -> bool:
+    """Indica si el histórico impide modificar el inicio del contrato."""
+
+    return (
+        identidad_contrato_protegida(contrato)
+        or len(contrato.rentas) > 1
+        or len(contrato.revisiones_renta) > 1
+        or any(
+            revision.estado != "PENDIENTE"
+            for revision in contrato.revisiones_renta
+        )
+        or bool(contrato.ajustes_renta)
+    )
+
+
+def validar_condiciones_economicas_edicion(
+    contrato: Contrato,
+    importe_renta_inicial: int,
+    fecha_primera_revision: date | None,
+    metodo_revision: str,
+    genera_factura: bool,
+) -> None:
+    """Protege las condiciones económicas iniciales del contrato."""
+
+    renta = renta_inicial(contrato)
+
+    if (
+        importe_renta_inicial != renta.importe
+        and renta_inicial_protegida(contrato)
+    ):
+        raise ContratoError(
+            "No puede modificarse la renta inicial "
+            "de un contrato con histórico de rentas."
+        )
+
+    revision = primera_revision(contrato)
+
+    if (
+        revision is not None
+        and primera_revision_protegida(contrato)
+        and (
+            fecha_primera_revision != revision.fecha_prevista
+            or metodo_revision != revision.metodo
+        )
+    ):
+        raise ContratoError(
+            "No pueden modificarse los datos de la primera revisión "
+            "cuando existen revisiones resueltas o posteriores."
+        )
+
+    if (
+        genera_factura != contrato.genera_factura
+        and contrato_tiene_alquileres_registrados(contrato)
+    ):
+        raise ContratoError(
+            "No puede modificarse la opción de generar factura "
+            "de un contrato con alquileres registrados."
+        )
+
+
+def validar_identidad_contrato(
+    contrato: Contrato,
+    inmueble_id: int,
+    inquilinos_ids: list[int],
+) -> None:
+    """Impide modificar la identidad de un contrato protegido."""
+
+    if not identidad_contrato_protegida(contrato):
+        return
+
+    if inmueble_id != contrato.inmueble_id:
+        raise ContratoError(
+            "No puede modificarse el inmueble de un contrato "
+            "con histórico contractual o económico."
+        )
+
+    titulares_actuales = {
+        titular.inquilino_id
+        for titular in contrato.titulares
+    }
+
+    titulares_propuestos = set(inquilinos_ids)
+
+    if titulares_actuales != titulares_propuestos:
+        raise ContratoError(
+            "No pueden modificarse los titulares de un contrato "
+            "con histórico contractual o económico."
+        )
+
+
+def validar_fecha_fin_contrato(
+    contrato: Contrato,
+    fecha_inicio: date,
+    fecha_fin: date | None,
+) -> None:
+    """Comprueba que la finalización respeta el histórico del contrato."""
+
+    if fecha_fin is None:
+        return
+
+    if fecha_fin < fecha_inicio:
+        raise ContratoError(
+            "La fecha de finalización no puede ser anterior "
+            "al inicio del contrato."
+        )
+
+    renta_original = renta_inicial(contrato)
+
+    for renta in contrato.rentas:
+        if renta is renta_original:
+            continue
+
+        if renta.fecha_desde > fecha_fin:
+            raise ContratoError(
+                "La fecha de resolución es anterior a una renta "
+                "ya registrada."
+            )
+
+    for revision in contrato.revisiones_renta:
+        if (
+            revision.estado != "PENDIENTE"
+            and revision.fecha_prevista > fecha_fin
+        ):
+            raise ContratoError(
+                "La fecha de resolución es anterior a una "
+                "revisión de renta ya resuelta."
+            )
+
+    for ajuste in contrato.ajustes_renta:
+        if ajuste.fecha_hasta > fecha_fin:
+            raise ContratoError(
+                "La fecha de resolución es anterior a un ajuste "
+                "de renta ya registrado."
+            )
+
+    for anexo in contrato.anexos:
+        if anexo.fecha > fecha_fin:
+            raise ContratoError(
+                "La fecha de resolución es anterior a un anexo "
+                "ya registrado."
+            )
+
+    for factura in contrato.facturas:
+        if factura.periodo > fecha_fin:
+            raise ContratoError(
+                "La fecha de resolución es anterior a una factura "
+                "ya registrada."
+            )
+
+    for movimiento in contrato.movimientos_previstos:
+        apunte = movimiento.apunte
+
+        if (
+            apunte is not None
+            and apunte.naturaleza == "INGRESO"
+            and apunte.categoria == "ING_ALQUILERES"
+            and apunte.periodo_desde is not None
+            and apunte.periodo_desde > fecha_fin
+        ):
+            raise ContratoError(
+                "La fecha de resolución es anterior a un alquiler "
+                "ya contabilizado."
+            )
+
+
+def validar_coherencia_historica_edicion(
+    contrato: Contrato,
     fecha_inicio: date,
     fecha_vencimiento: date,
-    genera_factura: bool,
     fecha_inicio_facturacion: date,
+    fecha_fin: date | None,
+    fecha_primera_revision: date | None,
+) -> None:
+    """Impide que una edición deje incoherente el histórico del contrato."""
+
+    renta_original = renta_inicial(contrato)
+    revision_original = primera_revision(contrato)
+
+    for renta in contrato.rentas:
+        if renta is renta_original:
+            continue
+
+        if renta.fecha_desde < fecha_inicio:
+            raise ContratoError(
+                "La nueva fecha de inicio es posterior a una renta "
+                "ya registrada en el histórico."
+            )
+
+    for revision in contrato.revisiones_renta:
+        if revision is revision_original:
+            continue
+
+        if revision.fecha_prevista < fecha_inicio:
+            raise ContratoError(
+                "La nueva fecha de inicio es posterior a una revisión "
+                "de renta ya registrada."
+            )
+
+    for ajuste in contrato.ajustes_renta:
+        if ajuste.fecha_desde < fecha_inicio:
+            raise ContratoError(
+                "La nueva fecha de inicio es posterior a un ajuste "
+                "de renta ya registrado."
+            )
+
+    for anexo in contrato.anexos:
+        if anexo.fecha < fecha_inicio:
+            raise ContratoError(
+                "La nueva fecha de inicio es posterior a un anexo "
+                "ya registrado."
+            )
+
+        if (
+            anexo.tipo == "PRORROGA"
+            and anexo.nueva_fecha_vencimiento is not None
+            and anexo.nueva_fecha_vencimiento > fecha_vencimiento
+        ):
+            raise ContratoError(
+                "La fecha de vencimiento no puede ser anterior "
+                "al vencimiento establecido por una prórroga."
+            )
+
+    for factura in contrato.facturas:
+        if factura.periodo < fecha_inicio_facturacion:
+            raise ContratoError(
+                "El nuevo inicio de facturación es posterior "
+                "a una factura ya registrada."
+            )
+
+    if (
+        fecha_inicio != contrato.fecha_inicio
+        and fecha_inicio_contrato_protegida(contrato)
+    ):
+        raise ContratoError(
+            "No puede modificarse la fecha de inicio "
+            "de un contrato con histórico contractual o económico."
+        )
+
+    if (
+        fecha_inicio_facturacion
+        != contrato.fecha_inicio_facturacion
+        and contrato_tiene_alquileres_registrados(contrato)
+    ):
+        raise ContratoError(
+            "No puede modificarse la fecha de inicio de facturación "
+            "de un contrato con alquileres registrados."
+        )
+
+    validar_fecha_fin_contrato(
+        contrato=contrato,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
+
+
+def validar_datos_primera_revision(
+    genera_factura: bool,
+    fecha_primera_revision: date | None,
+    metodo_revision: str,
+) -> None:
+    """Valida la obligatoriedad de los datos de revisión."""
+
+    if (
+        fecha_primera_revision is None
+        and not metodo_revision
+    ):
+        if genera_factura:
+            raise ContratoError(
+                "Los contratos que generan factura deben "
+                "indicar la primera revisión de renta."
+            )
+
+        return
+
+    if fecha_primera_revision is None:
+        raise ContratoError(
+            "Debe indicarse la fecha de la primera revisión."
+        )
+
+    if not metodo_revision:
+        raise ContratoError(
+            "La revisión debe indicar un método de actualización."
+        )
+
+
+def validar_datos_contrato(
+    *,
+    fecha_inicio: date,
+    fecha_vencimiento: date,
+    fecha_inicio_facturacion: date,
+    fecha_fin: date | None,
     fianza: int,
     iva_porcentaje: int,
     retencion_porcentaje: int,
-    direccion_facturacion: str,
-    codigo_postal_facturacion: str | None,
-    poblacion_facturacion: str,
-    provincia_facturacion: str,
-    concepto_factura: str,
     renta_inicial: int,
-    fecha_primera_revision: date,
+    genera_factura: bool,
+    fecha_primera_revision: date | None,
     metodo_revision: str,
-) -> Contrato:
-    """Valida y prepara un contrato completo sin persistirlo."""
-    if not titulares:
-        raise ContratoError(
-            "El contrato debe tener al menos un titular."
-        )
+) -> None:
+    """Valida las condiciones generales de un contrato."""
 
     if fecha_vencimiento < fecha_inicio:
         raise ContratoError(
@@ -402,7 +770,14 @@ def crear_contrato(
 
     if fecha_inicio_facturacion.day != 1:
         raise ContratoError(
-            "La fecha de inicio de facturación debe ser el día 1 del mes."
+            "La fecha de inicio de facturación debe ser "
+            "el día 1 del mes."
+        )
+
+    if fecha_fin is not None and fecha_fin < fecha_inicio:
+        raise ContratoError(
+            "La fecha de finalización no puede ser anterior "
+            "al inicio del contrato."
         )
 
     if fianza < 0:
@@ -419,6 +794,76 @@ def crear_contrato(
         raise ContratoError(
             "El porcentaje de retención no puede ser negativo."
         )
+
+    if renta_inicial < 0:
+        raise ContratoError(
+            "El importe de la renta no puede ser negativo."
+        )
+
+    validar_datos_primera_revision(
+        genera_factura=genera_factura,
+        fecha_primera_revision=fecha_primera_revision,
+        metodo_revision=metodo_revision,
+    )
+
+    if fecha_primera_revision is not None:
+        if fecha_primera_revision.day != 1:
+            raise ContratoError(
+                "La fecha prevista de revisión debe ser "
+                "el día 1 del mes."
+            )
+
+        if fecha_primera_revision < fecha_inicio:
+            raise ContratoError(
+                "La revisión no puede ser anterior "
+                "al inicio del contrato."
+            )
+
+        if metodo_revision not in METODOS_REVISION:
+            raise ContratoError(
+                "El método de revisión indicado no es válido."
+            )
+
+
+def crear_contrato(
+    inmueble,
+    titulares: list[Inquilino],
+    fecha_inicio: date,
+    fecha_vencimiento: date,
+    genera_factura: bool,
+    fecha_inicio_facturacion: date,
+    fianza: int,
+    iva_porcentaje: int,
+    retencion_porcentaje: int,
+    direccion_facturacion: str,
+    codigo_postal_facturacion: str | None,
+    poblacion_facturacion: str,
+    provincia_facturacion: str,
+    concepto_factura: str,
+    renta_inicial: int,
+    fecha_primera_revision: date | None,
+    metodo_revision: str,
+) -> Contrato:
+    """Valida y prepara un contrato completo sin persistirlo."""
+
+    if not titulares:
+        raise ContratoError(
+            "El contrato debe tener al menos un titular."
+        )
+
+    validar_datos_contrato(
+        fecha_inicio=fecha_inicio,
+        fecha_vencimiento=fecha_vencimiento,
+        fecha_inicio_facturacion=fecha_inicio_facturacion,
+        fecha_fin=None,
+        fianza=fianza,
+        iva_porcentaje=iva_porcentaje,
+        retencion_porcentaje=retencion_porcentaje,
+        renta_inicial=renta_inicial,
+        genera_factura=genera_factura,
+        fecha_primera_revision=fecha_primera_revision,
+        metodo_revision=metodo_revision,
+    )
 
     if inmueble.tipo == "T":
         raise ContratoError(
@@ -471,11 +916,12 @@ def crear_contrato(
             importe=renta_inicial,
         )
 
-        crear_revision_renta(
-            contrato=contrato,
-            fecha_prevista=fecha_primera_revision,
-            metodo=metodo_revision,
-        )
+        if fecha_primera_revision is not None:
+            crear_revision_renta(
+                contrato=contrato,
+                fecha_prevista=fecha_primera_revision,
+                metodo=metodo_revision,
+            )
 
     except (
         RentaContratoError,
@@ -694,5 +1140,4 @@ def carencia_vigente(
             return anexo
 
     return None
-
 

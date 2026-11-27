@@ -20,11 +20,26 @@ from contab.contabilidad.services import (
 )
 from contab.contratos.services import (
     ContratoError,
+    RevisionRentaError,
+    contrato_tiene_alquileres_registrados,
     crear_anexo_carencia,
     crear_anexo_prorroga,
     crear_anexo_renta_permanente,
     crear_anexo_renta_temporal,
     crear_contrato,
+    crear_revision_renta,
+    fecha_inicio_contrato_protegida,
+    identidad_contrato_protegida,
+    primera_revision,
+    primera_revision_protegida,
+    renta_inicial as obtener_renta_inicial,
+    renta_inicial_protegida,
+    validar_coherencia_historica_edicion,
+    validar_condiciones_economicas_edicion,
+    validar_datos_contrato,
+    validar_datos_primera_revision,
+    validar_fecha_fin_contrato,
+    validar_identidad_contrato,
     METODOS_REVISION,
 )
 from contab.models import (
@@ -80,29 +95,28 @@ def _porcentaje_a_entero(valor: str) -> int:
     )
 
 
-def _inmuebles_formulario(session):
-    """Obtiene las unidades arrendables activas."""
+def _inmuebles_formulario(
+    session,
+    inmueble_actual_id: int | None = None,
+):
+    """Obtiene los inmuebles seleccionables en el formulario."""
+
+    condicion = (
+        Inmueble.activo.is_(True)
+        & (Inmueble.tipo != "T")
+    )
+
+    if inmueble_actual_id is not None:
+        condicion = or_(
+            condicion,
+            Inmueble.id == inmueble_actual_id,
+        )
+
     return session.scalars(
         select(Inmueble)
-        .where(
-            Inmueble.activo.is_(True),
-            Inmueble.tipo != "T",
-        )
+        .where(condicion)
         .order_by(Inmueble.referencia)
     ).all()
-
-
-def _renta_inicial(contrato: Contrato) -> RentaContrato:
-    """Devuelve la primera renta registrada para un contrato."""
-    if not contrato.rentas:
-        raise ContratoError(
-            "El contrato no tiene una renta inicial registrada."
-        )
-
-    return min(
-        contrato.rentas,
-        key=lambda renta: renta.fecha_desde,
-    )
 
 
 def _renta_actual(contrato: Contrato) -> RentaContrato:
@@ -118,19 +132,6 @@ def _renta_actual(contrato: Contrato) -> RentaContrato:
     )
 
 
-def _primera_revision(contrato: Contrato) -> RevisionRenta:
-    """Devuelve la primera revisión prevista del contrato."""
-    if not contrato.revisiones_renta:
-        raise ContratoError(
-            "El contrato no tiene una revisión inicial registrada."
-        )
-
-    return min(
-        contrato.revisiones_renta,
-        key=lambda revision: revision.fecha_prevista,
-    )
-
-
 def _fecha_a_texto(valor: date) -> str:
     """Convierte una fecha al formato visual dd/mm/aaaa."""
     return fecha_a_texto(valor)
@@ -143,8 +144,8 @@ def _centimos_a_texto(valor: int) -> str:
 
 def _datos_contrato_formulario(contrato: Contrato) -> dict[str, str]:
     """Prepara los datos actuales de un contrato para su edición."""
-    renta = _renta_inicial(contrato)
-    revision = _primera_revision(contrato)
+    renta = obtener_renta_inicial(contrato)
+    revision = primera_revision(contrato)
 
     return {
         "inmueble_id": str(contrato.inmueble_id),
@@ -171,10 +172,16 @@ def _datos_contrato_formulario(contrato: Contrato) -> dict[str, str]:
         "provincia_facturacion": contrato.provincia_facturacion,
         "concepto_factura": contrato.concepto_factura,
         "renta_inicial": _centimos_a_texto(renta.importe),
-        "fecha_primera_revision": _fecha_a_texto(
-            revision.fecha_prevista
+        "fecha_primera_revision": (
+            _fecha_a_texto(revision.fecha_prevista)
+            if revision is not None
+            else ""
         ),
-        "metodo_revision": revision.metodo,
+        "metodo_revision": (
+            revision.metodo
+            if revision is not None
+            else ""
+        ),
         "fecha_fin": (
             _fecha_a_texto(contrato.fecha_fin)
             if contrato.fecha_fin
@@ -211,14 +218,136 @@ def _render_formulario_contrato(
     titulo: str,
     datos,
     error: str | None,
+    contrato: Contrato | None = None,
 ):
-    """Muestra el formulario con todo su contexto común."""
+    """Muestra el formulario con sus restricciones de edición."""
+
+    restricciones = {
+        "identidad": False,
+        "fecha_inicio": False,
+        "alquileres": False,
+        "renta_inicial": False,
+        "primera_revision": False,
+    }
+
+    advertencia_gastos = False
+    inmueble_actual_id = None
+
+    datos = dict(datos)
+
+    if contrato is not None:
+        inmueble_actual_id = contrato.inmueble_id
+
+        restricciones = {
+            "identidad": identidad_contrato_protegida(
+                contrato
+            ),
+            "fecha_inicio": fecha_inicio_contrato_protegida(
+                contrato
+            ),
+            "alquileres": contrato_tiene_alquileres_registrados(
+                contrato
+            ),
+            "renta_inicial": renta_inicial_protegida(
+                contrato
+            ),
+            "primera_revision": primera_revision_protegida(
+                contrato
+            ),
+        }
+
+        advertencia_gastos = bool(
+            contrato.imputaciones
+            or contrato.solicitudes_reembolso
+        )
+
+        # Los campos protegidos muestran siempre
+        # los valores registrados en la base de datos.
+        datos_originales = _datos_contrato_formulario(
+            contrato
+        )
+
+        campos_protegidos = {
+            "identidad": (
+                "inmueble_id",
+            ),
+            "fecha_inicio": (
+                "fecha_inicio",
+            ),
+            "alquileres": (
+                "fecha_inicio_facturacion",
+                "genera_factura",
+            ),
+            "renta_inicial": (
+                "renta_inicial",
+            ),
+            "primera_revision": (
+                "fecha_primera_revision",
+                "metodo_revision",
+            ),
+        }
+
+        for restriccion, campos in campos_protegidos.items():
+            if restricciones[restriccion]:
+                for campo in campos:
+                    datos[campo] = datos_originales[campo]
+
+        # Si la identidad está protegida, se conserva
+        # el orden propuesto únicamente cuando contiene
+        # exactamente los mismos titulares originales.
+        if restricciones["identidad"]:
+            originales = [
+                (
+                    titular.inquilino.nombre,
+                    titular.inquilino.nif,
+                )
+                for titular in sorted(
+                    contrato.titulares,
+                    key=lambda titular: titular.orden,
+                )
+            ]
+
+            propuestos = []
+
+            for posicion in range(1, 5):
+                nombre = datos.get(
+                    f"titular_{posicion}_nombre", ""
+                ).strip()
+
+                nif = datos.get(
+                    f"titular_{posicion}_nif", ""
+                ).strip()
+
+                if nombre or nif:
+                    propuestos.append((nombre, nif))
+
+            if sorted(propuestos) != sorted(originales):
+                for posicion in range(1, 5):
+                    nombre, nif = (
+                        originales[posicion - 1]
+                        if posicion <= len(originales)
+                        else ("", "")
+                    )
+
+                    datos[
+                        f"titular_{posicion}_nombre"
+                    ] = nombre
+
+                    datos[
+                        f"titular_{posicion}_nif"
+                    ] = nif
+
     return render_template(
         "contratos/formulario.html",
         titulo=titulo,
         datos=datos,
-        inmuebles=_inmuebles_formulario(session),
+        inmuebles=_inmuebles_formulario(
+            session,
+            inmueble_actual_id,
+        ),
         metodos_revision=METODOS_REVISION,
+        restricciones=restricciones,
+        advertencia_gastos=advertencia_gastos,
         error=error,
         database_name=get_database_name(),
     )
@@ -304,103 +433,6 @@ def _render_anexo_carencia(
         database_name=get_database_name(),
     )
 
-
-def _validar_coherencia_historica_edicion(
-    contrato: Contrato,
-    fecha_inicio: date,
-    fecha_vencimiento: date,
-    fecha_inicio_facturacion: date,
-    fecha_fin: date | None,
-    fecha_primera_revision: date,
-) -> None:
-    """Impide que una edición deje incoherente el histórico del contrato."""
-    renta_inicial = _renta_inicial(contrato)
-    primera_revision = _primera_revision(contrato)
-
-    for renta in contrato.rentas:
-        if renta is renta_inicial:
-            continue
-
-        if renta.fecha_desde < fecha_inicio:
-            raise ContratoError(
-                "La nueva fecha de inicio es posterior a una renta "
-                "ya registrada en el histórico."
-            )
-
-    for revision in contrato.revisiones_renta:
-        if revision is primera_revision:
-            continue
-
-        if revision.fecha_prevista < fecha_inicio:
-            raise ContratoError(
-                "La nueva fecha de inicio es posterior a una revisión "
-                "de renta ya registrada."
-            )
-
-    for ajuste in contrato.ajustes_renta:
-        if ajuste.fecha_desde < fecha_inicio:
-            raise ContratoError(
-                "La nueva fecha de inicio es posterior a un ajuste "
-                "de renta ya registrado."
-            )
-
-    for anexo in contrato.anexos:
-        if anexo.fecha < fecha_inicio:
-            raise ContratoError(
-                "La nueva fecha de inicio es posterior a un anexo "
-                "ya registrado."
-            )
-
-        if (
-            anexo.tipo == "PRORROGA"
-            and anexo.nueva_fecha_vencimiento is not None
-            and anexo.nueva_fecha_vencimiento > fecha_vencimiento
-        ):
-            raise ContratoError(
-                "La fecha de vencimiento no puede ser anterior "
-                "al vencimiento establecido por una prórroga."
-            )
-
-    for factura in contrato.facturas:
-        if factura.periodo < fecha_inicio_facturacion:
-            raise ContratoError(
-                "El nuevo inicio de facturación es posterior "
-                "a una factura ya registrada."
-            )
-
-    if fecha_fin is None:
-        return
-
-    for renta in contrato.rentas:
-        if renta is renta_inicial:
-            continue
-
-        if renta.fecha_desde > fecha_fin:
-            raise ContratoError(
-                "La fecha de resolución es anterior a una renta "
-                "ya registrada."
-            )
-
-    for ajuste in contrato.ajustes_renta:
-        if ajuste.fecha_hasta > fecha_fin:
-            raise ContratoError(
-                "La fecha de resolución es anterior a un ajuste "
-                "de renta ya registrado."
-            )
-
-    for anexo in contrato.anexos:
-        if anexo.fecha > fecha_fin:
-            raise ContratoError(
-                "La fecha de resolución es anterior a un anexo "
-                "ya registrado."
-            )
-
-    for factura in contrato.facturas:
-        if factura.periodo > fecha_fin:
-            raise ContratoError(
-                "La fecha de resolución es anterior a una factura "
-                "ya registrada."
-            )
 
 def _titulares_formulario(datos) -> list[tuple[str, str, int]]:
     """Obtiene y valida los titulares introducidos en el formulario."""
@@ -632,8 +664,21 @@ def nuevo_contrato():
         fecha_inicio_facturacion = texto_a_fecha(request.form["fecha_inicio_facturacion"])
         fianza = _importe_a_centimos(request.form["fianza"])
         renta_inicial = _importe_a_centimos(request.form["renta_inicial"])
-        fecha_primera_revision = texto_a_fecha(request.form["fecha_primera_revision"])
-        metodo_revision=(request.form["metodo_revision"].strip())
+        fecha_revision_texto = request.form.get(
+            "fecha_primera_revision",
+            "",
+        ).strip()
+
+        fecha_primera_revision = (
+            texto_a_fecha(fecha_revision_texto)
+            if fecha_revision_texto
+            else None
+        )
+
+        metodo_revision = request.form.get(
+            "metodo_revision",
+            "",
+        ).strip()
 
     except (KeyError, ValueError) as exc:
         with session_factory() as session:
@@ -738,6 +783,7 @@ def editar_contrato(contrato_id: int):
                 titulo="Editar contrato",
                 datos=datos,
                 error=None,
+                contrato=contrato,
             )
 
     try:
@@ -747,7 +793,21 @@ def editar_contrato(contrato_id: int):
         fecha_vencimiento = texto_a_fecha(request.form["fecha_vencimiento"])
         genera_factura = "genera_factura" in request.form
         fecha_inicio_facturacion = texto_a_fecha(request.form["fecha_inicio_facturacion"])
-        fecha_primera_revision = texto_a_fecha(request.form["fecha_primera_revision"])
+        fecha_revision_texto = request.form.get(
+            "fecha_primera_revision",
+            "",
+        ).strip()
+
+        fecha_primera_revision = (
+            texto_a_fecha(fecha_revision_texto)
+            if fecha_revision_texto
+            else None
+        )
+
+        metodo_revision = request.form.get(
+            "metodo_revision",
+            "",
+        ).strip()
         fianza = _importe_a_centimos(request.form["fianza"])
         renta_inicial = _importe_a_centimos(request.form["renta_inicial"])
         fecha_fin_texto = request.form.get("fecha_fin", "").strip()
@@ -802,66 +862,21 @@ def editar_contrato(contrato_id: int):
             else None
         )
 
-        if fecha_vencimiento < fecha_inicio:
-            raise ValueError(
-                "La fecha de vencimiento no puede ser anterior al inicio."
-            )
+        validar_datos_contrato(
+            fecha_inicio=fecha_inicio,
+            fecha_vencimiento=fecha_vencimiento,
+            fecha_inicio_facturacion=fecha_inicio_facturacion,
+            fecha_fin=fecha_fin,
+            fianza=fianza,
+            iva_porcentaje=iva_porcentaje,
+            retencion_porcentaje=retencion_porcentaje,
+            renta_inicial=renta_inicial,
+            genera_factura=genera_factura,
+            fecha_primera_revision=fecha_primera_revision,
+            metodo_revision=metodo_revision,
+        )
 
-        if fecha_inicio_facturacion < fecha_inicio:
-            raise ValueError(
-                "La facturación no puede comenzar antes del contrato."
-            )
-
-        if fecha_inicio_facturacion.day != 1:
-            raise ValueError(
-                "La fecha de inicio de facturación debe ser "
-                "el día 1 del mes."
-            )
-
-        if fecha_fin is not None and fecha_fin < fecha_inicio:
-            raise ValueError(
-                "La fecha de finalización no puede ser anterior "
-                "al inicio del contrato."
-            )
-
-        if fianza < 0:
-            raise ValueError(
-                "La fianza no puede ser negativa."
-            )
-
-        if iva_porcentaje < 0:
-            raise ValueError(
-                "El porcentaje de IVA no puede ser negativo."
-            )
-
-        if retencion_porcentaje < 0:
-            raise ValueError(
-                "El porcentaje de retención no puede ser negativo."
-            )
-
-        if renta_inicial < 0:
-            raise ValueError(
-                "La renta inicial no puede ser negativa."
-            )
-
-        if fecha_primera_revision.day != 1:
-            raise ValueError(
-                "La fecha prevista de revisión debe ser "
-                "el día 1 del mes."
-            )
-
-        if fecha_primera_revision < fecha_inicio:
-            raise ValueError(
-                "La revisión no puede ser anterior "
-                "al inicio del contrato."
-            )
-
-        if not request.form["metodo_revision"].strip():
-            raise ValueError(
-                "La revisión debe indicar un método de actualización."
-            )
-
-    except (KeyError, ValueError) as exc:
+    except (KeyError, ValueError, ContratoError) as exc:
         with session_factory() as session:
             contrato = session.get(Contrato, contrato_id)
 
@@ -874,6 +889,7 @@ def editar_contrato(contrato_id: int):
                     titulo="Editar contrato",
                     datos=request.form,
                     error=str(exc),
+                    contrato=contrato,
                 ),
                 400,
             )
@@ -905,16 +921,56 @@ def editar_contrato(contrato_id: int):
                         "a un inmueble subdividido."
                     )
 
-                renta = _renta_inicial(contrato)
-                revision = _primera_revision(contrato)
+                if (
+                    not inmueble.activo
+                    and inmueble.id != contrato.inmueble_id
+                ):
+                    raise ContratoError(
+                        "No puede asociarse el contrato "
+                        "a otro inmueble inactivo."
+                    )
 
-                _validar_coherencia_historica_edicion(
+                renta = obtener_renta_inicial(contrato)
+                revision = primera_revision(contrato)
+
+                if (
+                    revision is not None
+                    and fecha_primera_revision is None
+                ):
+                    raise ContratoError(
+                        "No puede eliminarse una revisión de renta "
+                        "existente desde la edición del contrato."
+                    )
+
+                validar_coherencia_historica_edicion(
                     contrato=contrato,
                     fecha_inicio=fecha_inicio,
                     fecha_vencimiento=fecha_vencimiento,
                     fecha_inicio_facturacion=fecha_inicio_facturacion,
                     fecha_fin=fecha_fin,
                     fecha_primera_revision=fecha_primera_revision,
+                )
+
+                titulares_resueltos = _resolver_titulares(
+                    session,
+                    titulares_formulario,
+                )
+
+                validar_identidad_contrato(
+                    contrato=contrato,
+                    inmueble_id=inmueble.id,
+                    inquilinos_ids=[
+                        inquilino.id
+                        for inquilino, _ in titulares_resueltos
+                    ],
+                )
+
+                validar_condiciones_economicas_edicion(
+                    contrato=contrato,
+                    importe_renta_inicial=renta_inicial,
+                    fecha_primera_revision=fecha_primera_revision,
+                    metodo_revision=metodo_revision,
+                    genera_factura=genera_factura,
                 )
 
                 contrato.inmueble = inmueble
@@ -937,19 +993,27 @@ def editar_contrato(contrato_id: int):
                 renta.fecha_desde = fecha_inicio
                 renta.importe = renta_inicial
 
-                revision.fecha_prevista = (
-                    fecha_primera_revision
-                )
-                revision.metodo = (
-                    request.form[
-                        "metodo_revision"
-                    ].strip()
-                )
+                if revision is not None:
+                    # Se modifica la revisión existente,
+                    # conservando su identidad.
+                    revision.fecha_prevista = (
+                        fecha_primera_revision
+                    )
+                    revision.metodo = metodo_revision
 
-                titulares_resueltos = _resolver_titulares(
-                    session,
-                    titulares_formulario,
-                )
+                elif fecha_primera_revision is not None:
+                    # Se incorpora la primera revisión
+                    # a un contrato que todavía no tenía ninguna.
+                    try:
+                        nueva_revision = crear_revision_renta(
+                            contrato=contrato,
+                            fecha_prevista=fecha_primera_revision,
+                            metodo=metodo_revision,
+                        )
+                    except RevisionRentaError as exc:
+                        raise ContratoError(str(exc)) from exc
+
+                    session.add(nueva_revision)
 
                 _reemplazar_titulares(
                     session,
@@ -962,12 +1026,18 @@ def editar_contrato(contrato_id: int):
 
     except ContratoError as exc:
         with session_factory() as session:
+            contrato = session.get(Contrato, contrato_id)
+
+            if contrato is None:
+                return "Contrato no encontrado.", 404
+
             return (
                 _render_formulario_contrato(
                     session,
                     titulo="Editar contrato",
                     datos=request.form,
                     error=str(exc),
+                    contrato=contrato,
                 ),
                 400,
             )
@@ -1019,11 +1089,11 @@ def finalizar_contrato(contrato_id: int):
                 if contrato is None:
                     raise LookupError
 
-                if fecha_fin < contrato.fecha_inicio:
-                    raise ContratoError(
-                        "La fecha de finalización no puede ser anterior "
-                        "al inicio del contrato."
-                    )
+                validar_fecha_fin_contrato(
+                    contrato=contrato,
+                    fecha_inicio=contrato.fecha_inicio,
+                    fecha_fin=fecha_fin,
+                )
 
                 contrato.fecha_fin = fecha_fin
 

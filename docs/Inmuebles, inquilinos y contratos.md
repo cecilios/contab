@@ -132,13 +132,16 @@ El contrato conserva la relación con sus titulares, mientras que los datos pers
 ## Contratos
 ------------
 
-Un contrato sólo puede asignarse a una unidad alquilable activa.
+Los nuevos contratos sólo pueden asignarse a unidades alquilables activas.
 
 No puede crearse para:
 
 - un inmueble subdividido de tipo **T**;
 - un inmueble inactivo;
 - un período que se solape con otro contrato del mismo inmueble.
+
+Al editar un contrato existente se permite conservar su inmueble
+original aunque haya pasado a estar inactivo.
 
 El contrato recoge:
 
@@ -165,27 +168,67 @@ Las fechas deben mantener una secuencia coherente:
 - la finalización no puede ser anterior al inicio;
 - una revisión no puede ser anterior al comienzo del contrato.
 
-Al editar un contrato con movimientos históricos, no deben permitirse cambios que hagan incoherentes las rentas o revisiones ya registradas.
+La fecha de vencimiento es obligatoria y debe respetar
+las prórrogas registradas.
+
+Las opciones Editar y Finalizar aplican las mismas restricciones
+sobre la fecha de finalización. No se permite establecer una fecha
+que deje fuera de la vigencia del contrato rentas posteriores,
+revisiones resueltas, ajustes, anexos o períodos de alquiler
+ya facturados o contabilizados.
+
+Las revisiones pendientes no impiden finalizar un contrato.
+
+Cuando existen gastos imputados o solicitudes de reembolso,
+se muestra una advertencia sobre las posibles consecuencias
+de modificar la fecha de finalización.
 
 ## Contratos con y sin factura
 ------------------------------
 
 Cada contrato indica si genera factura.
 
-Cuando genera factura:
-
-- se exigen los datos necesarios para emitirla;
-- se utilizan IVA y retención;
-- se mantiene una dirección y un concepto de facturación.
+Cuando genera factura, son obligatorios los datos necesarios
+para emitirla, así como la fecha y el método de la primera
+revisión de renta.
 
 Cuando no genera factura:
 
-- esos datos son opcionales;
-- pueden dejarse vacíos;
-- también pueden rellenarse anticipadamente por si fueran necesarios en el futuro;
-- el contrato sigue generando ingresos contables y movimientos previstos para conciliación.
+- los datos de facturación son opcionales;
+- la primera revisión puede dejarse sin definir;
+- si se indica una revisión, deben cumplimentarse tanto
+  su fecha como su método;
+- el contrato sigue generando ingresos contables y
+  movimientos previstos para conciliación.
 
-En edición, los datos de facturación siempre pueden modificarse, aunque el contrato no genere factura.
+El formulario actualiza los asteriscos de los campos obligatorios
+al marcar o desmarcar la opción Genera factura.
+
+Los datos fiscales y de facturación pueden corregirse desde
+la edición del contrato. Las modificaciones no alteran las
+facturas ya registradas.
+
+## Edición de contratos
+
+Desde el listado de contratos, la opción **Editar** permite corregir los datos registrados.
+
+Para conservar la coherencia del histórico, algunos campos dejan de ser modificables cuando existen determinadas operaciones:
+
+| Campo | Cuándo queda protegido |
+|---|---|
+| Inmueble y titulares | Cuando existen anexos u operaciones económicas asociadas. |
+| Fecha de inicio | Cuando existe histórico contractual posterior al inicial o histórico económico. |
+| Inicio de facturación y Genera factura | Cuando existen alquileres facturados o contabilizados. |
+| Renta inicial | Cuando existen alquileres registrados, revisiones resueltas, rentas posteriores o anexos de cambio de renta. |
+| Fecha y método de primera revisión | Cuando existen revisiones resueltas o posteriores. |
+
+El formulario muestra los campos protegidos como no editables. Se permite reordenar los titulares existentes, pero no sustituirlos, añadirlos ni eliminarlos cuando el contrato está protegido.
+
+Para corregir el nombre o NIF de un titular existente debe utilizarse la opción **Editar** del listado de inquilinos.
+
+La fianza y los datos fiscales y de facturación pueden seguir corrigiéndose.
+
+La edición del contrato no permite eliminar una revisión de renta existente ni modifica las operaciones económicas ya registradas.
 
 ## Concepto y destino
 ---------------------
@@ -208,7 +251,13 @@ Los importes se manejan siempre como cantidades monetarias positivas.
 ## Revisiones de renta
 ----------------------
 
-Cada contrato contiene la fecha de su próxima revisión y el método que debe utilizarse.
+Un contrato puede contener la fecha de su primera revisión
+de renta y el método que debe utilizarse.
+
+Estos datos son obligatorios en contratos que generan factura
+y opcionales en los demás. Cuando inicialmente no se ha definido
+una revisión, puede incorporarse posteriormente desde la edición
+del contrato.
 
 Los métodos previstos incluyen:
 
