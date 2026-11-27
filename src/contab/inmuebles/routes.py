@@ -339,6 +339,124 @@ def _buscar_duplicado(
     return None
 
 
+def _inmueble_tiene_historico(
+    inmueble: Inmueble,
+) -> bool:
+    """Indica si el inmueble tiene histórico contractual o económico."""
+
+    return bool(
+        inmueble.contratos
+        or inmueble.apuntes_contables
+        or inmueble.movimientos_previstos
+    )
+
+
+def _inmueble_tiene_facturas(
+    inmueble: Inmueble,
+) -> bool:
+    """Indica si existen facturas registradas para el inmueble."""
+
+    return any(
+        contrato.facturas
+        for contrato in inmueble.contratos
+    )
+
+
+def _inmueble_tiene_repartos(
+    inmueble: Inmueble,
+) -> bool:
+    """Indica si existen distribuciones de gastos del inmueble."""
+
+    return any(
+        apunte.distribuciones
+        for apunte in inmueble.apuntes_contables
+    )
+
+
+def _participacion_inmueble_protegida(
+    inmueble: Inmueble,
+) -> bool:
+    """Protege la participación cuando el padre tiene repartos."""
+
+    return (
+        inmueble.inmueble_padre is not None
+        and _inmueble_tiene_repartos(
+            inmueble.inmueble_padre
+        )
+    )
+
+
+def _tipos_inmueble_permitidos(
+    inmueble: Inmueble,
+) -> dict[str, str]:
+    """Obtiene los tipos compatibles con la estructura y el histórico."""
+
+    if inmueble.tipo == "T":
+        if (
+            inmueble.locales
+            or _inmueble_tiene_historico(inmueble)
+        ):
+            return {
+                "T": TIPOS_INMUEBLE["T"],
+            }
+
+    elif (
+        inmueble.inmueble_padre_id is not None
+        or _inmueble_tiene_historico(inmueble)
+    ):
+        return {
+            tipo: etiqueta
+            for tipo, etiqueta in TIPOS_INMUEBLE.items()
+            if tipo != "T"
+        }
+
+    return TIPOS_INMUEBLE.copy()
+
+
+def _validar_integridad_edicion_inmueble(
+    inmueble: Inmueble,
+    valores: dict,
+) -> str | None:
+    """Valida las modificaciones estructurales de un inmueble."""
+
+    if (
+        inmueble.inmueble_padre_id
+        != valores["inmueble_padre_id"]
+    ):
+        return (
+            "Por ahora no se puede cambiar "
+            "la pertenencia de un inmueble "
+            "a una propiedad subdividida."
+        )
+
+    if valores["tipo"] not in _tipos_inmueble_permitidos(
+        inmueble
+    ):
+        if inmueble.tipo == "T" and inmueble.locales:
+            return (
+                "No se puede cambiar el tipo de un "
+                "inmueble subdividido que tiene hijos."
+            )
+
+        return (
+            "No se puede cambiar el tipo del inmueble "
+            "de forma incompatible con su histórico "
+            "contractual o económico."
+        )
+
+    if (
+        valores["participacion"] != inmueble.participacion
+        and _participacion_inmueble_protegida(inmueble)
+    ):
+        return (
+            "No se puede modificar la participación "
+            "de un inmueble cuyo padre tiene "
+            "repartos registrados."
+        )
+
+    return None
+
+
 def _validar_inmueble_padre(
     session,
     *,
@@ -380,6 +498,22 @@ def _validar_inmueble_padre(
             "no es un inmueble subdividido."
         )
 
+    # Estas restricciones se aplican al alta de nuevos hijos.
+    # No impiden editar un hijo que ya pertenece al inmueble.
+    if inmueble_id is None:
+        if not inmueble_padre.activo:
+            return (
+                "No se pueden incorporar locales "
+                "a un inmueble subdividido inactivo."
+            )
+
+        if _inmueble_tiene_repartos(inmueble_padre):
+            return (
+                "No se pueden incorporar locales "
+                "a un inmueble subdividido con "
+                "repartos registrados."
+            )
+
     return None
 
 
@@ -399,15 +533,86 @@ def _render_formulario_inmueble(
     datos,
     titulo: str,
     error: str | None,
+    inmueble: Inmueble | None = None,
 ):
-    """Renderiza el formulario con sus opciones."""
+    """Renderiza el formulario con sus opciones y restricciones."""
+
+    datos = dict(datos)
+
+    tipos_permitidos = TIPOS_INMUEBLE.copy()
+
+    participacion_protegida = False
+    advertencia_codigo_facturacion = False
+    pertenencia_protegida = inmueble is not None
+
+    inmuebles_subdivididos = (
+        _inmuebles_subdivididos_formulario(session)
+    )
+
+    if inmueble is not None:
+        tipos_permitidos = _tipos_inmueble_permitidos(
+            inmueble
+        )
+
+        participacion_protegida = (
+            _participacion_inmueble_protegida(inmueble)
+        )
+
+        advertencia_codigo_facturacion = (
+            _inmueble_tiene_facturas(inmueble)
+        )
+
+        # Recuperar el tipo registrado cuando el usuario
+        # ha intentado realizar un cambio no permitido.
+        if datos.get("tipo") not in tipos_permitidos:
+            datos["tipo"] = inmueble.tipo
+
+        if participacion_protegida:
+            datos["participacion"] = (
+                porcentaje_a_texto_entrada(
+                    inmueble.participacion
+                )
+            )
+
+        # La pertenencia a un inmueble subdividido
+        # no puede modificarse desde la edición.
+        datos["es_parte_inmueble"] = (
+            inmueble.inmueble_padre_id is not None
+        )
+
+        datos["inmueble_padre_id"] = (
+            str(inmueble.inmueble_padre_id)
+            if inmueble.inmueble_padre_id is not None
+            else ""
+        )
+
+        inmuebles_subdivididos = [
+            padre
+            for padre in inmuebles_subdivididos
+            if padre.id == inmueble.inmueble_padre_id
+        ]
+
+    else:
+        # En las altas únicamente se ofrecen padres
+        # activos y sin repartos registrados.
+        inmuebles_subdivididos = [
+            padre
+            for padre in inmuebles_subdivididos
+            if (
+                padre.activo
+                and not _inmueble_tiene_repartos(padre)
+            )
+        ]
 
     return render_template(
         "inmuebles/nuevo.html",
         datos=datos,
-        tipos_inmueble=TIPOS_INMUEBLE,
-        inmuebles_subdivididos=(
-            _inmuebles_subdivididos_formulario(session)
+        tipos_inmueble=tipos_permitidos,
+        inmuebles_subdivididos=inmuebles_subdivididos,
+        participacion_protegida=participacion_protegida,
+        pertenencia_protegida=pertenencia_protegida,
+        advertencia_codigo_facturacion=(
+            advertencia_codigo_facturacion
         ),
         error=error,
         titulo=titulo,
@@ -709,18 +914,28 @@ def editar_inmueble(inmueble_id: int):
                 datos=datos,
                 error=None,
                 titulo="Editar inmueble",
+                inmueble=inmueble,
             )
 
     valores, error = _validar_datos_inmueble(request.form)
 
     if error:
         with session_factory() as session:
+            inmueble = session.get(
+                Inmueble,
+                inmueble_id,
+            )
+
+            if inmueble is None:
+                return "Inmueble no encontrado.", 404
+
             return (
                 _render_formulario_inmueble(
                     session,
                     datos=request.form,
                     error=error,
                     titulo="Editar inmueble",
+                    inmueble=inmueble,
                 ),
                 400,
             )
@@ -773,44 +988,25 @@ def editar_inmueble(inmueble_id: int):
                     400,
                 )
 
-            if (inmueble.inmueble_padre_id
-                != valores["inmueble_padre_id"]
-            ):
+
+            error_integridad = (
+                _validar_integridad_edicion_inmueble(
+                    inmueble,
+                    valores,
+                )
+            )
+
+            if error_integridad:
                 return (
                     _render_formulario_inmueble(
                         session,
                         datos=request.form,
-                        error=(
-                            "Por ahora no se puede cambiar "
-                            "la pertenencia de un inmueble "
-                            "a una propiedad subdividida."
-                        ),
+                        error=error_integridad,
                         titulo="Editar inmueble",
+                        inmueble=inmueble,
                     ),
                     400,
                 )
-
-            # impedir cambios de tipo en inmuebles subdivididos con hijos
-            if inmueble.tipo == "T" and valores["tipo"] != "T":
-                tiene_hijos = session.scalar(
-                    select(Inmueble.id)
-                    .where(Inmueble.inmueble_padre_id == inmueble.id)
-                    .limit(1)
-                ) is not None
-
-                if tiene_hijos:
-                    return (
-                        _render_formulario_inmueble(
-                            session,
-                            datos=request.form,
-                            error=(
-                                "No se puede cambiar el tipo de un "
-                                "inmueble subdividido que tiene hijos."
-                            ),
-                            titulo="Editar inmueble",
-                        ),
-                        400,
-                    )
 
             try:
                 valores.update(
@@ -826,6 +1022,7 @@ def editar_inmueble(inmueble_id: int):
                         datos=request.form,
                         titulo="Editar inmueble",
                         error=str(exc),
+                        inmueble=inmueble,
                     ),
                     400,
                 )
@@ -838,37 +1035,97 @@ def editar_inmueble(inmueble_id: int):
     )
 
 
+def _validar_cambio_estado_inmueble(
+    inmueble: Inmueble,
+    fecha: date,
+) -> str | None:
+    """Comprueba si el inmueble puede cambiar de estado."""
+
+    if inmueble.activo:
+        # Desactivación de un inmueble subdividido.
+        if inmueble.tipo == "T":
+            if any(
+                hijo.activo
+                for hijo in inmueble.locales
+            ):
+                return (
+                    "Para desactivar un inmueble subdividido "
+                    "debe desactivar previamente todos "
+                    "sus inmuebles hijos."
+                )
+
+        # Desactivación de una unidad arrendable.
+        elif any(
+            contrato.fecha_fin is None
+            or contrato.fecha_fin >= fecha
+            for contrato in inmueble.contratos
+        ):
+            return (
+                "No se puede desactivar un inmueble "
+                "con contratos vigentes o de inicio futuro."
+            )
+
+    else:
+        # Activación de un inmueble hijo.
+        if (
+            inmueble.inmueble_padre is not None
+            and not inmueble.inmueble_padre.activo
+        ):
+            return (
+                "Para activar este inmueble debe activar "
+                "previamente el inmueble subdividido "
+                "al que pertenece."
+            )
+
+    return None
+
+
 @bp.route("/<int:inmueble_id>/estado", methods=["GET", "POST"])
 def cambiar_estado_inmueble(inmueble_id: int):
     """Permite activar o desactivar un inmueble previa confirmación."""
+
     session_factory = get_session_factory()
-
-    if request.method == "GET":
-        with session_factory() as session:
-            inmueble = session.get(Inmueble, inmueble_id)
-
-            if inmueble is None:
-                return "Inmueble no encontrado.", 404
-
-            accion = "Desactivar" if inmueble.activo else "Activar"
-
-            return render_template(
-                "inmuebles/estado.html",
-                inmueble=inmueble,
-                accion=accion,
-                database_name=get_database_name(),
-            )
 
     with session_factory() as session:
         with session.begin():
-            inmueble = session.get(Inmueble, inmueble_id)
+            inmueble = session.get(
+                Inmueble,
+                inmueble_id,
+            )
 
             if inmueble is None:
                 return "Inmueble no encontrado.", 404
 
+            accion = (
+                "Desactivar"
+                if inmueble.activo
+                else "Activar"
+            )
+
+            error = _validar_cambio_estado_inmueble(
+                inmueble,
+                date.today(),
+            )
+
+            if request.method == "GET" or error:
+                return (
+                    render_template(
+                        "inmuebles/estado.html",
+                        inmueble=inmueble,
+                        accion=accion,
+                        error=error,
+                        database_name=get_database_name(),
+                    ),
+                    400
+                    if request.method == "POST"
+                    else 200,
+                )
+
             inmueble.activo = not inmueble.activo
 
-    return redirect(url_for("inmuebles.listar_inmuebles"))
+    return redirect(
+        url_for("inmuebles.listar_inmuebles")
+    )
 
 
 @bp.route(

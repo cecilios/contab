@@ -3,14 +3,22 @@
 import pytest
 import re
 
-from datetime import date
+from datetime import date, timedelta
 from sqlalchemy import select
 
 from contab.app import create_app
 from contab.database import Base
+from contab.config import CategoriaContable
+from contab.contabilidad.services import crear_apunte_contable
+from contab.contratos.services import crear_contrato
+from contab.facturacion.services import crear_factura
 from contab.models import (
+    ApunteContable,
+    Contrato,
     DatosFiscalesInmueble,
+    DistribucionApunte,
     Inmueble,
+    Inquilino,
 )
 
 
@@ -158,6 +166,170 @@ def _formulario_datos_fiscales(**cambios) -> dict:
 
     datos.update(cambios)
     return datos
+
+
+def _crear_contrato_inmueble_prueba(
+    session,
+    inmueble: Inmueble,
+    *,
+    fecha_inicio: date = date(2020, 1, 1),
+    fecha_fin: date | None = None,
+) -> Contrato:
+    """Prepara un contrato para comprobar la integridad del inmueble."""
+
+    inquilino = Inquilino(
+        nombre="Ana Pérez",
+        nif="11111111A",
+    )
+
+    session.add(inquilino)
+    session.flush()
+
+    inicio_facturacion = fecha_inicio.replace(day=1)
+
+    if inicio_facturacion < fecha_inicio:
+        inicio_facturacion = (
+            inicio_facturacion.replace(day=28)
+            + timedelta(days=4)
+        ).replace(day=1)
+
+    contrato = crear_contrato(
+        inmueble=inmueble,
+        titulares=[inquilino],
+        fecha_inicio=fecha_inicio,
+        fecha_vencimiento=date(
+            fecha_inicio.year + 5, 12, 31
+        ),
+        genera_factura=True,
+        fecha_inicio_facturacion=inicio_facturacion,
+        fianza=150000,
+        iva_porcentaje=2100,
+        retencion_porcentaje=1900,
+        direccion_facturacion="Dirección",
+        codigo_postal_facturacion="36001",
+        poblacion_facturacion="Pontevedra",
+        provincia_facturacion="Pontevedra",
+        concepto_factura="Alquiler",
+        renta_inicial=150000,
+        fecha_primera_revision=date(
+            fecha_inicio.year + 1, 1, 1
+        ),
+        metodo_revision="IPC_NACIONAL",
+    )
+
+    contrato.fecha_fin = fecha_fin
+
+    session.add(contrato)
+
+    return contrato
+
+
+def _crear_apunte_inmueble_prueba(
+    session,
+    inmueble: Inmueble,
+) -> ApunteContable:
+    """Prepara un gasto y sus distribuciones, cuando proceda."""
+
+    categorias = {
+        "GAS_IBI": CategoriaContable(
+            codigo="GAS_IBI",
+            naturaleza="GASTO",
+            nombre="IBI",
+            activa=True,
+            subcategorias=(),
+        ),
+    }
+
+    apunte = crear_apunte_contable(
+        inmueble=inmueble,
+        categorias=categorias,
+        fecha=date(2025, 6, 1),
+        naturaleza="GASTO",
+        categoria="GAS_IBI",
+        concepto="IBI de prueba",
+        base=100000,
+    )
+
+    session.add(apunte)
+
+    return apunte
+
+
+def _preparar_inmueble_subdividido_prueba(
+    *,
+    con_repartos: bool = False,
+    padre_activo: bool = True,
+    hijo_a_activo: bool = True,
+    hijo_b_activo: bool = True,
+):
+    """Crea un inmueble T con dos locales al 60 % y 40 %."""
+
+    app = _crear_app_test()
+    client = app.test_client()
+    client.post("/", data={"database": "test"})
+
+    session_factory = app.extensions[
+        "contab_databases"
+    ]["test"]
+
+    with session_factory() as session:
+        padre = _crear_inmueble_prueba(
+            referencia="TOTAL",
+            tipo="T",
+            codigo_facturacion="T1",
+            descripcion="Inmueble subdividido",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            activo=padre_activo,
+        )
+
+        hijo_a = _crear_inmueble_prueba(
+            inmueble_padre=padre,
+            referencia="LOCAL-A",
+            tipo="L",
+            codigo_facturacion="A1",
+            descripcion="Local A",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=6000,
+            activo=hijo_a_activo,
+        )
+
+        hijo_b = _crear_inmueble_prueba(
+            inmueble_padre=padre,
+            referencia="LOCAL-B",
+            tipo="L",
+            codigo_facturacion="B1",
+            descripcion="Local B",
+            direccion="Dirección",
+            poblacion="Pontevedra",
+            provincia="Pontevedra",
+            participacion=4000,
+            activo=hijo_b_activo,
+        )
+
+        session.add_all([padre, hijo_a, hijo_b])
+
+        if con_repartos:
+            # El usuario registra un gasto común.
+            _crear_apunte_inmueble_prueba(
+                session,
+                padre,
+            )
+
+        session.commit()
+
+        return (
+            client,
+            session_factory,
+            padre.id,
+            hijo_a.id,
+            hijo_b.id,
+        )
+
+
 
 
 
@@ -2020,4 +2192,907 @@ def test_datos_fiscales_rechaza_accion_desconocida() -> None:
         ).all()
 
         assert registros == []
+
+
+@pytest.mark.parametrize(
+    "tipo_original, tipo_nuevo, historico, permitido",
+    [
+        ("P", "T", "ninguno", True),
+        ("T", "L", "ninguno", True),
+        ("P", "T", "contrato", False),
+        ("P", "T", "apunte", False),
+        ("L", "T", "contrato", False),
+        ("T", "L", "apunte", False),
+        ("P", "L", "contrato", True),
+        ("L", "G", "apunte", True),
+        ("P", "P", "contrato", True),
+        ("T", "T", "apunte", True),
+    ],
+)
+def test_integridad_inmueble_cambio_tipo(
+    tipo_original,
+    tipo_nuevo,
+    historico,
+    permitido,
+) -> None:
+    """Protege los cambios estructurales incompatibles con el histórico."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_inmueble_fiscal()
+    )
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+        inmueble.tipo = tipo_original
+
+        if historico == "contrato":
+            # El usuario registra un contrato.
+            _crear_contrato_inmueble_prueba(
+                session,
+                inmueble,
+            )
+
+        elif historico == "apunte":
+            # Se registra histórico contable.
+            # Para un inmueble T sin hijos se prepara
+            # directamente el registro histórico.
+            session.add(
+                ApunteContable(
+                    inmueble=inmueble,
+                    fecha=date(2025, 6, 1),
+                    naturaleza="GASTO",
+                    categoria="GAS_IBI",
+                    concepto="Gasto histórico",
+                    base=100000,
+                    iva_importe=0,
+                    retencion_importe=0,
+                    total=100000,
+                )
+            )
+
+        session.commit()
+
+    # El usuario intenta cambiar el tipo del inmueble
+    # y corregir simultáneamente su descripción.
+    datos = _datos_inmueble_con_propiedad(
+        tipo=tipo_nuevo,
+        descripcion="Descripción corregida",
+    )
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/editar",
+        data=datos,
+    )
+
+    if permitido:
+        assert response.status_code == 302
+
+    else:
+        assert response.status_code == 400
+        assert (
+            "No se puede cambiar el tipo"
+            in response.text
+        )
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        if permitido:
+            assert inmueble.tipo == tipo_nuevo
+            assert (
+                inmueble.descripcion
+                == "Descripción corregida"
+            )
+
+        else:
+            # La operación rechazada no modifica
+            # ningún otro dato del inmueble.
+            assert inmueble.tipo == tipo_original
+            assert inmueble.descripcion == "Piso fiscal"
+
+
+@pytest.mark.parametrize(
+    "con_repartos",
+    [False, True],
+)
+@pytest.mark.parametrize(
+    "local",
+    ["A", "B"],
+)
+@pytest.mark.parametrize(
+    "modificar_participacion",
+    [False, True],
+)
+def test_integridad_inmueble_participacion(
+    con_repartos,
+    local,
+    modificar_participacion,
+) -> None:
+    """Protege las participaciones cuando existen repartos históricos."""
+
+    (
+        client,
+        session_factory,
+        padre_id,
+        hijo_a_id,
+        hijo_b_id,
+    ) = _preparar_inmueble_subdividido_prueba(
+        con_repartos=con_repartos,
+    )
+
+    if local == "A":
+        inmueble_id = hijo_a_id
+        participacion_original = 6000
+        codigo = "A1"
+    else:
+        inmueble_id = hijo_b_id
+        participacion_original = 4000
+        codigo = "B1"
+
+    participacion_propuesta = (
+        participacion_original + 1000
+        if modificar_participacion
+        else participacion_original
+    )
+
+    # El usuario edita uno de los locales.
+    datos = _datos_inmueble_con_propiedad(
+        referencia=f"LOCAL-{local}",
+        codigo_facturacion=codigo,
+        tipo="L",
+        descripcion="Descripción corregida",
+        es_parte_inmueble="on",
+        inmueble_padre_id=str(padre_id),
+        participacion=(
+            f"{participacion_propuesta / 100:.2f}"
+            .replace(".", ",")
+        ),
+    )
+
+    debe_rechazarse = (
+        con_repartos and modificar_participacion
+    )
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/editar",
+        data=datos,
+    )
+
+    if debe_rechazarse:
+        assert response.status_code == 400
+        assert (
+            "No se puede modificar la participación"
+            in response.text
+        )
+
+    else:
+        assert response.status_code == 302
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        if debe_rechazarse:
+            assert (
+                inmueble.participacion
+                == participacion_original
+            )
+
+            assert inmueble.descripcion == f"Local {local}"
+
+        else:
+            assert (
+                inmueble.participacion
+                == participacion_propuesta
+            )
+
+            assert (
+                inmueble.descripcion
+                == "Descripción corregida"
+            )
+
+        # Los repartos históricos permanecen intactos.
+        distribuciones = session.scalars(
+            select(DistribucionApunte)
+            .order_by(
+                DistribucionApunte.inmueble_id
+            )
+        ).all()
+
+        if con_repartos:
+            assert len(distribuciones) == 2
+
+            assert {
+                distribucion.inmueble_id: (
+                    distribucion.participacion,
+                    distribucion.total,
+                )
+                for distribucion in distribuciones
+            } == {
+                hijo_a_id: (6000, 60000),
+                hijo_b_id: (4000, 40000),
+            }
+
+        else:
+            assert distribuciones == []
+
+
+@pytest.mark.parametrize(
+    "con_repartos, padre_activo, permitido",
+    [
+        (False, True, True),
+        (True, True, False),
+        (False, False, False),
+        (True, False, False),
+    ],
+)
+def test_integridad_inmueble_alta_nuevo_hijo(
+    con_repartos,
+    padre_activo,
+    permitido,
+) -> None:
+    """Impide ampliar subdivisiones protegidas o inactivas."""
+
+    (
+        client,
+        session_factory,
+        padre_id,
+        hijo_a_id,
+        hijo_b_id,
+    ) = _preparar_inmueble_subdividido_prueba(
+        con_repartos=con_repartos,
+    )
+
+    if not padre_activo:
+        with session_factory() as session:
+            # Preparamos una propiedad y sus hijos
+            # previamente desactivados.
+            for inmueble_id in (
+                padre_id,
+                hijo_a_id,
+                hijo_b_id,
+            ):
+                inmueble = session.get(
+                    Inmueble,
+                    inmueble_id,
+                )
+
+                inmueble.activo = False
+
+            session.commit()
+
+    # El usuario intenta incorporar un tercer local.
+    datos = _datos_inmueble_con_propiedad(
+        referencia="LOCAL-C",
+        codigo_facturacion="C1",
+        descripcion="Local C",
+        tipo="L",
+        participacion="20,00",
+        es_parte_inmueble="on",
+        inmueble_padre_id=str(padre_id),
+    )
+
+    response = client.post(
+        "/inmuebles/nuevo",
+        data=datos,
+    )
+
+    if permitido:
+        assert response.status_code == 302
+
+    else:
+        assert response.status_code == 400
+
+    with session_factory() as session:
+        padre = session.get(Inmueble, padre_id)
+
+        assert len(padre.locales) == (
+            3 if permitido else 2
+        )
+
+        hijo_c = session.scalar(
+            select(Inmueble).where(
+                Inmueble.referencia == "LOCAL-C"
+            )
+        )
+
+        assert (hijo_c is not None) is permitido
+
+        if permitido:
+            assert hijo_c.inmueble_padre_id == padre_id
+            assert hijo_c.participacion == 2000
+            assert hijo_c.activo is True
+
+
+@pytest.mark.parametrize(
+    "situacion, permitido",
+    [
+        ("sin-contrato", True),
+        ("finalizado-ayer", True),
+        ("finaliza-hoy", False),
+        ("finaliza-manana", False),
+        ("vigente", False),
+        ("vencido-no-finalizado", False),
+        ("inicio-futuro", False),
+    ],
+)
+def test_integridad_inmueble_desactivar_contrato(
+    situacion,
+    permitido,
+) -> None:
+    """Impide desactivar inmuebles con contratos no finalizados."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_inmueble_fiscal()
+    )
+
+    hoy = date.today()
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        if situacion != "sin-contrato":
+            fecha_inicio = hoy - timedelta(days=365)
+            fecha_fin = None
+
+            if situacion == "finalizado-ayer":
+                fecha_fin = hoy - timedelta(days=1)
+
+            elif situacion == "finaliza-hoy":
+                fecha_fin = hoy
+
+            elif situacion == "finaliza-manana":
+                fecha_fin = hoy + timedelta(days=1)
+
+            elif situacion == "inicio-futuro":
+                fecha_inicio = hoy + timedelta(days=30)
+
+            contrato = _crear_contrato_inmueble_prueba(
+                session,
+                inmueble,
+                fecha_inicio=fecha_inicio,
+                fecha_fin=fecha_fin,
+            )
+
+            if situacion == "vencido-no-finalizado":
+                # El vencimiento por sí solo no supone
+                # la finalización del contrato.
+                contrato.fecha_vencimiento = (
+                    hoy - timedelta(days=1)
+                )
+
+            session.commit()
+
+    url = f"/inmuebles/{inmueble_id}/estado"
+
+    # El usuario abre la pantalla de confirmación.
+    response = client.get(url)
+
+    assert response.status_code == 200
+
+    mensaje = (
+        "No se puede desactivar un inmueble "
+        "con contratos vigentes o de inicio futuro."
+    )
+
+    html = " ".join(response.text.split())
+
+    assert (mensaje in html) is not permitido
+
+    # Solo se ofrece el botón cuando la operación
+    # está permitida.
+    boton = re.search(
+        r'<button\b[^>]*type="submit"[^>]*>'
+        r'\s*Desactivar\s*</button>',
+        response.text,
+    )
+
+    assert (boton is not None) is permitido
+
+    # Se intenta realizar la operación incluso
+    # cuando el botón no está disponible.
+    response = client.post(url)
+
+    assert response.status_code == (
+        302 if permitido else 400
+    )
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.activo is not permitido
+
+
+@pytest.mark.parametrize(
+    "hijo_a_activo, hijo_b_activo, permitido",
+    [
+        (True, True, False),
+        (True, False, False),
+        (False, True, False),
+        (False, False, True),
+    ],
+)
+def test_integridad_inmueble_desactivar_padre(
+    hijo_a_activo,
+    hijo_b_activo,
+    permitido,
+) -> None:
+    """Exige desactivar todos los hijos antes que el inmueble T."""
+
+    (
+        client,
+        session_factory,
+        padre_id,
+        hijo_a_id,
+        hijo_b_id,
+    ) = _preparar_inmueble_subdividido_prueba(
+        hijo_a_activo=hijo_a_activo,
+        hijo_b_activo=hijo_b_activo,
+    )
+
+    url = f"/inmuebles/{padre_id}/estado"
+
+    # El usuario solicita desactivar el inmueble T.
+    response = client.get(url)
+
+    assert response.status_code == 200
+
+    mensaje = (
+        "Para desactivar un inmueble subdividido "
+        "debe desactivar previamente todos "
+        "sus inmuebles hijos."
+    )
+
+    html = " ".join(response.text.split())
+
+    assert (mensaje in html) is not permitido
+
+    boton = re.search(
+        r'<button\b[^>]*type="submit"[^>]*>'
+        r'\s*Desactivar\s*</button>',
+        response.text,
+    )
+
+    assert (boton is not None) is permitido
+
+    # El servidor también debe rechazar una petición
+    # directa cuando existen hijos activos.
+    response = client.post(url)
+
+    assert response.status_code == (
+        302 if permitido else 400
+    )
+
+    with session_factory() as session:
+        padre = session.get(Inmueble, padre_id)
+        hijo_a = session.get(Inmueble, hijo_a_id)
+        hijo_b = session.get(Inmueble, hijo_b_id)
+
+        assert padre.activo is not permitido
+
+        # No se modifica automáticamente el estado
+        # de ninguno de los hijos.
+        assert hijo_a.activo is hijo_a_activo
+        assert hijo_b.activo is hijo_b_activo
+
+
+def test_integridad_inmueble_desactivar_padre_sin_hijos(
+) -> None:
+    """Permite desactivar un inmueble T que todavía no tiene hijos."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_inmueble_fiscal()
+    )
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+        inmueble.tipo = "T"
+        session.commit()
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/estado"
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.activo is False
+
+
+@pytest.mark.parametrize(
+    "padre_activo",
+    [False, True],
+)
+def test_integridad_inmueble_activar_hijo(
+    padre_activo,
+) -> None:
+    """Impide activar un local cuyo inmueble padre está inactivo."""
+
+    (
+        client,
+        session_factory,
+        padre_id,
+        hijo_a_id,
+        hijo_b_id,
+    ) = _preparar_inmueble_subdividido_prueba(
+        padre_activo=padre_activo,
+        hijo_a_activo=False,
+        hijo_b_activo=False,
+    )
+
+    url = f"/inmuebles/{hijo_a_id}/estado"
+
+    # El usuario solicita activar un local.
+    response = client.get(url)
+
+    assert response.status_code == 200
+
+    mensaje = (
+        "Para activar este inmueble debe activar "
+        "previamente el inmueble subdividido "
+        "al que pertenece."
+    )
+
+    html = " ".join(response.text.split())
+
+    assert (mensaje in html) is not padre_activo
+
+    boton = re.search(
+        r'<button\b[^>]*type="submit"[^>]*>'
+        r'\s*Activar\s*</button>',
+        response.text,
+    )
+
+    assert (boton is not None) is padre_activo
+
+    # Se comprueba también la protección del servidor.
+    response = client.post(url)
+
+    assert response.status_code == (
+        302 if padre_activo else 400
+    )
+
+    with session_factory() as session:
+        padre = session.get(Inmueble, padre_id)
+        hijo_a = session.get(Inmueble, hijo_a_id)
+        hijo_b = session.get(Inmueble, hijo_b_id)
+
+        assert padre.activo is padre_activo
+        assert hijo_a.activo is padre_activo
+        assert hijo_b.activo is False
+
+
+def test_integridad_inmueble_activar_padre(
+) -> None:
+    """La activación del padre no activa automáticamente sus hijos."""
+
+    (
+        client,
+        session_factory,
+        padre_id,
+        hijo_a_id,
+        hijo_b_id,
+    ) = _preparar_inmueble_subdividido_prueba(
+        padre_activo=False,
+        hijo_a_activo=False,
+        hijo_b_activo=False,
+    )
+
+    # El usuario activa el inmueble T.
+    response = client.post(
+        f"/inmuebles/{padre_id}/estado"
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        padre = session.get(Inmueble, padre_id)
+        hijo_a = session.get(Inmueble, hijo_a_id)
+        hijo_b = session.get(Inmueble, hijo_b_id)
+
+        assert padre.activo is True
+        assert hijo_a.activo is False
+        assert hijo_b.activo is False
+
+
+@pytest.mark.parametrize(
+    "con_facturas",
+    [False, True],
+)
+def test_integridad_inmueble_codigo_facturacion(
+    con_facturas,
+) -> None:
+    """Permite corregir el código sin modificar las facturas históricas."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_inmueble_fiscal()
+    )
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        if con_facturas:
+            contrato = _crear_contrato_inmueble_prueba(
+                session,
+                inmueble,
+            )
+
+            # El usuario registra una factura con
+            # el código original del inmueble.
+            factura = crear_factura(
+                contrato=contrato,
+                periodo=date(2025, 1, 1),
+                fecha_emision=date(2025, 1, 1),
+            )
+
+            session.add(factura)
+
+        session.commit()
+
+        if con_facturas:
+            factura_id = factura.id
+            contrato_id = contrato.id
+            numero_original = factura.numero_factura
+
+            assert numero_original.endswith("PF1")
+
+    # El usuario abre la edición del inmueble.
+    response = client.get(
+        f"/inmuebles/{inmueble_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    mensaje = (
+        "La modificación del código de facturación "
+        "afectará a la numeración de las próximas facturas."
+    )
+
+    html = " ".join(response.text.split())
+
+    assert (mensaje in html) is con_facturas
+
+    # El usuario modifica el código de facturación
+    # y la referencia del inmueble.
+    datos = _datos_inmueble_con_propiedad(
+        codigo_facturacion="PF2",
+        referencia="PISO-CORREGIDO",
+    )
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.codigo_facturacion == "PF2"
+        assert inmueble.referencia == "PISO-CORREGIDO"
+
+        if con_facturas:
+            contrato = session.get(Contrato, contrato_id)
+
+            factura = contrato.facturas[0]
+
+            # La numeración histórica no se modifica.
+            assert factura.id == factura_id
+            assert (
+                factura.numero_factura
+                == numero_original
+            )
+
+            # Una nueva factura utiliza el nuevo código.
+            nueva_factura = crear_factura(
+                contrato=contrato,
+                periodo=date(2025, 2, 1),
+                fecha_emision=date(2025, 2, 1),
+            )
+
+            assert (
+                nueva_factura.numero_factura
+                .endswith("PF2")
+            )
+
+            assert (
+                nueva_factura.numero_secuencia
+                == factura.numero_secuencia + 1
+            )
+
+
+@pytest.mark.parametrize(
+    "con_repartos",
+    [False, True],
+)
+def test_integridad_inmueble_formulario_participacion(
+    con_repartos,
+) -> None:
+    """El formulario protege visualmente las participaciones históricas."""
+
+    (
+        client,
+        _,
+        _,
+        hijo_a_id,
+        _,
+    ) = _preparar_inmueble_subdividido_prueba(
+        con_repartos=con_repartos,
+    )
+
+    # El usuario abre la edición de un local.
+    response = client.get(
+        f"/inmuebles/{hijo_a_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    control = re.search(
+        r'<input\b[^>]*\bid="participacion"[^>]*>',
+        response.text,
+    )
+
+    assert control is not None
+
+    assert (
+        "readonly" in control.group(0)
+    ) is con_repartos
+
+
+@pytest.mark.parametrize(
+    "con_historico",
+    [False, True],
+)
+def test_integridad_inmueble_formulario_tipo(
+    con_historico,
+) -> None:
+    """No ofrece la conversión a T cuando existe histórico incompatible."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_inmueble_fiscal()
+    )
+
+    if con_historico:
+        with session_factory() as session:
+            inmueble = session.get(
+                Inmueble,
+                inmueble_id,
+            )
+
+            _crear_apunte_inmueble_prueba(
+                session,
+                inmueble,
+            )
+
+            session.commit()
+
+    # El usuario abre el formulario de edición.
+    response = client.get(
+        f"/inmuebles/{inmueble_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    selector = re.search(
+        r'<select\b[^>]*\bid="tipo"[^>]*>'
+        r'(.*?)</select>',
+        response.text,
+        re.DOTALL,
+    )
+
+    assert selector is not None
+
+    opciones = re.findall(
+        r'<option\b[^>]*\bvalue="([^"]+)"',
+        selector.group(1),
+    )
+
+    assert set(opciones) == (
+        {"P", "L", "G"}
+        if con_historico
+        else {"T", "P", "L", "G"}
+    )
+
+
+def test_integridad_inmueble_permite_corregir_datos(
+) -> None:
+    """Permite corregir datos descriptivos y de propiedad con histórico."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_inmueble_fiscal()
+    )
+
+    _crear_ejercicio_fiscal_prueba(
+        session_factory,
+        inmueble_id,
+    )
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        # El inmueble tiene histórico contractual,
+        # contable y fiscal.
+        _crear_contrato_inmueble_prueba(
+            session,
+            inmueble,
+        )
+
+        _crear_apunte_inmueble_prueba(
+            session,
+            inmueble,
+        )
+
+        session.commit()
+
+    # El usuario corrige los datos generales
+    # y de propiedad del inmueble.
+    datos = _datos_inmueble_con_propiedad(
+        referencia="PISO-CORREGIDO",
+        descripcion="Descripción corregida",
+        direccion="Nueva dirección",
+        codigo_postal="36002",
+        poblacion="Vigo",
+        ref_catastral="REF-CATASTRAL",
+        seguro="Póliza de prueba",
+        notas="Datos corregidos",
+        porcentaje_titular="50,00",
+        tipo_derecho="USUFRUCTO",
+        porcentaje_derecho="75,00",
+        fecha_adquisicion="01/01/2019",
+        tipo_adquisicion="LUCRATIVA",
+        importe_adquisicion="120000,00",
+        gastos_adquisicion="5000,00",
+    )
+
+    response = client.post(
+        f"/inmuebles/{inmueble_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        inmueble = session.get(Inmueble, inmueble_id)
+
+        assert inmueble.referencia == "PISO-CORREGIDO"
+        assert inmueble.descripcion == "Descripción corregida"
+        assert inmueble.direccion == "Nueva dirección"
+        assert inmueble.codigo_postal == "36002"
+        assert inmueble.poblacion == "Vigo"
+        assert inmueble.ref_catastral == "REF-CATASTRAL"
+        assert inmueble.seguro == "Póliza de prueba"
+        assert inmueble.notas == "Datos corregidos"
+
+        assert inmueble.porcentaje_titular == 5000
+        assert inmueble.tipo_derecho == "USUFRUCTO"
+        assert inmueble.porcentaje_derecho == 7500
+        assert inmueble.fecha_adquisicion == date(
+            2019, 1, 1
+        )
+        assert inmueble.tipo_adquisicion == "LUCRATIVA"
+        assert inmueble.importe_adquisicion == 12000000
+        assert inmueble.gastos_adquisicion == 500000
+
+        # El histórico contractual y contable
+        # permanece asociado al mismo inmueble.
+        assert len(inmueble.contratos) == 1
+        assert len(inmueble.apuntes_contables) == 1
+
+        assert (
+            inmueble.apuntes_contables[0].total
+            == 100000
+        )
+
+        # Los datos fiscales anuales no se modifican.
+        assert len(inmueble.datos_fiscales) == 1
+
+        fiscal = inmueble.datos_fiscales[0]
+
+        assert fiscal.ejercicio == 2025
+        assert fiscal.valor_catastral == 18000000
+        assert fiscal.valor_suelo == 7000000
+        assert fiscal.valor_construccion == 11000000
+        assert fiscal.amortizacion_aplicada == 420000
 

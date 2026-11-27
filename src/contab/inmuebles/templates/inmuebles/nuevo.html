@@ -13,13 +13,15 @@
         <p class="error">{{ error }}</p>
     {% endif %}
 
-    <form method="post">
+    <form method="post" class="formulario-inmueble">
 
         <div class="form-fila">
             <p class="form-field">
                 <label for="tipo">Tipo (*)</label>
                 <select id="tipo" name="tipo" class="ch25">
-                    <option value="">Seleccione...</option>
+                    {% if not datos.get('tipo') %}
+                        <option value="">Seleccione...</option>
+                    {% endif %}
 
                     {% for valor, etiqueta in tipos_inmueble.items() %}
                         <option
@@ -56,6 +58,15 @@
                 >
             </p>
         </div>
+
+        {% if advertencia_codigo_facturacion %}
+            <p class="formulario-inmueble__aviso-codigo">
+                La modificación del código de facturación
+                afectará a la numeración de las próximas facturas.
+                Las facturas ya registradas conservarán
+                su numeración original.
+            </p>
+        {% endif %}
 
         <p class="form-field">
             <label for="descripcion">Descripción (*)</label>
@@ -119,8 +130,11 @@
                 <input
                     id="participacion"
                     name="participacion"
-                    class="campo-porcentaje"
+                    class="campo-porcentaje formulario-inmueble__participacion"
                     value="{{ datos.get('participacion', '100,00') }}"
+                    {% if participacion_protegida %}
+                        readonly
+                    {% endif %}
                 >
             </p>
 
@@ -143,7 +157,15 @@
             </p>
         </div>
 
-        <fieldset>
+        {% if participacion_protegida %}
+            <p class="formulario-inmueble__aviso-participacion">
+                La participación no puede modificarse
+                porque existen repartos registrados
+                del inmueble subdividido.
+            </p>
+        {% endif %}
+
+        <fieldset class="formulario-inmueble__jerarquia">
             <legend>Relación con inmueble subdividido</legend>
 
             <div class="form-fila">
@@ -156,12 +178,26 @@
                             {% if datos.get("es_parte_inmueble") %}
                                 checked
                             {% endif %}
+                            {% if pertenencia_protegida %}
+                                disabled
+                            {% endif %}
                         >
                         Es parte de un inmueble
                     </label>
+
+                    {% if pertenencia_protegida and datos.get("es_parte_inmueble") %}
+                        <input
+                            type="hidden"
+                            name="es_parte_inmueble"
+                            value="on"
+                        >
+                    {% endif %}
                 </p>
 
-                <p id="campo_inmueble_padre" class="form-field">
+                <p
+                    id="campo_inmueble_padre"
+                    class="form-field"
+                >
                     <label for="inmueble_padre_id">
                         Inmueble total
                     </label>
@@ -169,6 +205,9 @@
                     <select
                         id="inmueble_padre_id"
                         name="inmueble_padre_id"
+                        {% if pertenencia_protegida %}
+                            disabled
+                        {% endif %}
                     >
                         <option value="">
                             Seleccione un inmueble subdividido
@@ -186,8 +225,23 @@
                             </option>
                         {% endfor %}
                     </select>
+
+                    {% if pertenencia_protegida and datos.get("es_parte_inmueble") %}
+                        <input
+                            type="hidden"
+                            name="inmueble_padre_id"
+                            value="{{ datos.get('inmueble_padre_id') }}"
+                        >
+                    {% endif %}
                 </p>
             </div>
+
+            {% if pertenencia_protegida %}
+                <p class="formulario-inmueble__aviso-jerarquia">
+                    La pertenencia a un inmueble subdividido
+                    no puede modificarse desde la edición.
+                </p>
+            {% endif %}
         </fieldset>
 
         <fieldset id="datos_propiedad">
@@ -342,7 +396,7 @@
         const visible = esParte.checked;
 
         campoPadre.hidden = !visible;
-        selectorPadre.disabled = !visible;
+        selectorPadre.disabled = !visible || esParte.disabled;
         datosPropiedad.hidden = visible;
 
         if (!visible) {

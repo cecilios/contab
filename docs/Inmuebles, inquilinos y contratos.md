@@ -82,18 +82,76 @@ La distribución conserva como instantánea:
 - retención;
 - total.
 
-De esta forma, una modificación posterior de las participaciones no altera la distribución histórica de los apuntes ya registrados.
+Las participaciones pueden corregirse durante la configuración
+inicial del inmueble subdividido.
+
+Una vez registrados repartos de gastos comunes, no se permite
+modificar las participaciones de sus locales ni incorporar
+nuevos locales al inmueble subdividido.
+
+La suma de las participaciones debe ser exactamente el 100 %
+antes de registrar un gasto que requiera su distribución.
 
 La participación realiza únicamente el reparto espacial. La posible atribución posterior del gasto a contratos se calcula separadamente según el período del apunte y la vigencia temporal de los contratos.
 
 ## Estado del inmueble
 ----------------------
 
-Un inmueble puede estar activo o inactivo.
+Desde el listado de inmuebles se puede activar o desactivar
+cada inmueble.
 
-Un inmueble inactivo se conserva para mantener la coherencia de contratos y apuntes anteriores, pero no debe ofrecerse para nuevas operaciones ordinarias.
+Los inmuebles inactivos se conservan a efectos históricos.
 
-Los informes de un ejercicio pueden incluir inmuebles inactivos cuando tengan apuntes contabilizables durante ese año.
+No se permite desactivar un inmueble que tenga contratos
+vigentes o de inicio futuro.
+
+Para desactivar un inmueble subdividido deben desactivarse
+previamente todos sus inmuebles hijos.
+
+Para activar un inmueble hijo debe estar activo el inmueble
+subdividido al que pertenece.
+
+Tampoco se permite incorporar nuevos locales a un inmueble
+subdividido inactivo.
+
+La activación y desactivación de un inmueble no modifica
+automáticamente el estado de otros inmuebles ni de sus contratos.
+
+Cuando una operación no está permitida, la pantalla de
+confirmación muestra el motivo.
+
+Los informes de un ejercicio pueden incluir inmuebles inactivos
+cuando tengan apuntes contabilizables durante ese año.
+
+## Edición de inmuebles
+-----------------------
+
+Desde el listado de inmuebles, la opción **Editar** permite
+corregir los datos registrados.
+
+Para conservar la coherencia del histórico se aplican las
+siguientes restricciones:
+
+- No puede modificarse la pertenencia a un inmueble subdividido.
+- No puede convertirse un inmueble en subdividido, o viceversa,
+  cuando existe histórico contractual o económico.
+- No puede cambiarse el tipo de un inmueble subdividido
+  que tiene hijos.
+- No pueden modificarse las participaciones de los locales
+  cuando existen repartos registrados del inmueble padre.
+
+Se permite corregir el tipo entre piso, local y garaje.
+
+La referencia, los datos descriptivos y los datos de propiedad
+permanecen editables.
+
+El código de facturación también puede modificarse. Cuando existen
+facturas registradas, el formulario advierte de que el cambio
+afectará a la numeración de las próximas facturas.
+
+Las facturas anteriores conservan su numeración original.
+
+El formulario refleja las restricciones aplicables a cada inmueble.
 
 ## Datos catastrales y fiscales
 -----------------------------------

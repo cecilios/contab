@@ -404,6 +404,79 @@ Validation requires:
 
 All amounts are non-negative and stored in integer cents.
 
+### Property editing integrity
+
+Property integrity validation is implemented in:
+
+`src/contab/inmuebles/routes.py`
+
+Relevant helpers:
+
+- `_inmueble_tiene_historico()`
+- `_inmueble_tiene_facturas()`
+- `_inmueble_tiene_repartos()`
+- `_participacion_inmueble_protegida()`
+- `_tipos_inmueble_permitidos()`
+- `_validar_integridad_edicion_inmueble()`
+- `_validar_inmueble_padre()`
+
+Structural rules:
+
+- Parent membership cannot change after property creation.
+- Conversion between type T and ordinary property types is prohibited when contractual or economic history exists.
+- Type-T properties with children cannot change their type.
+- Corrections between P, L and G remain allowed.
+- Once a parent has persisted distributions, all its children's participation percentages are protected and new children cannot be added.
+
+Participation percentages must total 100% when preparing an accounting distribution, not after every individual property creation or edit.
+
+Historical distributions are never recalculated.
+
+Property references, descriptive fields, ownership data and billing codes remain editable.
+
+Changing the billing code affects future invoice numbers but preserves existing invoice numbers. The sequence remains associated with the property and year, independently of its billing code.
+
+The form displays a warning when invoices already exist.
+
+### Property activation and deactivation
+
+`_validar_cambio_estado_inmueble(inmueble, fecha)` provides shared validation for GET confirmation and POST execution.
+
+Rules:
+
+- An ordinary property cannot be deactivated if any contract has `fecha_fin=None` or `fecha_fin >= fecha`.
+- Contract expiration alone does not imply termination.
+- Future contracts also prevent deactivation.
+- A type-T property can only be deactivated when all its children are inactive.
+- A child cannot be activated or created while its parent is inactive.
+
+Activation and deactivation never cascade automatically.
+
+The confirmation screen displays the reason when an operation is prohibited and omits the confirmation button. The backend independently rejects invalid POST requests.
+
+### Property form restrictions
+
+Templates:
+
+- `inmuebles/nuevo.html`
+- `inmuebles/estado.html`
+
+`_render_formulario_inmueble()` derives restrictions from the persisted property, including after rejected submissions.
+
+The form filters permitted property types and available parents. Protected participation inputs use `readonly`. Parent membership controls are disabled during editing, with hidden values where required for submission.
+
+The existing JavaScript respects disabled parent membership controls.
+
+Relevant tests:
+
+`tests/test_inmuebles_routes.py`
+
+Integrity tests use the `test_integridad_inmueble_` prefix.
+
+No additional restrictions have been introduced for annual fiscal data or ownership fields. There is no fiscal-year closing mechanism.
+
+No schema changes or migrations are required.
+
 ### Contract annexes
 
 `AnexoContrato` represents a formal contractual modification.
