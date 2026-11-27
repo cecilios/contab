@@ -580,8 +580,18 @@ def test_descartar_y_restaurar_movimiento_bancario() -> None:
     assert movimiento.estado == "PENDIENTE"
 
 
-def test_no_permite_descartar_movimiento_conciliado() -> None:
-    """Un movimiento conciliado no puede descartarse."""
+@pytest.mark.parametrize(
+    "estado",
+    [
+        "PARCIAL",
+        "CONCILIADO",
+        "DESCARTADO",
+    ],
+)
+def test_no_permite_descartar_movimiento_no_pendiente(
+    estado,
+) -> None:
+    """Solo pueden descartarse movimientos bancarios pendientes."""
 
     movimiento = MovimientoBancario(
         fecha=date(2026, 9, 3),
@@ -591,16 +601,18 @@ def test_no_permite_descartar_movimiento_conciliado() -> None:
         descripcion_original="Alquiler",
         referencia_bancaria="",
         huella_importacion="b" * 64,
-        estado="CONCILIADO",
+        estado=estado,
     )
 
-    with pytest.raises(
-        ConciliacionError,
-        match="conciliado",
-    ):
+    # El usuario intenta descartar un movimiento
+    # que no está pendiente.
+    with pytest.raises(ConciliacionError):
         descartar_movimiento_bancario(
             movimiento
         )
+
+    # El intento rechazado no modifica el estado.
+    assert movimiento.estado == estado
 
 
 def test_crear_movimiento_previsto_admite_fechas_vacias(
@@ -8820,5 +8832,139 @@ def test_movimiento_previsto_rechaza_dos_origenes_en_bd(
         session.commit()
 
     session.rollback()
+
+
+def test_no_permite_descartar_bancario_con_asociacion_parcial(
+    session,
+    inmueble,
+) -> None:
+    """El descarte no puede invalidar una asociación existente."""
+
+    bancario = _bancario_para_confirmar(
+        "descarte-parcial",
+        100000,
+    )
+
+    previsto = _previsto_para_confirmar(
+        inmueble,
+        "Alquiler",
+        60000,
+    )
+
+    session.add_all([bancario, previsto])
+    session.flush()
+
+    # El usuario asocia 600 euros de un ingreso
+    # bancario de 1000 euros.
+    asociaciones = confirmar_grupo_conciliacion(
+        [
+            (bancario, previsto, 60000),
+        ]
+    )
+
+    session.add_all(asociaciones)
+    session.commit()
+
+    assert bancario.estado == "PARCIAL"
+    assert previsto.estado == "CONCILIADO"
+
+    asociacion_id = asociaciones[0].id
+
+    # El usuario intenta descartar el bancario
+    # sin deshacer previamente su asociación.
+    with pytest.raises(ConciliacionError):
+        descartar_movimiento_bancario(bancario)
+
+    session.commit()
+
+    # Se conserva la asociación y los estados.
+    asociacion = session.get(
+        Conciliacion,
+        asociacion_id,
+    )
+
+    assert asociacion is not None
+    assert asociacion.importe_asociado == 60000
+    assert bancario.estado == "PARCIAL"
+    assert previsto.estado == "CONCILIADO"
+
+    assert saldo_movimiento_bancario(
+        bancario
+    ) == (60000, 40000)
+
+    assert saldo_movimiento_previsto(
+        previsto
+    ) == (60000, 0)
+
+
+@pytest.mark.parametrize(
+    "cerrar_diferencia",
+    [False, True],
+)
+def test_confirmar_grupo_rechaza_conciliacion_m_n(
+    session,
+    inmueble,
+    cerrar_diferencia,
+) -> None:
+    """El servicio no admite operaciones m:n."""
+
+    bancario_a = _bancario_para_confirmar(
+        "grupo-mn-a",
+        60000,
+    )
+
+    bancario_b = _bancario_para_confirmar(
+        "grupo-mn-b",
+        40000,
+    )
+
+    previsto_a = _previsto_para_confirmar(
+        inmueble,
+        "Primer previsto",
+        50000,
+    )
+
+    previsto_b = _previsto_para_confirmar(
+        inmueble,
+        "Segundo previsto",
+        60000 if cerrar_diferencia else 50000,
+    )
+
+    movimientos = [
+        bancario_a,
+        bancario_b,
+        previsto_a,
+        previsto_b,
+    ]
+
+    session.add_all(movimientos)
+    session.flush()
+
+    # Se intenta confirmar una operación que implica
+    # dos bancarios y dos previstos.
+    asociaciones = [
+        (bancario_a, previsto_a, 50000),
+        (bancario_a, previsto_b, 10000),
+        (bancario_b, previsto_b, 40000),
+    ]
+
+    with pytest.raises(
+        ConciliacionError,
+        match="m:n",
+    ):
+        confirmar_grupo_conciliacion(
+            asociaciones,
+            cerrar_diferencia=cerrar_diferencia,
+        )
+
+    # La operación rechazada no modifica movimientos
+    # ni crea asociaciones.
+    for movimiento in movimientos:
+        assert movimiento.estado == "PENDIENTE"
+        assert movimiento.conciliaciones == []
+
+    assert session.scalars(
+        select(Conciliacion)
+    ).all() == []
 
 

@@ -487,14 +487,17 @@
                                 </td>
 
                                 <td class="revision-celda revision-celda--acciones">
-                                    <button
-                                        class="revision-manual__boton-descarte"
-                                        type="submit"
-                                        form="revision-descarte-{{ bancario.id }}"
-                                    >
-                                        Descartar
-                                    </button>
+                                    {% if bancario.estado == "PENDIENTE" %}
+                                        <button
+                                            class="revision-manual__boton-descarte"
+                                            type="submit"
+                                            form="revision-descarte-{{ bancario.id }}"
+                                        >
+                                            Descartar
+                                        </button>
+                                    {% endif %}
                                 </td>
+
                             </tr>
                             {% else %}
                             <tr class="revision-manual__fila revision-manual__fila--vacia">
@@ -595,7 +598,7 @@
         </form>
         {% endfor %}
 
-        {% for bancario in bancarios_sin_propuesta %}
+        {% for bancario in bancarios_sin_propuesta if bancario.estado == "PENDIENTE" %}
         <form
             id="revision-descarte-{{ bancario.id }}"
             class="revision-manual__formulario-descarte"

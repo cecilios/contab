@@ -1403,6 +1403,29 @@ return `(associated, pending)` calculated from recorded amounts.
 
 `PARCIAL` is an implemented and supported state.
 
+### Movement and reconciliation integrity
+
+Bank and expected movements have no general-purpose editing forms.
+
+`descartar_movimiento_bancario()` only accepts movements in
+`PENDIENTE` state. Existing associations must be undone before
+discarding a partially or fully reconciled bank movement.
+
+The reconciliation review template (`revisar.html`) only renders
+discard buttons and forms for pending bank movements.
+
+`confirmar_grupo_conciliacion()` rejects m:n operations before
+creating associations or modifying movement states, regardless
+of whether a difference is accepted.
+
+These validations are enforced in `conciliacion/services.py`,
+independently of interface restrictions.
+
+Regression tests are located in:
+
+- `tests/test_conciliacion_services.py`
+- `tests/test_conciliacion_routes.py`
+
 ### Exact, progressive, and accepted-difference reconciliation
 
 Supported cardinalities:

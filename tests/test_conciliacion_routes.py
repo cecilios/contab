@@ -5851,3 +5851,159 @@ def test_acciones_previstos_conservan_contexto_del_listado():
         assert 'name="pagina"' in formulario
         assert 'value="1"' in formulario
 
+
+def test_no_descartar_parcial_desde_revision() -> None:
+    """La ruta protege las asociaciones de un bancario parcial."""
+
+    (
+        client,
+        session_factory,
+        ids,
+    ) = crear_escenario_movimientos_parciales()
+
+    bancario_id = ids["bancario_parcial"]
+    previsto_id = ids["previsto_anterior"]
+
+    with session_factory() as session:
+        bancario = session.get(
+            MovimientoBancario,
+            bancario_id,
+        )
+
+        assert bancario.estado == "PARCIAL"
+        assert len(bancario.conciliaciones) == 1
+
+        asociacion_id = bancario.conciliaciones[0].id
+
+    # El usuario intenta descartar directamente
+    # un movimiento parcialmente conciliado.
+    response = client.post(
+        f"/conciliacion/movimientos/{bancario_id}/descartar",
+        data={"origen": "revision"},
+    )
+
+    assert response.status_code == 400
+
+    with session_factory() as session:
+        bancario = session.get(
+            MovimientoBancario,
+            bancario_id,
+        )
+
+        previsto = session.get(
+            MovimientoPrevisto,
+            previsto_id,
+        )
+
+        asociacion = session.get(
+            Conciliacion,
+            asociacion_id,
+        )
+
+        # La petición rechazada conserva la asociación
+        # y los estados de ambos movimientos.
+        assert bancario.estado == "PARCIAL"
+        assert previsto.estado == "CONCILIADO"
+
+        assert len(bancario.conciliaciones) == 1
+        assert asociacion is not None
+        assert asociacion.importe_asociado == 18000
+
+        assert (
+            asociacion.movimiento_bancario_id
+            == bancario_id
+        )
+
+        assert (
+            asociacion.movimiento_previsto_id
+            == previsto_id
+        )
+
+
+def test_revision_no_ofrece_descartar_bancario_parcial(
+    monkeypatch,
+) -> None:
+    """Solo los bancarios pendientes ofrecen la opción Descartar."""
+
+    (
+        client,
+        session_factory,
+        ids,
+    ) = crear_escenario_movimientos_parciales()
+
+    parcial_id = ids["bancario_parcial"]
+
+    with session_factory() as session:
+        pendiente = MovimientoBancario(
+            fecha=date(2026, 10, 6),
+            naturaleza="INGRESO",
+            importe=15000,
+            tipo_original="TRANSFERENCIA",
+            descripcion_original="Ingreso pendiente de prueba",
+            referencia_bancaria="",
+            huella_importacion="descarte-pendiente-prueba",
+            estado="PENDIENTE",
+        )
+
+        session.add(pendiente)
+        session.commit()
+
+        pendiente_id = pendiente.id
+
+    # Se evita generar propuestas automáticas para
+    # comprobar ambos movimientos en la revisión manual.
+    monkeypatch.setattr(
+        rutas_conciliacion,
+        "buscar_propuestas_conciliacion",
+        lambda *args, **kwargs: [],
+    )
+
+    # El usuario abre Revisar conciliación.
+    response = client.get(
+        "/conciliacion/revisar"
+    )
+
+    assert response.status_code == 200
+
+    html = response.text
+
+    # Ambos movimientos siguen disponibles
+    # para su conciliación.
+    assert (
+        "Transferencia parcialmente aplicada"
+        in html
+    )
+
+    assert (
+        "Ingreso pendiente de prueba"
+        in html
+    )
+
+    # El movimiento pendiente ofrece Descartar.
+    assert (
+        f'form="revision-descarte-{pendiente_id}"'
+        in html
+    )
+
+    assert (
+        f'id="revision-descarte-{pendiente_id}"'
+        in html
+    )
+
+    # El movimiento parcial no ofrece el botón
+    # ni el formulario de descarte.
+    assert (
+        f'form="revision-descarte-{parcial_id}"'
+        not in html
+    )
+
+    assert (
+        f'id="revision-descarte-{parcial_id}"'
+        not in html
+    )
+
+    assert (
+        f"/conciliacion/movimientos/{parcial_id}/descartar"
+        not in html
+    )
+

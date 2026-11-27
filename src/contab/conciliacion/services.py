@@ -713,9 +713,10 @@ def descartar_movimiento_bancario(
 ) -> MovimientoBancario:
     """Marca como ajeno a Contab un movimiento pendiente."""
 
-    if movimiento.estado == "CONCILIADO":
+    if movimiento.estado != "PENDIENTE":
         raise ConciliacionError(
-            "Un movimiento conciliado no puede descartarse."
+            "Sólo puede descartarse un movimiento "
+            "bancario pendiente."
         )
 
     movimiento.estado = "DESCARTADO"
@@ -1463,15 +1464,26 @@ def confirmar_grupo_conciliacion(
             "El grupo de conciliación no puede estar vacío."
         )
 
+
+    bancarios_grupo = {
+        bancario
+        for bancario, _, _ in asociaciones
+    }
+
+    previstos_grupo = {
+        previsto
+        for _, previsto, _ in asociaciones
+    }
+
+    if (
+        len(bancarios_grupo) > 1
+        and len(previstos_grupo) > 1
+    ):
+        raise ConciliacionError(
+            "No se admite la conciliación m:n."
+        )
+
     if cerrar_diferencia:
-        bancarios_grupo = {
-            bancario
-            for bancario, _, _ in asociaciones
-        }
-        previstos_grupo = {
-            previsto
-            for _, previsto, _ in asociaciones
-        }
 
         # No atribuir una diferencia agrupada entre contratos
         # diferentes. Un mismo inmueble puede tener varios contratos.
@@ -1501,14 +1513,6 @@ def confirmar_grupo_conciliacion(
                     "entre contratos distintos o mezclando "
                     "movimientos con y sin contrato."
                 )
-
-        if (
-            len(bancarios_grupo) > 1
-            and len(previstos_grupo) > 1
-        ):
-            raise ConciliacionError(
-                "No se admite cerrar diferencias m:n."
-            )
 
     importes_bancarios = {}
     importes_previstos = {}

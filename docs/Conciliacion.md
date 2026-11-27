@@ -52,8 +52,14 @@ Cuando los importes pendientes coinciden, se ofrece la confirmación
 exacta. Cuando difieren, se puede elegir entre **Conciliar parcialmente**
 y **Aceptar diferencia**.
 
-Los movimientos bancarios ajenos a Contab pueden **Descartarse**
-y restaurarse posteriormente.
+Los movimientos bancarios pendientes ajenos a Contab pueden
+**Descartarse** y restaurarse posteriormente.
+
+Para descartar un movimiento parcial o conciliado deben
+deshacerse previamente todas sus asociaciones.
+
+La opción **Descartar** solamente está disponible para
+movimientos pendientes.
 
 
 ## Identificación de contrapartes
