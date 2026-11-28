@@ -843,6 +843,7 @@ def crear_contrato(
     renta_inicial: int,
     fecha_primera_revision: date | None,
     metodo_revision: str,
+    destino: str = "",
 ) -> Contrato:
     """Valida y prepara un contrato completo sin persistirlo."""
 
@@ -899,6 +900,7 @@ def crear_contrato(
         poblacion_facturacion=poblacion_facturacion,
         provincia_facturacion=provincia_facturacion,
         concepto_factura=concepto_factura,
+        destino=destino.strip(),
     )
 
     for orden, inquilino in enumerate(titulares, start=1):

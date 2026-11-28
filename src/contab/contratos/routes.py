@@ -149,6 +149,7 @@ def _datos_contrato_formulario(contrato: Contrato) -> dict[str, str]:
 
     return {
         "inmueble_id": str(contrato.inmueble_id),
+        "destino": contrato.destino,
         "fecha_inicio": _fecha_a_texto(contrato.fecha_inicio),
         "fecha_vencimiento": _fecha_a_texto(
             contrato.fecha_vencimiento
@@ -733,6 +734,7 @@ def nuevo_contrato():
                     metodo_revision=metodo_revision,
                     renta_inicial=renta_inicial,
                     fecha_primera_revision=(fecha_primera_revision),
+                    destino=request.form.get("destino", ""),
                 )
 
                 session.add(contrato)
@@ -974,6 +976,11 @@ def editar_contrato(contrato_id: int):
                 )
 
                 contrato.inmueble = inmueble
+
+                if "destino" in request.form:
+                    contrato.destino = request.form["destino"].strip()
+
+                contrato.fecha_inicio = fecha_inicio
                 contrato.fecha_inicio = fecha_inicio
                 contrato.fecha_vencimiento = fecha_vencimiento
                 contrato.genera_factura = genera_factura

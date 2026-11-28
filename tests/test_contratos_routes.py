@@ -5570,3 +5570,309 @@ def test_formulario_contrato_advierte_sobre_gastos(
 
     assert (mensaje in html) is con_reembolso
 
+
+def test_formulario_nuevo_contrato_muestra_destino() -> None:
+    """El formulario permite introducir el destino del inmueble."""
+
+    client, _, _ = _preparar_alta_contrato()
+
+    response = client.get("/contratos/nuevo")
+
+    assert response.status_code == 200
+    assert 'for="destino"' in response.text
+
+    control = _etiqueta_control(
+        response.text,
+        "destino",
+    )
+
+    assert 'name="destino"' in control
+    assert 'value=""' in control
+    assert "required" not in control
+
+
+@pytest.mark.parametrize(
+    "destino, esperado",
+    [
+        ("Ferretería", "Ferretería"),
+        ("  Cafetería  ", "Cafetería"),
+        ("", ""),
+        ("   ", ""),
+        (None, ""),
+    ],
+)
+def test_crear_contrato_con_destino(
+    destino,
+    esperado,
+) -> None:
+    """Guarda el destino normalizado, que puede estar vacío."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    if destino is not None:
+        datos["destino"] = destino
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        assert contrato is not None
+        assert contrato.destino == esperado
+        assert contrato.concepto_factura == "Alquiler local"
+
+
+def test_formulario_editar_contrato_muestra_destino() -> None:
+    """Recupera el destino almacenado al editar el contrato."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+        contrato.destino = "Ferretería"
+        session.commit()
+
+        contrato_id = contrato.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    control = _etiqueta_control(
+        response.text,
+        "destino",
+    )
+
+    assert 'value="Ferretería"' in control
+
+
+@pytest.mark.parametrize(
+    "destino, esperado",
+    [
+        ("  Librería  ", "Librería"),
+        ("", ""),
+        ("   ", ""),
+    ],
+)
+@pytest.mark.parametrize(
+    "finalizado",
+    [False, True],
+)
+def test_editar_contrato_modifica_destino(
+    destino,
+    esperado,
+    finalizado,
+) -> None:
+    """Permite modificar o borrar el destino de cualquier contrato."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+        contrato.destino = "Ferretería"
+
+        if finalizado:
+            contrato.fecha_fin = date(2030, 6, 30)
+            datos["fecha_fin"] = "30/06/2030"
+
+        session.commit()
+
+        contrato_id = contrato.id
+
+    datos["destino"] = destino
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        assert contrato.destino == esperado
+        assert contrato.concepto_factura == "Alquiler local"
+
+        assert contrato.fecha_fin == (
+            date(2030, 6, 30)
+            if finalizado
+            else None
+        )
+
+
+def test_editar_contrato_protegido_permite_modificar_destino() -> None:
+    """El histórico contractual no impide corregir el destino."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    response = client.post(
+        "/contratos/nuevo",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+        contrato.destino = "Ferretería"
+
+        anexo = crear_anexo_prorroga(
+            contrato=contrato,
+            numero=1,
+            fecha=date(2030, 6, 1),
+            nueva_fecha_vencimiento=date(2036, 9, 14),
+            descripcion="Prórroga",
+        )
+
+        session.add(anexo)
+        session.commit()
+
+        contrato_id = contrato.id
+        anexo_id = anexo.id
+
+    response = client.get(
+        f"/contratos/{contrato_id}/editar"
+    )
+
+    assert response.status_code == 200
+
+    control_inmueble = _etiqueta_control(
+        response.text,
+        "inmueble_id",
+    )
+
+    control_destino = _etiqueta_control(
+        response.text,
+        "destino",
+    )
+
+    assert "disabled" in control_inmueble
+    assert "disabled" not in control_destino
+    assert "readonly" not in control_destino
+    assert 'value="Ferretería"' in control_destino
+
+    datos["fecha_vencimiento"] = "14/09/2036"
+    datos["destino"] = "Librería"
+
+    response = client.post(
+        f"/contratos/{contrato_id}/editar",
+        data=datos,
+    )
+
+    assert response.status_code == 302
+
+    with session_factory() as session:
+        contrato = session.get(Contrato, contrato_id)
+
+        assert contrato.destino == "Librería"
+        assert contrato.inmueble_id == inmueble_id
+        assert len(contrato.anexos) == 1
+        assert contrato.anexos[0].id == anexo_id
+        assert contrato.anexos[0].tipo == "PRORROGA"
+
+        assert (
+            contrato.fecha_vencimiento
+            == date(2036, 9, 14)
+        )
+
+
+@pytest.mark.parametrize(
+    "operacion",
+    ["nuevo", "editar"],
+)
+def test_formulario_conserva_destino_si_hay_error(
+    operacion,
+) -> None:
+    """Conserva el destino introducido si el formulario no es válido."""
+
+    client, session_factory, inmueble_id = (
+        _preparar_alta_contrato()
+    )
+
+    datos = _datos_nuevo_contrato_valido(inmueble_id)
+
+    if operacion == "nuevo":
+        url = "/contratos/nuevo"
+
+    else:
+        response = client.post(
+            "/contratos/nuevo",
+            data=datos,
+        )
+
+        assert response.status_code == 302
+
+        with session_factory() as session:
+            contrato = session.scalar(select(Contrato))
+            contrato.destino = "Destino original"
+            session.commit()
+
+            contrato_id = contrato.id
+
+        url = f"/contratos/{contrato_id}/editar"
+
+    datos["destino"] = "Nueva actividad comercial"
+
+    # Se introduce una fecha inexistente.
+    datos["fecha_vencimiento"] = "31/02/2031"
+
+    response = client.post(
+        url,
+        data=datos,
+    )
+
+    assert response.status_code == 400
+
+    control = _etiqueta_control(
+        response.text,
+        "destino",
+    )
+
+    assert 'value="Nueva actividad comercial"' in control
+
+    with session_factory() as session:
+        contrato = session.scalar(select(Contrato))
+
+        if operacion == "nuevo":
+            assert contrato is None
+        else:
+            assert contrato.destino == "Destino original"
+

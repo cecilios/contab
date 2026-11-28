@@ -1779,10 +1779,15 @@ fieldset {
     cursor: not-allowed;
 }
 
-/* Inmueble */
+/* Inmueble y destino */
 
 .formulario-contrato__inmueble select {
     width: 55ch;
+    min-width: 0;
+}
+
+.formulario-contrato__destino input {
+    width: 30ch;
     min-width: 0;
 }
 

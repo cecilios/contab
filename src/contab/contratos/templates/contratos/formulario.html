@@ -38,6 +38,7 @@
         {% endif %}
 
         <div class="form-fila">
+
             <p class="form-field formulario-contrato__inmueble">
                 <label for="inmueble_id">
                     Inmueble {{ obligatorio() }}
@@ -74,6 +75,16 @@
                     >
                 {% endif %}
             </p>
+
+            <p class="form-field formulario-contrato__destino">
+                <label for="destino">Destino</label>
+                <input
+                    id="destino"
+                    name="destino"
+                    value="{{ datos.get('destino', '') }}"
+                >
+            </p>
+
         </div>
 
         <fieldset class="formulario-contrato__titulares">
