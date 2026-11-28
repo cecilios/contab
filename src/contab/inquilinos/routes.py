@@ -75,7 +75,7 @@ def _render_formulario_inquilino(
 
 @bp.get("/")
 def listar_inquilinos():
-    """Muestra el listado de inquilinos registrados."""
+    """Muestra los inquilinos vigentes e históricos con sus inmuebles."""
     session_factory = get_session_factory()
 
     with session_factory() as session:
@@ -83,9 +83,42 @@ def listar_inquilinos():
             select(Inquilino).order_by(Inquilino.nombre)
         ).all()
 
+        vigentes = []
+        historicos = []
+
+        for inquilino in inquilinos:
+            referencias_vigentes = set()
+            referencias_historicas = set()
+
+            for titular in inquilino.contratos:
+                contrato = titular.contrato
+                referencia = contrato.inmueble.referencia
+
+                if contrato.fecha_fin is None:
+                    referencias_vigentes.add(referencia)
+                else:
+                    referencias_historicas.add(referencia)
+
+            if referencias_vigentes:
+                vigentes.append(
+                    (
+                        inquilino,
+                        ", ".join(sorted(referencias_vigentes)),
+                    )
+                )
+            else:
+                historicos.append(
+                    (
+                        inquilino,
+                        ", ".join(sorted(referencias_historicas))
+                        or "Sin contrato",
+                    )
+                )
+
         return render_template(
             "inquilinos/lista.html",
-            inquilinos=inquilinos,
+            vigentes=vigentes,
+            historicos=historicos,
             database_name=get_database_name(),
         )
 

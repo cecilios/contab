@@ -1,6 +1,25 @@
+
 {% extends "base.html" %}
 
 {% block title %}Inquilinos - Contab{% endblock %}
+
+{% macro mostrar_inquilinos(inquilinos) %}
+    <ul>
+        {% for inquilino, referencias in inquilinos %}
+            <li>
+                {{ inquilino.nombre }} -
+                {{ inquilino.nif }} -
+                {{ referencias }} -
+                <a href="{{ url_for(
+                    'inquilinos.editar_inquilino',
+                    inquilino_id=inquilino.id
+                ) }}">
+                    Editar
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+{% endmacro %}
 
 {% block content %}
     <h1>Inquilinos</h1>
@@ -11,19 +30,24 @@
         </a>
     </p>
 
-    {% if inquilinos %}
-        <ul>
-        {% for inquilino in inquilinos %}
-			<li>
-				{{ inquilino.nombre }} -
-				{{ inquilino.nif }}
-				-
-				<a href="{{ url_for('inquilinos.editar_inquilino', inquilino_id=inquilino.id) }}">
-					Editar
-				</a>
-			</li>
-        {% endfor %}
-        </ul>
+    {% if vigentes or historicos %}
+
+        <h2>Vigentes</h2>
+
+        {% if vigentes %}
+            {{ mostrar_inquilinos(vigentes) }}
+        {% else %}
+            <p>No hay inquilinos vigentes.</p>
+        {% endif %}
+
+        <h2>Históricos</h2>
+
+        {% if historicos %}
+            {{ mostrar_inquilinos(historicos) }}
+        {% else %}
+            <p>No hay inquilinos históricos.</p>
+        {% endif %}
+
     {% else %}
         <p>No hay inquilinos registrados.</p>
     {% endif %}

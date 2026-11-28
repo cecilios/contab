@@ -1856,3 +1856,107 @@ fieldset {
     gap: 1rem;
     margin-top: 0.75rem;
 }
+
+
+/* ==========================================================
+   Formulario de inquilinos
+   ========================================================== */
+
+.formulario-inquilino {
+    max-width: 1000px;
+}
+
+/* Distribución compacta */
+
+.formulario-inquilino__titulo {
+    margin-bottom: 0.5rem;
+}
+
+.formulario-inquilino__nota-obligatorios {
+    margin: 0 0 0.75rem;
+    font-size: 0.9em;
+}
+
+.formulario-inquilino p {
+    margin: 0.35rem 0;
+}
+
+.formulario-inquilino input,
+.formulario-inquilino textarea {
+    padding: 0.25rem 0.4rem;
+}
+
+.formulario-inquilino fieldset {
+    min-width: 0;
+    margin: 0.5rem 0;
+    padding: 0.35rem 0.75rem 0.5rem;
+}
+
+.formulario-inquilino .form-fila {
+    gap: 0.35rem 1rem;
+    margin: 0.35rem 0;
+}
+
+.formulario-inquilino .form-fila .form-field {
+    margin: 0;
+}
+
+/* Identificación */
+
+.formulario-inquilino__nombre input {
+    width: 50ch;
+    min-width: 0;
+}
+
+.formulario-inquilino__nif input {
+    width: 14ch;
+    min-width: 0;
+}
+
+/* Domicilio */
+
+.formulario-inquilino__direccion input {
+    width: 65ch;
+    min-width: 0;
+}
+
+.formulario-inquilino__poblacion input,
+.formulario-inquilino__provincia input {
+    width: 24ch;
+    min-width: 0;
+}
+
+/* Datos de contacto */
+
+.formulario-inquilino__email input {
+    width: 40ch;
+    min-width: 0;
+}
+
+.formulario-inquilino__telefono input {
+    width: 18ch;
+    min-width: 0;
+}
+
+/* Notas */
+
+.formulario-inquilino .formulario-inquilino__notas {
+    align-items: flex-start;
+}
+
+.formulario-inquilino__notas textarea {
+    width: 65ch;
+    min-width: 0;
+    min-height: 3rem;
+    resize: vertical;
+}
+
+/* Acciones */
+
+.formulario-inquilino .formulario-inquilino__acciones {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.75rem;
+}
