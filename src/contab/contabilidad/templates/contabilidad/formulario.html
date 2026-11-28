@@ -21,7 +21,22 @@
 {% block title %}{{ titulo }} - Contab{% endblock %}
 
 {% block content %}
+
     <h1>{{ titulo }}</h1>
+
+    {% if apunte_id is not none %}
+        <p>
+            <a
+                href="{{ url_for(
+                    'conciliacion.ver_relaciones',
+                    tipo='apunte',
+                    identificador=apunte_id
+                ) }}"
+            >
+                Relaciones
+            </a>
+        </p>
+    {% endif %}
 
     {% if error %}
         <p class="error">{{ error }}</p>

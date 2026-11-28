@@ -1965,3 +1965,12 @@ fieldset {
     gap: 1rem;
     margin-top: 0.75rem;
 }
+
+/* ==========================================================
+   Formulario de inmuebles
+   ========================================================== */
+
+.formulario-inmueble__aviso-codigo {
+    color: #a00000;
+    font-weight: bold;
+}

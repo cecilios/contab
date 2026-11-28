@@ -614,6 +614,11 @@ def _render_formulario_inmueble(
         advertencia_codigo_facturacion=(
             advertencia_codigo_facturacion
         ),
+        codigo_facturacion_original=(
+            inmueble.codigo_facturacion
+            if inmueble is not None
+            else ""
+        ),
         error=error,
         titulo=titulo,
         database_name=get_database_name(),
@@ -966,6 +971,7 @@ def editar_inmueble(inmueble_id: int):
                         datos=request.form,
                         error=error_padre,
                         titulo="Editar inmueble",
+                        inmueble=inmueble,
                     ),
                     400,
                 )
@@ -984,6 +990,7 @@ def editar_inmueble(inmueble_id: int):
                         datos=request.form,
                         error=error_duplicado,
                         titulo="Editar inmueble",
+                        inmueble=inmueble,
                     ),
                     400,
                 )

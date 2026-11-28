@@ -640,7 +640,10 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     assert "Alquileres" in response.text
     assert "Impuesto sobre Bienes Inmuebles" in response.text
     assert "Tasa de Residuos Urbanos" in response.text
-
+    assert (
+        'href="/conciliacion/relaciones/apunte/'
+        not in response.text
+    )
 
 
 def test_formulario_apunte_solo_ofrece_dos_opciones_dia_hasta(
@@ -1710,7 +1713,10 @@ GAS_TRIBUTOS.TRU = Tasa de Residuos Urbanos
     }
 
     assert 'id="restricciones_edicion"' not in response.text
-
+    assert (
+        f'href="/conciliacion/relaciones/apunte/{apunte_id}"'
+        in response.text
+    )
 
 def test_editar_apunte_guarda_cambios(
     tmp_path,

@@ -60,7 +60,12 @@
         </div>
 
         {% if advertencia_codigo_facturacion %}
-            <p class="formulario-inmueble__aviso-codigo">
+            <p
+                id="aviso_codigo_facturacion"
+                class="formulario-inmueble__aviso-codigo"
+                data-codigo-original="{{ codigo_facturacion_original }}"
+                hidden
+            >
                 La modificación del código de facturación
                 afectará a la numeración de las próximas facturas.
                 Las facturas ya registradas conservarán
@@ -410,6 +415,34 @@
     );
 
     actualizarInmueblePadre();
+
+    const codigoFacturacion = document.getElementById(
+        "codigo_facturacion"
+    );
+
+    const avisoCodigoFacturacion = document.getElementById(
+        "aviso_codigo_facturacion"
+    );
+
+    if (avisoCodigoFacturacion) {
+        const codigoOriginal = (
+            avisoCodigoFacturacion.dataset.codigoOriginal.trim()
+        );
+
+        function actualizarAvisoCodigoFacturacion() {
+            avisoCodigoFacturacion.hidden = (
+                codigoFacturacion.value.trim() === codigoOriginal
+            );
+        }
+
+        codigoFacturacion.addEventListener(
+            "input",
+            actualizarAvisoCodigoFacturacion
+        );
+
+        actualizarAvisoCodigoFacturacion();
+    }
+
 </script>
 
 {% endblock %}

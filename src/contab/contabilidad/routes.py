@@ -790,6 +790,7 @@ def _mostrar_formulario_apunte(
             campos_bloqueados=campos_bloqueados,
             avisos_restricciones=avisos_restricciones,
             naturaleza_seleccionada=naturaleza_seleccionada,
+            apunte_id=apunte_id,
         )
 
     return contenido, status_code
