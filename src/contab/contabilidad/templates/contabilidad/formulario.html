@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 
 {% macro atributo_bloqueo(campo, atributo) -%}
@@ -63,43 +64,45 @@
             ) }}"
         >
 
-        <p>
-            <label for="inmueble_id">Inmueble</label>
-            <select
-                id="inmueble_id"
-                class="formulario-apunte__inmueble"
-                name="inmueble_id"
-                required
-                {{ atributo_bloqueo("inmueble_id", "disabled") }}
-            >
-                <option value="">Seleccione un inmueble</option>
+        <div class="form-fila">
+            <p class="form-field">
+                <label for="inmueble_id">Inmueble</label>
+                <select
+                    id="inmueble_id"
+                    class="formulario-apunte__inmueble"
+                    name="inmueble_id"
+                    required
+                    {{ atributo_bloqueo("inmueble_id", "disabled") }}
+                >
+                    <option value="">Seleccione un inmueble</option>
 
-                {% for inmueble in inmuebles %}
-                    <option
-                        value="{{ inmueble.id }}"
-                        {% if datos.get("inmueble_id")|string == inmueble.id|string %}
-                            selected
-                        {% endif %}
-                    >
-                        {{ inmueble.referencia }} -
-                        {{ inmueble.descripcion }}
-                    </option>
-                {% endfor %}
-            </select>
-            {{ conservar_valor("inmueble_id") }}
-        </p>
+                    {% for inmueble in inmuebles %}
+                        <option
+                            value="{{ inmueble.id }}"
+                            {% if datos.get("inmueble_id")|string == inmueble.id|string %}
+                                selected
+                            {% endif %}
+                        >
+                            {{ inmueble.referencia }} -
+                            {{ inmueble.descripcion }}
+                        </option>
+                    {% endfor %}
+                </select>
+                {{ conservar_valor("inmueble_id") }}
+            </p>
 
-        <p>
-            <label for="fecha">Fecha</label>
-            <input
-                id="fecha"
-                class="campo-fecha"
-                name="fecha"
-                value="{{ datos.get('fecha', '') }}"
-                required
-                {{ atributo_bloqueo("fecha", "readonly") }}
-            >
-        </p>
+            <p class="form-field">
+                <label for="fecha">Fecha</label>
+                <input
+                    id="fecha"
+                    class="campo-fecha"
+                    name="fecha"
+                    value="{{ datos.get('fecha', '') }}"
+                    required
+                    {{ atributo_bloqueo("fecha", "readonly") }}
+                >
+            </p>
+        </div>
 
         <p>
             <label for="clasificacion">Clasificación</label>
@@ -118,16 +121,16 @@
                             {% for subcategoria in categoria.subcategorias %}
                                 {% set valor = categoria.codigo ~ "." ~ subcategoria.codigo %}
 
-                            <option
-                                value="{{ valor }}"
-                                data-concepto="{{ subcategoria.nombre }}"
-                                data-naturaleza="{{ categoria.naturaleza }}"
-                                {% if datos.get("clasificacion") == valor %}
-                                    selected
-                                {% endif %}
-                            >
-                                {{ subcategoria.nombre }}
-                            </option>
+                                <option
+                                    value="{{ valor }}"
+                                    data-concepto="{{ subcategoria.nombre }}"
+                                    data-naturaleza="{{ categoria.naturaleza }}"
+                                    {% if datos.get("clasificacion") == valor %}
+                                        selected
+                                    {% endif %}
+                                >
+                                    {{ subcategoria.nombre }}
+                                </option>
                             {% endfor %}
                         </optgroup>
                     {% else %}
@@ -172,77 +175,77 @@
         <fieldset>
             <legend>Período</legend>
 
-            <p>
-                <label for="periodo_desde">Desde</label>
-                <input
-                    id="periodo_desde"
-                    name="periodo_desde"
-                    class="campo-fecha"
-                    value="{{ datos.get('periodo_desde', '') }}"
-                    placeholder="mm/aaaa o dd/mm/aaaa"
-                    {{ atributo_bloqueo("periodo_desde", "readonly") }}
-                >
-            </p>
+            <div class="form-fila">
+                <p class="form-field">
+                    <label for="periodo_desde">Desde</label>
+                    <input
+                        id="periodo_desde"
+                        name="periodo_desde"
+                        class="campo-fecha"
+                        value="{{ datos.get('periodo_desde', '') }}"
+                        placeholder="mm/aaaa o dd/mm/aaaa"
+                        {{ atributo_bloqueo("periodo_desde", "readonly") }}
+                    >
+                </p>
 
-            <p>
-                <label for="periodo_hasta">Hasta</label>
-                <input
-                    id="periodo_hasta"
-                    name="periodo_hasta"
-                    class="campo-fecha"
-                    value="{{ datos.get('periodo_hasta', '') }}"
-                    placeholder="dd/mm/aaaa"
-                    {{ atributo_bloqueo("periodo_hasta", "readonly") }}
-                >
-            </p>
+                <p class="form-field">
+                    <label for="periodo_hasta">Hasta</label>
+                    <input
+                        id="periodo_hasta"
+                        name="periodo_hasta"
+                        class="campo-fecha"
+                        value="{{ datos.get('periodo_hasta', '') }}"
+                        placeholder="dd/mm/aaaa"
+                        {{ atributo_bloqueo("periodo_hasta", "readonly") }}
+                    >
+                </p>
 
-            <p>
+                <p class="form-field">
+                    <label for="dia_hasta_incluido">
+                        Cómputo del período
+                    </label>
+                    <select
+                        id="dia_hasta_incluido"
+                        name="dia_hasta_incluido"
+                        class="formulario-apunte__computo-periodo"
+                        {{ atributo_bloqueo("dia_hasta_incluido", "disabled") }}
+                    >
+                        <option value="">
+                            Seleccione el criterio
+                        </option>
+                        <option
+                            value="1"
+                            {% if datos.get("dia_hasta_incluido") == "1" %}
+                                selected
+                            {% endif %}
+                        >
+                            Incluir fecha final
+                        </option>
+                        <option
+                            value="0"
+                            {% if datos.get("dia_hasta_incluido") == "0" %}
+                                selected
+                            {% endif %}
+                        >
+                            Excluir fecha final
+                        </option>
+                    </select>
+                    {{ conservar_valor("dia_hasta_incluido") }}
+                </p>
+            </div>
+
+            <p class="formulario-apunte__ayuda">
                 Para un mes completo, indique solamente
                 <em>Desde</em> con el formato mm/aaaa.
             </p>
 
-
-            <p>
-                <label for="dia_hasta_incluido">
-                    Cómputo del período
-                </label>
-                <select
-                    id="dia_hasta_incluido"
-                    name="dia_hasta_incluido"
-                    class="formulario-apunte__computo-periodo"
-                    {{ atributo_bloqueo("dia_hasta_incluido", "disabled") }}
-                >
-                    <option value="">
-                        Seleccione el criterio
-                    </option>
-                    <option
-                        value="1"
-                        {% if datos.get("dia_hasta_incluido") == "1" %}
-                            selected
-                        {% endif %}
-                    >
-                        Incluir fecha final
-                    </option>
-                    <option
-                        value="0"
-                        {% if datos.get("dia_hasta_incluido") == "0" %}
-                            selected
-                        {% endif %}
-                    >
-                        Excluir fecha final
-                    </option>
-                </select>
-                {{ conservar_valor("dia_hasta_incluido") }}
-            </p>
-
-            <p>
+            <p class="formulario-apunte__ayuda">
                 Días del período:
                 <span id="dias_incluir_hasta">—</span>
                 incluyendo la fecha final;
                 <span id="dias_excluir_hasta">—</span>
                 excluyéndola.
             </p>
-
         </fieldset>
 
         {% set tratamiento = datos.get(
@@ -250,10 +253,9 @@
             "CONTABILIZAR"
         ) %}
 
-
         <fieldset
             id="grupo_tratamiento"
-            class="radio-group"
+            class="radio-group formulario-apunte__tratamiento"
             data-protegido="{{ '1' if 'tratamiento' in campos_bloqueados else '0' }}"
         >
             <legend>Tratamiento</legend>
@@ -316,82 +318,86 @@
             {{ conservar_valor("tratamiento") }}
         </fieldset>
 
-        <p>
-            <label for="base">Base imponible</label>
-            <input
-                id="base"
-                name="base"
-                class="campo-importe"
-                value="{{ datos.get('base', '') }}"
-                required
-                {{ atributo_bloqueo("base", "readonly") }}
-            >
-        </p>
+        <div class="form-fila formulario-apunte__importes">
+            <p class="form-field">
+                <label for="base">Base imponible</label>
+                <input
+                    id="base"
+                    name="base"
+                    class="campo-importe"
+                    value="{{ datos.get('base', '') }}"
+                    required
+                    {{ atributo_bloqueo("base", "readonly") }}
+                >
+            </p>
 
-        <p>
-            <label for="iva_importe">IVA</label>
-            <input
-                id="iva_importe"
-                name="iva_importe"
-                class="campo-importe"
-                value="{{ datos.get('iva_importe', '0,00') }}"
-                required
-                {{ atributo_bloqueo("iva_importe", "readonly") }}
-            >
-        </p>
+            <p class="form-field">
+                <label for="iva_importe">IVA</label>
+                <input
+                    id="iva_importe"
+                    name="iva_importe"
+                    class="campo-importe"
+                    value="{{ datos.get('iva_importe', '0,00') }}"
+                    required
+                    {{ atributo_bloqueo("iva_importe", "readonly") }}
+                >
+            </p>
 
-        <p>
-            <label for="retencion_importe">Retención</label>
-            <input
-                id="retencion_importe"
-                name="retencion_importe"
-                class="campo-importe"
-                value="{{ datos.get('retencion_importe', '0,00') }}"
-                required
-                {{ atributo_bloqueo("retencion_importe", "readonly") }}
-            >
-        </p>
+            <p class="form-field">
+                <label for="retencion_importe">Retención</label>
+                <input
+                    id="retencion_importe"
+                    name="retencion_importe"
+                    class="campo-importe"
+                    value="{{ datos.get('retencion_importe', '0,00') }}"
+                    required
+                    {{ atributo_bloqueo("retencion_importe", "readonly") }}
+                >
+            </p>
 
-        <p>
-            <label for="importe_a_pagar">
-                Importe a pagar
-            </label>
-            <input
-                id="importe_a_pagar"
-                class="campo-importe formulario-apunte__total"
-                value="{{ datos.get('importe_a_pagar', '') }}"
-                readonly
-            >
-        </p>
+            <p class="form-field">
+                <label for="importe_a_pagar">
+                    Importe a pagar
+                </label>
+                <input
+                    id="importe_a_pagar"
+                    class="campo-importe formulario-apunte__total"
+                    value="{{ datos.get('importe_a_pagar', '') }}"
+                    readonly
+                >
+            </p>
+        </div>
 
         <fieldset>
             <legend>Datos del emisor</legend>
 
-            <p>
-                <label for="tercero_nombre">
-                    Nombre del emisor
-                </label>
-                <input
-                    id="tercero_nombre"
-                    name="tercero_nombre"
-                    class="formulario-apunte__tercero"
-                    value="{{ datos.get('tercero_nombre', '') }}"
-                    {{ atributo_bloqueo("tercero_nombre", "readonly") }}
-                >
-            </p>
+            <div class="form-fila">
+                <p class="form-field">
+                    <label for="tercero_nombre">
+                        Nombre del emisor
+                    </label>
+                    <input
+                        id="tercero_nombre"
+                        name="tercero_nombre"
+                        class="formulario-apunte__tercero"
+                        value="{{ datos.get('tercero_nombre', '') }}"
+                        {{ atributo_bloqueo("tercero_nombre", "readonly") }}
+                    >
+                </p>
 
-            <p>
-                <label for="tercero_nif">
-                    NIF del emisor
-                </label>
-                <input
-                    id="tercero_nif"
-                    name="tercero_nif"
-                    class="formulario-apunte__nif"
-                    value="{{ datos.get('tercero_nif', '') }}"
-                    {{ atributo_bloqueo("tercero_nif", "readonly") }}
-                >
-            </p>
+                <p class="form-field">
+                    <label for="tercero_nif">
+                        NIF del emisor
+                    </label>
+                    <input
+                        id="tercero_nif"
+                        name="tercero_nif"
+                        class="formulario-apunte__nif"
+                        value="{{ datos.get('tercero_nif', '') }}"
+                        {{ atributo_bloqueo("tercero_nif", "readonly") }}
+                    >
+                </p>
+            </div>
 
             <p>
                 <label for="referencia_documento">
@@ -429,37 +435,39 @@
                 </p>
 
                 <div id="datos_movimiento_previsto">
-                    <p>
-                        <label for="fecha_prevista_desde">
-                            Fecha prevista desde
-                        </label>
-                        <input
-                            id="fecha_prevista_desde"
-                            name="fecha_prevista_desde"
-                            class="campo-fecha"
-                            value="{{ datos.get(
-                                'fecha_prevista_desde',
-                                ''
-                            ) }}"
-                            placeholder="dd/mm/aaaa"
-                        >
-                    </p>
+                    <div class="form-fila">
+                        <p class="form-field">
+                            <label for="fecha_prevista_desde">
+                                Fecha prevista desde
+                            </label>
+                            <input
+                                id="fecha_prevista_desde"
+                                name="fecha_prevista_desde"
+                                class="campo-fecha"
+                                value="{{ datos.get(
+                                    'fecha_prevista_desde',
+                                    ''
+                                ) }}"
+                                placeholder="dd/mm/aaaa"
+                            >
+                        </p>
 
-                    <p>
-                        <label for="fecha_prevista_hasta">
-                            Fecha prevista hasta
-                        </label>
-                        <input
-                            id="fecha_prevista_hasta"
-                            name="fecha_prevista_hasta"
-                            class="campo-fecha"
-                            value="{{ datos.get(
-                                'fecha_prevista_hasta',
-                                ''
-                            ) }}"
-                            placeholder="dd/mm/aaaa"
-                        >
-                    </p>
+                        <p class="form-field">
+                            <label for="fecha_prevista_hasta">
+                                Fecha prevista hasta
+                            </label>
+                            <input
+                                id="fecha_prevista_hasta"
+                                name="fecha_prevista_hasta"
+                                class="campo-fecha"
+                                value="{{ datos.get(
+                                    'fecha_prevista_hasta',
+                                    ''
+                                ) }}"
+                                placeholder="dd/mm/aaaa"
+                            >
+                        </p>
+                    </div>
                 </div>
             </fieldset>
         {% endif %}

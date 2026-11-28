@@ -37,42 +37,44 @@
             </p>
         {% endif %}
 
-        <p class="form-field formulario-contrato__inmueble">
-            <label for="inmueble_id">
-                Inmueble {{ obligatorio() }}
-            </label>
+        <div class="form-fila">
+            <p class="form-field formulario-contrato__inmueble">
+                <label for="inmueble_id">
+                    Inmueble {{ obligatorio() }}
+                </label>
 
-            <select
-                id="inmueble_id"
-                name="inmueble_id"
-                {% if restricciones.identidad %}
-                    disabled
-                {% endif %}
-            >
-                {% for inmueble in inmuebles %}
-                    <option
-                        value="{{ inmueble.id }}"
-                        {% if datos.get('inmueble_id')|string == inmueble.id|string %}
-                            selected
-                        {% endif %}
-                    >
-                        {{ inmueble.referencia }} -
-                        {{ inmueble.descripcion }}
-                        {% if not inmueble.activo %}
-                            (Inactivo)
-                        {% endif %}
-                    </option>
-                {% endfor %}
-            </select>
-
-            {% if restricciones.identidad %}
-                <input
-                    type="hidden"
+                <select
+                    id="inmueble_id"
                     name="inmueble_id"
-                    value="{{ datos.get('inmueble_id') }}"
+                    {% if restricciones.identidad %}
+                        disabled
+                    {% endif %}
                 >
-            {% endif %}
-        </p>
+                    {% for inmueble in inmuebles %}
+                        <option
+                            value="{{ inmueble.id }}"
+                            {% if datos.get('inmueble_id')|string == inmueble.id|string %}
+                                selected
+                            {% endif %}
+                        >
+                            {{ inmueble.referencia }} -
+                            {{ inmueble.descripcion }}
+                            {% if not inmueble.activo %}
+                                (Inactivo)
+                            {% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+
+                {% if restricciones.identidad %}
+                    <input
+                        type="hidden"
+                        name="inmueble_id"
+                        value="{{ datos.get('inmueble_id') }}"
+                    >
+                {% endif %}
+            </p>
+        </div>
 
         <fieldset class="formulario-contrato__titulares">
             <legend>Titulares {{ obligatorio() }}</legend>
@@ -89,9 +91,9 @@
             {% endif %}
 
             {% for orden in range(1, 5) %}
-                <div class="formulario-contrato__titular">
+                <div class="formulario-contrato__titular form-fila">
 
-                    <p class="form-field">
+                    <p class="form-field formulario-contrato__titular-numero">
                         <strong>Titular {{ orden }}</strong>
                     </p>
 
@@ -127,49 +129,56 @@
             {% endfor %}
         </fieldset>
 
-        <p class="form-field formulario-contrato__fecha-inicio">
-            <label for="fecha_inicio">
-                Fecha de inicio {{ obligatorio() }}
-            </label>
-            <input
-                type="text"
-                id="fecha_inicio"
-                name="fecha_inicio"
-                placeholder="dd/mm/aaaa"
-                value="{{ datos.get('fecha_inicio', '') }}"
-                {% if restricciones.fecha_inicio %}
-                    readonly
-                {% endif %}
-            >
-        </p>
+        <div class="form-fila formulario-contrato__fechas">
 
-        <p class="form-field formulario-contrato__fecha-vencimiento">
-            <label for="fecha_vencimiento">
-                Fecha de vencimiento {{ obligatorio() }}
-            </label>
-            <input
-                type="text"
-                id="fecha_vencimiento"
-                name="fecha_vencimiento"
-                placeholder="dd/mm/aaaa"
-                value="{{ datos.get('fecha_vencimiento', '') }}"
-            >
-        </p>
-
-        {% if datos.get('fecha_fin') %}
-            <p class="form-field formulario-contrato__fecha-fin">
-                <label for="fecha_fin">
-                    Fecha de resolución
+            <p class="form-field formulario-contrato__fecha-inicio">
+                <label for="fecha_inicio">
+                    Fecha de inicio {{ obligatorio() }}
                 </label>
                 <input
                     type="text"
-                    id="fecha_fin"
-                    name="fecha_fin"
+                    id="fecha_inicio"
+                    name="fecha_inicio"
+                    class="campo-fecha"
                     placeholder="dd/mm/aaaa"
-                    value="{{ datos.get('fecha_fin', '') }}"
+                    value="{{ datos.get('fecha_inicio', '') }}"
+                    {% if restricciones.fecha_inicio %}
+                        readonly
+                    {% endif %}
                 >
             </p>
-        {% endif %}
+
+            <p class="form-field formulario-contrato__fecha-vencimiento">
+                <label for="fecha_vencimiento">
+                    Fecha de vencimiento {{ obligatorio() }}
+                </label>
+                <input
+                    type="text"
+                    id="fecha_vencimiento"
+                    name="fecha_vencimiento"
+                    class="campo-fecha"
+                    placeholder="dd/mm/aaaa"
+                    value="{{ datos.get('fecha_vencimiento', '') }}"
+                >
+            </p>
+
+            {% if datos.get('fecha_fin') %}
+                <p class="form-field formulario-contrato__fecha-fin">
+                    <label for="fecha_fin">
+                        Fecha de resolución
+                    </label>
+                    <input
+                        type="text"
+                        id="fecha_fin"
+                        name="fecha_fin"
+                        class="campo-fecha"
+                        placeholder="dd/mm/aaaa"
+                        value="{{ datos.get('fecha_fin', '') }}"
+                    >
+                </p>
+            {% endif %}
+
+        </div>
 
         {% if advertencia_gastos %}
             <p class="formulario-contrato__advertencia-gastos">
@@ -180,207 +189,244 @@
             </p>
         {% endif %}
 
-        <p class="form-field checkbox-field formulario-contrato__genera-factura">
-            <label for="genera_factura">
-                <input
-                    type="checkbox"
-                    id="genera_factura"
-                    name="genera_factura"
-                    {% if datos.get('genera_factura') %}
-                        checked
-                    {% endif %}
-                    {% if restricciones.alquileres %}
-                        disabled
-                    {% endif %}
-                >
-                Genera factura
-            </label>
 
-            {% if restricciones.alquileres and datos.get('genera_factura') %}
-                <input
-                    type="hidden"
-                    name="genera_factura"
-                    value="on"
-                >
-            {% endif %}
-        </p>
+        <div class="form-fila">
 
-        <p class="form-field formulario-contrato__inicio-facturacion">
-            <label for="fecha_inicio_facturacion">
-                Inicio de facturación {{ obligatorio() }}
-            </label>
-            <input
-                type="text"
-                id="fecha_inicio_facturacion"
-                name="fecha_inicio_facturacion"
-                placeholder="dd/mm/aaaa"
-                value="{{ datos.get('fecha_inicio_facturacion', '') }}"
-                {% if restricciones.alquileres %}
-                    readonly
-                {% endif %}
-            >
-        </p>
-
-        <p class="form-field formulario-contrato__fianza">
-            <label for="fianza">
-                Fianza (€) {{ obligatorio() }}
-            </label>
-            <input
-                id="fianza"
-                name="fianza"
-                value="{{ datos.get('fianza', '') }}"
-            >
-        </p>
-
-        <div class="formulario-contrato__facturacion">
-
-            <p class="form-field formulario-contrato__iva">
-                <label for="iva_porcentaje">
-                    IVA (%) {{ obligatorio(true) }}
+            <p class="form-field formulario-contrato__renta">
+                <label for="renta_inicial">
+                    Renta inicial (€) {{ obligatorio() }}
                 </label>
                 <input
-                    id="iva_porcentaje"
-                    name="iva_porcentaje"
-                    value="{{ datos.get('iva_porcentaje', '21,00') }}"
-                >
-            </p>
-
-            <p class="form-field formulario-contrato__retencion">
-                <label for="retencion_porcentaje">
-                    Retención (%) {{ obligatorio(true) }}
-                </label>
-                <input
-                    id="retencion_porcentaje"
-                    name="retencion_porcentaje"
-                    value="{{ datos.get('retencion_porcentaje', '19,00') }}"
-                >
-            </p>
-
-            <p class="form-field formulario-contrato__direccion">
-                <label for="direccion_facturacion">
-                    Dirección de facturación {{ obligatorio(true) }}
-                </label>
-                <input
-                    id="direccion_facturacion"
-                    name="direccion_facturacion"
-                    value="{{ datos.get('direccion_facturacion', '') }}"
-                >
-            </p>
-
-            <p class="form-field formulario-contrato__codigo-postal">
-                <label for="codigo_postal_facturacion">
-                    Código postal
-                </label>
-                <input
-                    id="codigo_postal_facturacion"
-                    name="codigo_postal_facturacion"
-                    value="{{ datos.get('codigo_postal_facturacion', '') }}"
-                >
-            </p>
-
-            <p class="form-field formulario-contrato__poblacion">
-                <label for="poblacion_facturacion">
-                    Población de facturación {{ obligatorio(true) }}
-                </label>
-                <input
-                    id="poblacion_facturacion"
-                    name="poblacion_facturacion"
-                    value="{{ datos.get('poblacion_facturacion', '') }}"
-                >
-            </p>
-
-            <p class="form-field formulario-contrato__provincia">
-                <label for="provincia_facturacion">
-                    Provincia de facturación {{ obligatorio(true) }}
-                </label>
-                <input
-                    id="provincia_facturacion"
-                    name="provincia_facturacion"
-                    value="{{ datos.get('provincia_facturacion', '') }}"
-                >
-            </p>
-
-            <p class="form-field formulario-contrato__concepto">
-                <label for="concepto_factura">
-                    Concepto de factura {{ obligatorio(true) }}
-                </label>
-                <input
-                    id="concepto_factura"
-                    name="concepto_factura"
-                    value="{{ datos.get('concepto_factura', '') }}"
-                >
-            </p>
-
-        </div>
-
-        <p class="form-field formulario-contrato__renta">
-            <label for="renta_inicial">
-                Renta inicial (€) {{ obligatorio() }}
-            </label>
-            <input
-                id="renta_inicial"
-                name="renta_inicial"
-                value="{{ datos.get('renta_inicial', '') }}"
-                {% if restricciones.renta_inicial %}
-                    readonly
-                {% endif %}
-            >
-        </p>
-
-        <div class="formulario-contrato__revision">
-
-            <p class="form-field formulario-contrato__fecha-revision">
-                <label for="fecha_primera_revision">
-                    Primera revisión {{ obligatorio(true) }}
-                </label>
-                <input
-                    type="text"
-                    id="fecha_primera_revision"
-                    name="fecha_primera_revision"
-                    placeholder="dd/mm/aaaa"
-                    value="{{ datos.get('fecha_primera_revision', '') }}"
-                    {% if restricciones.primera_revision %}
+                    id="renta_inicial"
+                    name="renta_inicial"
+                    class="campo-importe"
+                    value="{{ datos.get('renta_inicial', '') }}"
+                    {% if restricciones.renta_inicial %}
                         readonly
                     {% endif %}
                 >
             </p>
 
-            <p class="form-field formulario-contrato__metodo-revision">
-                <label for="metodo_revision">
-                    Método de revisión {{ obligatorio(true) }}
+            <p class="form-field formulario-contrato__fianza">
+                <label for="fianza">
+                    Fianza (€) {{ obligatorio() }}
+                </label>
+                <input
+                    id="fianza"
+                    name="fianza"
+                    class="campo-importe"
+                    value="{{ datos.get('fianza', '') }}"
+                >
+            </p>
+
+        </div>
+        <div class="form-fila">
+
+            <p class="form-field checkbox-field formulario-contrato__genera-factura">
+                <label for="genera_factura">
+                    <input
+                        type="checkbox"
+                        id="genera_factura"
+                        name="genera_factura"
+                        {% if datos.get('genera_factura') %}
+                            checked
+                        {% endif %}
+                        {% if restricciones.alquileres %}
+                            disabled
+                        {% endif %}
+                    >
+                    Genera factura
                 </label>
 
-                <select
-                    id="metodo_revision"
-                    name="metodo_revision"
-                    {% if restricciones.primera_revision %}
-                        disabled
-                    {% endif %}
-                >
-                    <option value="">Seleccione...</option>
-
-                    {% for valor, etiqueta in metodos_revision.items() %}
-                        <option
-                            value="{{ valor }}"
-                            {% if datos.get('metodo_revision') == valor %}
-                                selected
-                            {% endif %}
-                        >
-                            {{ etiqueta }}
-                        </option>
-                    {% endfor %}
-                </select>
-
-                {% if restricciones.primera_revision %}
+                {% if restricciones.alquileres and datos.get('genera_factura') %}
                     <input
                         type="hidden"
-                        name="metodo_revision"
-                        value="{{ datos.get('metodo_revision', '') }}"
+                        name="genera_factura"
+                        value="on"
                     >
                 {% endif %}
             </p>
 
+            <p class="form-field formulario-contrato__inicio-facturacion">
+                <label for="fecha_inicio_facturacion">
+                    Inicio de facturación {{ obligatorio() }}
+                </label>
+                <input
+                    type="text"
+                    id="fecha_inicio_facturacion"
+                    name="fecha_inicio_facturacion"
+                    class="campo-fecha"
+                    placeholder="dd/mm/aaaa"
+                    value="{{ datos.get('fecha_inicio_facturacion', '') }}"
+                    {% if restricciones.alquileres %}
+                        readonly
+                    {% endif %}
+                >
+            </p>
+
         </div>
+
+        <fieldset class="formulario-contrato__revision">
+            <legend>Revisión de renta</legend>
+
+            <div class="form-fila">
+
+                <p class="form-field formulario-contrato__fecha-revision">
+                    <label for="fecha_primera_revision">
+                        Primera revisión {{ obligatorio(true) }}
+                    </label>
+                    <input
+                        type="text"
+                        id="fecha_primera_revision"
+                        name="fecha_primera_revision"
+                        class="campo-fecha"
+                        placeholder="dd/mm/aaaa"
+                        value="{{ datos.get('fecha_primera_revision', '') }}"
+                        {% if restricciones.primera_revision %}
+                            readonly
+                        {% endif %}
+                    >
+                </p>
+
+                <p class="form-field formulario-contrato__metodo-revision">
+                    <label for="metodo_revision">
+                        Método de revisión {{ obligatorio(true) }}
+                    </label>
+
+                    <select
+                        id="metodo_revision"
+                        name="metodo_revision"
+                        {% if restricciones.primera_revision %}
+                            disabled
+                        {% endif %}
+                    >
+                        <option value="">Seleccione...</option>
+
+                        {% for valor, etiqueta in metodos_revision.items() %}
+                            <option
+                                value="{{ valor }}"
+                                {% if datos.get('metodo_revision') == valor %}
+                                    selected
+                                {% endif %}
+                            >
+                                {{ etiqueta }}
+                            </option>
+                        {% endfor %}
+                    </select>
+
+                    {% if restricciones.primera_revision %}
+                        <input
+                            type="hidden"
+                            name="metodo_revision"
+                            value="{{ datos.get('metodo_revision', '') }}"
+                        >
+                    {% endif %}
+                </p>
+
+            </div>
+
+        </fieldset>
+
+        <fieldset class="formulario-contrato__facturacion">
+            <legend>Facturación</legend>
+
+            <div class="form-fila">
+
+                <p class="form-field formulario-contrato__iva">
+                    <label for="iva_porcentaje">
+                        IVA (%) {{ obligatorio(true) }}
+                    </label>
+                    <input
+                        id="iva_porcentaje"
+                        name="iva_porcentaje"
+                        class="campo-porcentaje"
+                        value="{{ datos.get('iva_porcentaje', '21,00') }}"
+                    >
+                </p>
+
+                <p class="form-field formulario-contrato__retencion">
+                    <label for="retencion_porcentaje">
+                        Retención (%) {{ obligatorio(true) }}
+                    </label>
+                    <input
+                        id="retencion_porcentaje"
+                        name="retencion_porcentaje"
+                        class="campo-porcentaje"
+                        value="{{ datos.get('retencion_porcentaje', '19,00') }}"
+                    >
+                </p>
+
+            </div>
+
+            <div class="form-fila">
+
+                <p class="form-field formulario-contrato__direccion">
+                    <label for="direccion_facturacion">
+                        Dirección de facturación {{ obligatorio(true) }}
+                    </label>
+                    <input
+                        id="direccion_facturacion"
+                        name="direccion_facturacion"
+                        value="{{ datos.get('direccion_facturacion', '') }}"
+                    >
+                </p>
+
+            </div>
+
+            <div class="form-fila formulario-contrato__localidad">
+
+                <p class="form-field formulario-contrato__codigo-postal">
+                    <label for="codigo_postal_facturacion">
+                        Código postal
+                    </label>
+                    <input
+                        id="codigo_postal_facturacion"
+                        name="codigo_postal_facturacion"
+                        class="campo-codigo-postal"
+                        value="{{ datos.get('codigo_postal_facturacion', '') }}"
+                    >
+                </p>
+
+                <p class="form-field formulario-contrato__poblacion">
+                    <label for="poblacion_facturacion">
+                        Población de facturación {{ obligatorio(true) }}
+                    </label>
+                    <input
+                        id="poblacion_facturacion"
+                        name="poblacion_facturacion"
+                        value="{{ datos.get('poblacion_facturacion', '') }}"
+                    >
+                </p>
+
+                <p class="form-field formulario-contrato__provincia">
+                    <label for="provincia_facturacion">
+                        Provincia de facturación {{ obligatorio(true) }}
+                    </label>
+                    <input
+                        id="provincia_facturacion"
+                        name="provincia_facturacion"
+                        value="{{ datos.get('provincia_facturacion', '') }}"
+                    >
+                </p>
+
+            </div>
+
+            <div class="form-fila">
+
+                <p class="form-field formulario-contrato__concepto">
+                    <label for="concepto_factura">
+                        Concepto de factura {{ obligatorio(true) }}
+                    </label>
+                    <input
+                        id="concepto_factura"
+                        name="concepto_factura"
+                        value="{{ datos.get('concepto_factura', '') }}"
+                    >
+                </p>
+
+            </div>
+
+        </fieldset>
 
         <p class="form-actions formulario-contrato__acciones">
             <button type="submit">Guardar</button>

@@ -1563,6 +1563,57 @@ fieldset {
     max-width: 1000px;
 }
 
+/* Distribución compacta del formulario */
+
+.formulario-apunte p {
+    margin: 0.35rem 0;
+}
+
+.formulario-apunte input:not([type="radio"]):not([type="checkbox"]),
+.formulario-apunte select {
+    padding: 0.25rem 0.4rem;
+}
+
+.formulario-apunte fieldset {
+    min-width: 0;
+    margin: 0.5rem 0;
+    padding: 0.35rem 0.75rem 0.5rem;
+}
+
+.formulario-apunte .form-fila {
+    gap: 0.35rem 1rem;
+    margin: 0.35rem 0;
+}
+
+.formulario-apunte .form-fila .form-field {
+    margin: 0;
+}
+
+.formulario-apunte__ayuda {
+    font-size: 0.9em;
+}
+
+/* Opciones de tratamiento en una línea */
+
+.formulario-apunte__tratamiento > p {
+    display: inline-block;
+    margin: 0.15rem 1.25rem 0.15rem 0;
+}
+
+/* Importes en una línea, con etiquetas superiores */
+
+.formulario-apunte__importes .form-field {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.2rem;
+}
+
+/* Mayor anchura para el formato alternativo del período */
+
+.formulario-apunte #periodo_desde {
+    width: 23ch;
+}
+
 /* Restricciones de edición */
 
 .formulario-apunte__restricciones {
@@ -1641,9 +1692,167 @@ fieldset {
 
 /* Acciones */
 
-.formulario-apunte__acciones {
+.formulario-apunte .formulario-apunte__acciones {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 1rem;
-    margin-top: 1.5rem;
+    margin-top: 0.75rem;
+}
+
+
+/* ==========================================================
+   Formulario de contratos
+   ========================================================== */
+
+.formulario-contrato {
+    max-width: 1000px;
+}
+
+/* Distribución compacta */
+
+.formulario-contrato__titulo {
+    margin-bottom: 0.5rem;
+}
+
+.formulario-contrato__nota-obligatorios {
+    margin: 0 0 0.75rem;
+    font-size: 0.9em;
+}
+
+.formulario-contrato p {
+    margin: 0.35rem 0;
+}
+
+.formulario-contrato input:not([type="checkbox"]):not([type="hidden"]),
+.formulario-contrato select {
+    padding: 0.25rem 0.4rem;
+}
+
+.formulario-contrato fieldset {
+    min-width: 0;
+    margin: 0.5rem 0;
+    padding: 0.35rem 0.75rem 0.5rem;
+}
+
+.formulario-contrato .form-fila {
+    gap: 0.35rem 1rem;
+    margin: 0.35rem 0;
+}
+
+.formulario-contrato .form-fila .form-field {
+    margin: 0;
+}
+
+/* Campos obligatorios */
+
+.formulario-contrato__obligatorio {
+    color: #a00000;
+}
+
+/* Restricciones de edición y advertencias */
+
+.formulario-contrato .formulario-contrato__restricciones {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ccc;
+    background-color: #eee;
+}
+
+.formulario-contrato .formulario-contrato__advertencia-gastos {
+    padding: 0.5rem 0.75rem;
+    color: #805000;
+    background-color: #fff5df;
+    border: 1px solid #d8c49b;
+}
+
+.formulario-contrato input[readonly],
+.formulario-contrato select:disabled {
+    background-color: #e8e8e8;
+    color: #444;
+    border: 1px solid #aaa;
+    cursor: not-allowed;
+    opacity: 1;
+}
+
+.formulario-contrato label:has(input:disabled) {
+    color: #777;
+    cursor: not-allowed;
+}
+
+/* Inmueble */
+
+.formulario-contrato__inmueble select {
+    width: 55ch;
+    min-width: 0;
+}
+
+/* Titulares */
+
+.formulario-contrato__nota-titulares {
+    font-size: 0.9em;
+}
+
+.formulario-contrato__titular-numero {
+    min-width: 5.5rem;
+    white-space: nowrap;
+}
+
+.formulario-contrato__titular-nombre input {
+    width: 50ch;
+    min-width: 0;
+}
+
+.formulario-contrato__titular-nif input {
+    width: 14ch;
+    min-width: 0;
+}
+
+/* Datos de facturación */
+
+.formulario-contrato__direccion input {
+    width: 65ch;
+    min-width: 0;
+}
+
+.formulario-contrato__poblacion input,
+.formulario-contrato__provincia input {
+    width: 24ch;
+    min-width: 0;
+}
+
+.formulario-contrato__concepto input {
+    width: 65ch;
+    min-width: 0;
+}
+
+/* Etiquetas superiores en los campos de localidad */
+
+.formulario-contrato__localidad .form-field {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.2rem;
+}
+
+/* Importes y porcentajes */
+
+.formulario-contrato .campo-importe,
+.formulario-contrato .campo-porcentaje {
+    text-align: right;
+}
+
+/* Revisión de renta */
+
+.formulario-contrato__metodo-revision select {
+    width: 28ch;
+    min-width: 0;
+}
+
+/* Acciones */
+
+.formulario-contrato .formulario-contrato__acciones {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.75rem;
 }
